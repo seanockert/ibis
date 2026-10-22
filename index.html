@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ibis</title>
+<link rel="icon" href="data:,">
+<style>
+  :root { --bg: #ece6da; --ink: #262838; --accent: #d64d33; --chip: #f6f2ea; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink); font: 14px/1.4 system-ui, sans-serif; }
+  canvas { display: block; width: 100vw; height: 100vh; cursor: grab; touch-action: none; }
+  .bar { position: fixed; bottom: 3rem; display: flex; gap: 6px; flex-wrap: wrap; width: 100vw; justify-content: center; }
+  .bar button { border: 1.5px solid var(--ink); background: var(--chip); color: var(--ink); border-radius: 999px; padding: 6px 14px; font: inherit; cursor: pointer; }
+  .bar button[aria-pressed="true"] { background: var(--ink); color: var(--chip); }
+  .bar.weather { left: auto; right: 16px; top: 12px; bottom: auto; transform: none; }
+  .hint { position: fixed; bottom: 6px; text-align: center; font-size: 12px; opacity: 0.6; width: 100vw; }
+  @media (max-width: 600px) {
+    .bar { bottom: 1rem; }
+    .hint { display: none; }
+  }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div class="hint" id="hint">Drag to orbit</div>
+<div class="bar" id="bar"></div>
+<div class="bar weather" id="weather"></div>
+<script type="module" src="/src/demo.js"></script>
+</body>
+</html>

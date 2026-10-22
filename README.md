@@ -1,0 +1,142 @@
+# Ibis
+
+A toon-shaded Australian white ibis character for three.js games.
+
+The shape is an SDF model (`src/sdf/model.glsl`).
+A bake step turns the SDF into a skinned mesh (`public/ibis.glb`).
+The game draws the mesh with toon materials and an outline. A procedural motion system (`src/ibis/motion/`) moves it and a JS rig poses it.
+
+## Commands
+
+```sh
+npm install
+npm run dev     # demo at /index.html, SDF reference view at /sdf.html
+npm run bake    # SDF -> public/ibis.glb (about 25 s)
+npm run build   # production build of the demo
+npm run shot -- out.png "index.html?anim=2&t=0.4" 700x700
+npm run strip -- out.png "index.html?anim=8&yaw=1.3&pitch=0.1" 0 1.2 12   # filmstrip of a move
+npm run bench -- "index.html?anim=2" 1280x800 60
+```
+
+Page parameters: `anim` (a move from `src/moves.js`, index + 1: 1 idle, 2 walk, 3 peck, 4 squawk, 5 flap, 6 run, 7 jump, 8 happy, 9 shake head, 10 threat, 11 startle, 12 stumble, 13 shake, 14 turn, 15 prod), `t` (fixed time), `yaw` and `pitch` (fixed camera), `count` (number of ibises, demo only), `ui=0` (no buttons).
+
+Demo controls: WASD or the arrow keys walk, Shift runs, Space jumps (hold it to flutter). Tap the ground to walk there. Tap the bird to prod it: it looks away, then glares, then shakes, then threatens. Drag to orbit.
+Use the same parameters on `index.html` and `sdf.html` to compare the mesh with the SDF.
+
+## Use in a game
+
+```js
+import { Ibis, loadIbis } from './ibis/Ibis.js';
+
+const asset = await loadIbis('/ibis.glb');   // load one time
+const ibis = new Ibis(asset);                // one for each character
+scene.add(ibis.object);
+
+// In the frame loop: set the input as a player would, then update.
+ibis.input.move.set(x, z);   // wanted direction on the ground, length 0 to 1
+ibis.input.fast = running;
+ibis.input.jump = jumpHeld;  // hold to flutter
+ibis.update(dt);             // moves ibis.object to the character's position and heading
+
+ibis.act('happy');           // happy, headShake, threat, startle, stumble, shake, glare, flinch, peck, squawk, flap
+ibis.prod(worldPoint);       // a poke: the reaction gets stronger with each prod
+ibis.character.turnTo(heading);
+ibis.character.events;       // this frame: step, land, jump, shakeOff, ... (for sound)
+
+// Dust puffs, footprints and comic anger lines, for all ibises:
+const fx = new IbisEffects(asset);   // from './ibis/effects.js'
+scene.add(fx.object);
+fx.update(dt, [ibis], camera);       // after ibis.update(dt)
+```
+
+- The renderer must have a stencil buffer: `new THREE.WebGLRenderer({ stencil: true })`. The outline uses it.
+- Draw a flat ground first (`renderOrder = -1`) and do not let it write depth (`depthWrite: false`). If the ground writes depth, it can cover the outline at the feet. `src/demo.js` shows a ground that also shows the shadow.
+- `asset.sun` is the direction toward the sun, in world space. Set it to the direction of your shadow light.
+- `ibis.mud` (0 clean to 1 mud up to the belly) and `ibis.wet` (0 dry to 1 soaked) change how the ibis looks. Each ibis has its own values. Change them over time in your game, for example up while the ibis is in mud or rain and down after.
+- `ibis.setPose(pose)` sets a pose directly. Make a pose with `restPose()`, `clipPose()` or `mixPose()` from `src/ibis/rig.js`. Set `ibis.inPlace = true` to keep your own transform on `ibis.object`.
+- The body casts a shadow. To show the shadow, the scene must have a light with `castShadow`.
+- Character units: the ibis is about 2 units tall. Its feet are on y = 0 and the beak points to +z.
+
+## How it works
+
+### Motion (`src/ibis/motion/`)
+
+- `Controller`: input to position, heading and speed, with acceleration, a turn rate, and a slow-down in sharp turns, so a reverse turns on the spot. The jump has a 0.06 s crouch, a variable height (let go early for a hop), a jump buffer, and a flutter while the button is held (as in Yoshi's flutter jump).
+- `Animator`: makes the Pose in layers.
+  1. Base: the idle clip, the waddle (a gait from the speed, with no foot slide, slow and fast, and an occasional scuffed step), and the air pose.
+  2. Face: an expression for the state, smoothed.
+  3. Actions: one-shot moves with channel masks. While the bird walks, an action plays on the upper body only.
+  4. Secondary: the eyes lead, the head follows, the body turns last. Lean into speed changes and turns. Squash and stretch, hit reactions and wing flicks on springs. Random blinks, and a blink on big turns.
+- `ACTIONS` and `FACES` in `actions.js` are data. Add a move there.
+- Feet on the ground stay fixed in the world, so they never slide. Turns pivot on the foot that carries the weight.
+- `IbisEffects` (`src/ibis/effects.js`) adds dust when the bird runs, skids, lands or falls, footprints that fade away (dusty, wet or muddy, from `ibis.mud` and `ibis.wet`), and comic anger lines round the head in angry actions.
+
+### Rig (`src/ibis/rig.js`)
+
+This file is the one source of the animation.
+A `Pose` holds body bob, offset, lift and rotation, foot targets and toe splay, neck bend, reach and length, head turn and tilt, jaw, blink, lids, pupil size and look, and wing spread and sweep.
+`solveRig()` turns a pose into joint positions, with two-bone IK for the legs.
+The neck ends at the nape (the back of the skull), and the head turns about the nape.
+`boneMatrices()` turns the joints into 27 bone matrices for the mesh.
+The SDF view and the bake use the same `solveRig()` through the `g*` uniforms of `model.glsl`.
+
+### Bake (`tools/bake/`)
+
+The bake runs in headless Chrome and evaluates the SDF on the GPU.
+For each part (body, neck, head, legs, wings, jaw, eyes, lids, scarf), it does these steps:
+
+1. Samples the part's distance on a grid.
+2. Makes a mesh with dual contouring, which keeps sharp edges sharp.
+3. Splits the triangles on the true line where the material changes.
+4. Simplifies the mesh with meshoptimizer (maximum error 0.003 units). The material lines stay locked.
+5. Calculates normals from the SDF gradient, with split normals at sharp edges.
+6. Calculates skin weights.
+
+Then `tools/pack.mjs` makes the file small.
+It stores ids and bone indices as bytes, and normals and outline normals as signed bytes.
+It compresses the mesh with `EXT_meshopt_compression`.
+Positions stay as floats, because the shaders use the bind position in character units.
+`loadIbis()` decodes the file with the meshopt decoder from three.js.
+
+The neck and the skull are separate meshes.
+The head turns apart from the neck, so the neck slides into the skull, as it does in the SDF.
+
+### Runtime (`src/ibis/`)
+
+- `materials.js`: two-band cel shading with lit and shade colours for each material, from the SDF palette.
+  The eye shader draws the pupil, the lid cut, the happy-eye crease and the line where the eye meets the skull.
+- The outline uses two inverted hulls.
+  The contour hull is wide (wider on the shadow side) and pushed back, so it shows only against surfaces that are far behind it.
+  It does not go below the ground (y = 0), so the ground can't cover it at the feet.
+  The inner hull is thin and pulled forward, so it shows where a part lies near another part.
+  Each part group (torso and head, jaw, wings, legs, scarf) writes its own stencil value, and the inner hull of a group never draws over the same group, so it can't show through a thin part.
+- The wings sink into the body, so a hull can't draw their lines.
+  The body shader includes `src/sdf/model.glsl` and tests the real SDF with the current rig: the line is where a wing meets the body.
+  Where a wing grows out of the back, the line gets thinner until it stops, so the wing blends into the body.
+- The scarf lies close on the chest and neck. Torso pixels near it march toward the camera against the scarf's solid stand-in and draw a line where the ray passes close to the scarf, as the contour does in the SDF view.
+  Torso pixels near the wings do the same march against the wings, so the wing edges get a full line over the body and the tail.
+  The contours of the wings and the scarf do not draw over the torso.
+  The line widens to the contour width where the scarf stands well off the torso. The scarf's contour hull does not draw over the torso.
+- The scarf mesh is baked without the head carve, because the head moves apart from the scarf.
+- The line width changes slowly along each line (smooth noise on the bind position), so the lines look hand-drawn. The pattern stays on the body when it moves.
+- Lines along material borders (wing tips, mouth, scarf bands) are screen-space quads that the runtime makes from the mesh at load time.
+
+## Change the character
+
+- To change the shape or the colours, edit `src/sdf/model.glsl`, then run `npm run bake`.
+- To change a clip, edit `src/ibis/rig.js`. To change a move, edit `src/ibis/motion/`. You do not have to bake again.
+  You must bake again if you change `restPose()` or the rig dimensions, because the mesh is bound in the rest pose.
+
+## Performance
+
+Measured on an Apple M4 Pro in headless Chrome. The values are frame times, CPU and GPU, with shadows and 4x MSAA.
+
+| View | 1280x800 | 1920x1080 |
+|---|---|---|
+| SDF raymarch, 1 ibis | 12.0 ms | 17.9 ms |
+| Mesh, 1 ibis | 1.0 ms | 1.1 ms |
+| Mesh, 100 ibises | 37 ms | |
+
+The mesh has 14,950 triangles and the GLB file is 628 KB (smaller with gzip).
+The motion costs 12 to 28 µs and the rig solve about 20 µs for each ibis in each frame (Node, one core).
+Each ibis uses 14 draw calls (5 body groups, 3 inner hull groups, 5 contour groups and the material lines) and 1 shadow draw.

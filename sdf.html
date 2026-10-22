@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ibis SDF</title>
+<link rel="icon" href="data:,">
+<style>
+  :root { --bg: #ece6da; --ink: #262838; --accent: #d64d33; --chip: #f6f2ea; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink); font: 14px/1.4 system-ui, sans-serif; }
+  canvas { display: block; width: 100vw; height: 100vh; cursor: grab; touch-action: none; }
+  .bar { position: fixed; left: 50%; bottom: 16px; transform: translateX(-50%); display: flex; gap: 6px; flex-wrap: wrap; justify-content: center; max-width: calc(100vw - 32px); }
+  .bar button { border: 1.5px solid var(--ink); background: var(--chip); color: var(--ink); border-radius: 999px; padding: 6px 14px; font: inherit; cursor: pointer; }
+  .bar button[aria-pressed="true"] { background: var(--ink); color: var(--chip); }
+  .hint { position: fixed; top: 12px; left: 16px; opacity: 0.6; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div class="hint" id="hint">Drag to orbit</div>
+<div class="bar" id="bar"></div>
+<script type="module" src="/src/sdf/viewer.js"></script>
+</body>
+</html>

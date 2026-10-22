@@ -1,0 +1,149 @@
+// Character controller: turns player input into motion on the ground plane, and runs the jump.
+// It owns where the ibis is. The animator reads its state and makes the pose to match.
+// World units, the ibis is about 2 tall. Heading 0 faces +z; heading a faces (sin a, cos a).
+import { Vector2, Vector3 } from 'three';
+import { approach, clamp, mix, wrapAngle } from './spring.js';
+
+export const MOVE = {
+  slow: 0.85, fast: 2.1,    // top speeds, units per second
+  accel: 7, decel: 10,      // units per second squared
+  airControl: 0.4,          // part of accel and turn rate in the air
+  turnRate: [6.5, 8],       // radians per second: on the spot (each step carries part of the turn), walking
+  turnGain: 14,             // turn speed per radian of heading error: the turn eases out as it ends
+  turnAccel: 70,            // radians per second squared: the turn eases in, so the head leads
+  turnSlow: [0.6, 2.2],     // heading error (radians) where the bird starts to slow, and stops to turn on the spot
+  rootAccel: 30,            // how fast the speed follows root motion
+};
+
+export const JUMP = {
+  crouch: 0.06,             // wind-up before take-off. Short, so the jump feels instant
+  speed: 4.4,               // take-off speed
+  gravity: 15,              // on the way up
+  fallGravity: 24,          // on the way down: a snappier arc
+  cut: 0.45,                // part of the up speed kept when the button is let go early: a tap gives a hop
+  buffer: 0.12,             // a press this long before landing still jumps
+  flutter: 1.0,             // seconds of flutter per jump, while the button is held
+  flutterRise: 0.5,         // up speed the flutter climbs to
+  flutterAccel: 9,
+};
+
+export class Controller {
+  constructor() {
+    // move: wanted direction on the ground (x, z), length 0 to 1. fast: run. jump: button held.
+    this.input = { move: new Vector2(), fast: false, jump: false };
+    this.position = new Vector3();   // y is the height above the ground
+    this.heading = 0;
+    this.wantHeading = 0;            // heading of the input, or the heading when there is no input
+    this.speed = 0;                  // along the heading. Less than 0 is backward (root motion only)
+    this.accel = 0;                  // change of speed per second
+    this.turn = 0;                   // change of heading per second
+    this.vy = 0;
+    this.state = 'ground';           // ground, crouch (jump wind-up) or air
+    this.fluttering = false;
+    this.bounds = Infinity;          // radius about the origin that the bird can't leave
+    this.root = null;                // speed from an action (root motion), or null: input moves the bird
+    this.locked = false;             // true: an action owns the bird and the input does nothing
+    this.faceTarget = null;          // heading to turn to on the spot, or null
+    this.pivot = null;               // world { x, z } of the foot that carries the weight, from the animator
+    this.events = [];                // this step: { type: crouch | jump | land, ... }
+    this.held = false;
+    this.buffer = 0;
+    this.stateTime = 0;
+    this.flutterLeft = 0;
+    this.cutDone = false;
+  }
+
+  get grounded() { return this.state !== 'air'; }
+
+  // Turns on the spot to a heading. Walking input cancels it.
+  turnTo(heading) { this.faceTarget = heading; }
+
+  step(dt) {
+    this.events.length = 0;
+    this.stateTime += dt;
+    this.steer(dt);
+    this.jump(dt);
+  }
+
+  // Heading turns toward the input with an eased turn speed. The bird walks only where it faces, and
+  // slows in a sharp turn, so a reverse turns on the spot. On the spot, the body turns about the foot
+  // that carries the weight (pivot), so that foot stays where it is.
+  steer(dt) {
+    const { move, fast } = this.input;
+    const amount = this.locked || this.root !== null ? 0 : Math.min(move.length(), 1);
+    if (amount > 0.01) { this.wantHeading = Math.atan2(move.x, move.y); this.faceTarget = null; }
+    else if (this.faceTarget !== null && this.root === null) this.wantHeading = this.faceTarget;
+    else this.wantHeading = this.heading;
+    if (this.faceTarget !== null && Math.abs(wrapAngle(this.faceTarget - this.heading)) < 0.02) this.faceTarget = null;
+    const control = this.grounded ? 1 : MOVE.airControl;
+    const error = wrapAngle(this.wantHeading - this.heading);
+    const turnRate = mix(MOVE.turnRate[0], MOVE.turnRate[1], clamp(Math.abs(this.speed) / MOVE.slow, 0, 1)) * control;
+    this.turn = approach(this.turn, clamp(error * MOVE.turnGain, -turnRate, turnRate), MOVE.turnAccel * control * dt);
+    let step = this.turn * dt;
+    if (Math.abs(step) > Math.abs(error)) { step = error; this.turn = step / dt; }
+    this.heading = wrapAngle(this.heading + step);
+    const pivotW = this.grounded && this.pivot ? 1 - clamp(Math.abs(this.speed) / 0.4, 0, 1) : 0;
+    if (pivotW > 0) {
+      const a = step * pivotW, cs = Math.cos(a), sn = Math.sin(a);
+      const dx = this.position.x - this.pivot.x, dz = this.position.z - this.pivot.z;
+      this.position.x = this.pivot.x + dx * cs + dz * sn;
+      this.position.z = this.pivot.z - dx * sn + dz * cs;
+    }
+
+    const [slowAt, stopAt] = MOVE.turnSlow;
+    let top = amount * (fast ? MOVE.fast : MOVE.slow) * clamp((stopAt - Math.abs(error)) / (stopAt - slowAt), 0, 1);
+    let rate = (Math.abs(top) > Math.abs(this.speed) ? MOVE.accel : MOVE.decel) * control;
+    if (this.root !== null) { top = this.root; rate = MOVE.rootAccel; }
+    const before = this.speed;
+    this.speed = approach(this.speed, top, rate * dt);
+    this.accel = (this.speed - before) / dt;
+    this.position.x += Math.sin(this.heading) * this.speed * dt;
+    this.position.z += Math.cos(this.heading) * this.speed * dt;
+    const r = Math.hypot(this.position.x, this.position.z);
+    if (r > this.bounds) { this.position.x *= this.bounds / r; this.position.z *= this.bounds / r; }
+  }
+
+  // Jump: a short crouch, take-off, a variable height (let go early for a hop), then a flutter while the
+  // button is held, as in Yoshi's flutter jump.
+  jump(dt) {
+    const jump = this.input.jump && !this.locked;
+    const pressed = jump && !this.held;
+    this.held = jump;
+    this.buffer = pressed ? JUMP.buffer : Math.max(this.buffer - dt, 0);
+
+    if (this.state === 'ground' && this.buffer > 0) {
+      this.buffer = 0;
+      this.enter('crouch');
+    }
+    if (this.state === 'crouch' && this.stateTime >= JUMP.crouch) {
+      this.vy = JUMP.speed;
+      this.flutterLeft = JUMP.flutter;
+      this.cutDone = false;
+      this.enter('air');
+    }
+    if (this.state !== 'air') return;
+
+    if (!this.held && !this.cutDone && this.vy > 0) { this.vy *= JUMP.cut; this.cutDone = true; }
+    this.fluttering = this.held && this.flutterLeft > 0 && this.vy < JUMP.flutterRise + 0.1;
+    if (this.fluttering) {
+      this.flutterLeft -= dt;
+      this.vy = approach(this.vy, JUMP.flutterRise, JUMP.flutterAccel * dt);
+    } else {
+      this.vy -= (this.vy > 0 ? JUMP.gravity : JUMP.fallGravity) * dt;
+    }
+    this.position.y += this.vy * dt;
+    if (this.position.y <= 0) {
+      const impact = -this.vy;
+      this.position.y = 0;
+      this.vy = 0;
+      this.fluttering = false;
+      this.enter('ground', { impact });
+    }
+  }
+
+  enter(state, info = {}) {
+    this.state = state;
+    this.stateTime = 0;
+    this.events.push({ type: state === 'ground' ? 'land' : state === 'crouch' ? 'crouch' : 'jump', ...info });
+  }
+}
