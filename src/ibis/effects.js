@@ -1,20 +1,22 @@
-// Comic effects for ibises, in world space: dust puffs and anger lines. They read each ibis's character
-// events and state, so the game only calls update().
+// Comic effects for ibises, in world space: dust puffs, footprints and anger lines. They read each
+// ibis's character events and state, so the game only calls update().
 //
 //   const fx = new IbisEffects(asset);
 //   scene.add(fx.object);
 //   fx.update(dt, ibises, camera);   // every frame, after ibis.update(dt)
 //
 // Dust: behind the feet when running, on a skid, on a hard landing, and from action events with a dust
-// field (the startle sit, the stumble). It is mud brown when the bird is muddy. Footprints: where each foot lands, in the colour of the feet
-// (dusty, wet or muddy), fading away slowly. Anger lines: sharp strokes round the head while an action
-// with anger plays (head shake, glare, threat): three short bars in an arc, like a comic.
+// field (the startle sit, the stumble). It is mud brown when the bird is muddy. Footprints: where each
+// foot lands, in the colour of the feet (dusty, wet or muddy), fading away slowly. Anger lines: sharp
+// strokes round the head while an action with anger plays (head shake, glare, threat): three short
+// bars in an arc, like a comic.
 import {
   BackSide, BufferGeometry, Color, DoubleSide, Float32BufferAttribute, Group, IcosahedronGeometry, InstancedBufferAttribute, InstancedMesh, LessDepth,
   Matrix4, Mesh, MeshBasicMaterial, Quaternion, ShaderMaterial, Vector3,
 } from 'three';
 import { Spring, clamp, hash, smoothstep } from './motion/spring.js';
-import { toeDir } from './rig.js';
+import { NOISE } from './materials.js';
+import { toeDir, toeLength } from './rig.js';
 
 const MAX_PUFFS = 96;
 // Light warm cream dust: the warm shade and line still part it from the white feathers.
@@ -50,14 +52,6 @@ const ANGER_INNER = 0.38, ANGER_OUTER = 0.6, ANGER_WIDTH = 0.045;
 // pushed out, in the line colour. aFade (per puff) dissolves it, as smoke does in toon games: first the
 // outline thins away, then the puff breaks up in a noise pattern. The inside draws in the shade colour,
 // so the holes look like broken cloud, not a hollow shell. aSeed gives each puff its own pattern.
-const DISSOLVE_NOISE = /* glsl */`
-float hash3(vec3 p) { return fract(sin(dot(p, vec3(127.1, 311.7, 74.7))) * 43758.5453); }
-float noise3(vec3 p) {
-    vec3 i = floor(p), f = fract(p);
-    f = f * f * (3.0 - 2.0 * f);
-    return mix(mix(mix(hash3(i), hash3(i + vec3(1, 0, 0)), f.x), mix(hash3(i + vec3(0, 1, 0)), hash3(i + vec3(1, 1, 0)), f.x), f.y),
-               mix(mix(hash3(i + vec3(0, 0, 1)), hash3(i + vec3(1, 0, 1)), f.x), mix(hash3(i + vec3(0, 1, 1)), hash3(i + vec3(1, 1, 1)), f.x), f.y), f.z);
-}`;
 const OUTLINE_GONE = 0.3;   // part of the dissolve in which the outline thins away
 
 function puffMaterial(sun, hull) {
@@ -85,7 +79,7 @@ function puffMaterial(sun, hull) {
       uniform vec3 uSun, uLit, uShade, uLine, uMudLit, uMudShade, uMudLine;
       varying vec3 vNormal, vLocal;
       varying float vFade, vSeed, vMud;
-      ${DISSOLVE_NOISE}
+      ${NOISE}
       void main() {
         ${hull ? `
         if (vFade >= ${OUTLINE_GONE}) discard;
@@ -115,7 +109,7 @@ function printGeometry(side) {
     for (let j = 1; j <= k; j++) index.push(n, n + j, n + j + 1);
   };
   for (let i = 0; i < 4; i++) {
-    const dir = toeDir(side, i), len = i === 3 ? 0.2 : i === 1 ? 0.42 : 0.34;
+    const dir = toeDir(side, i), len = toeLength(i);
     const [w0, w1, w2] = i === 3 ? TOE_WIDTHS.back : TOE_WIDTHS.forward;
     const across = new Vector3(dir.z, 0, -dir.x);
     const at = (t, w) => dir.clone().multiplyScalar(t).addScaledVector(across, w).toArray();

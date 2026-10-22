@@ -407,8 +407,3 @@ void paletteSrgb(float id, out vec3 lit, out vec3 shade, out vec3 line) {
     else if (id == MAT_LEG) { lit = vec3(0.23, 0.24, 0.31); shade = vec3(0.13, 0.14, 0.20); line = vec3(0.06, 0.06, 0.10); }
     else if (id == MAT_MOUTH) { lit = vec3(0.91, 0.55, 0.56); shade = vec3(0.72, 0.38, 0.45); line = vec3(0.42, 0.18, 0.24); }
 }
-
-void palette(float id, out vec3 lit, out vec3 shade, out vec3 line) {
-    paletteSrgb(id, lit, shade, line);
-    lit = srgbToLinear(lit); shade = srgbToLinear(shade); line = srgbToLinear(line);
-}

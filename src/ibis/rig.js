@@ -3,8 +3,8 @@
 // This is the one source of the animation. The game, the SDF view (sdf.html) and the bake all use it.
 // Character space: y up, +z toward the beak, feet on y = 0.
 import { Matrix3, Matrix4, Vector2, Vector3, Vector4 } from 'three';
+import { TAU, clamp, mix, smoothstep } from './motion/spring.js';
 
-const TAU = Math.PI * 2;
 const PELVIS_Y = 0.58;
 const THIGH_LEN = 0.30;
 const SHANK_LEN = 0.31;
@@ -24,12 +24,7 @@ const NECK_CTRL_REACH = new Vector3(0, 0.10, 0.28);
 export const HEAD_SCALE = 1.12;
 export const NECK_BONES = 8;
 
-export const CLIPS = ['idle', 'peck', 'squawk', 'flap'];   // authored clips
-
 const fract = x => x - Math.floor(x);
-const mix = (a, b, k) => a + (b - a) * k;
-const clamp = (x, a, b) => Math.min(Math.max(x, a), b);
-const smoothstep = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
 const rotX = a => new Matrix4().makeRotationX(a);
 const rotY = a => new Matrix4().makeRotationY(a);
 const rotZ = a => new Matrix4().makeRotationZ(a);
@@ -177,7 +172,6 @@ export function solveRig(P) {
   R.hipR = toBody(-0.20, 0.04, 0.0);
   R.footL = P.footL.clone().setY(P.footL.y + P.lift);
   R.footR = P.footR.clone().setY(P.footR.y + P.lift);
-  R.lift = P.lift;
   R.splay = P.splay;
   R.footYawL = P.footYawL;
   R.footYawR = P.footYawR;
@@ -223,10 +217,13 @@ export function toeDir(side, i) {
   return new Vector3(Math.sin(a), 0, Math.cos(a));
 }
 
+// Toe length from the ankle, character units. Same as lowerLeg() in model.glsl.
+export const toeLength = i => (i === 3 ? 0.20 : i === 1 ? 0.42 : 0.34);
+
 // Toes curl down while the foot is lifted.
 function toeCurl(foot, side, i) {
   const curl = clamp((foot.y - 0.06) * 3, 0, 0.5);
-  const drop = i === 3 ? Math.atan2(0.06 * curl, 0.20) : Math.atan2(0.18 * curl, i === 1 ? 0.42 : 0.34);
+  const drop = Math.atan2((i === 3 ? 0.06 : 0.18) * curl, toeLength(i));
   const axis = new Vector3(0, 1, 0).cross(toeDir(side, i)).normalize();
   return new Matrix4().makeRotationAxis(axis, drop);
 }

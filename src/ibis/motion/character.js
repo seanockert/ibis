@@ -52,15 +52,14 @@ export class Character {
     for (let i = 0; i < n; i++) {
       // Root motion and input lock from the action. After its cancel time, input ends a locking action.
       const wants = c.input.move.lengthSq() > 0.01 || c.input.jump;
-      const playing = a.actions.find(x => !x.out);
-      if (playing && playing.def.lock && !a.locked && wants) a.stop();
+      if (a.playing?.def.lock && !a.locked && wants) a.stop();
       c.root = a.root;
       c.locked = a.locked;
       c.pivot = a.pivot;
-      this.controller.step(dt / n);
-      this.animator.step(dt / n, this.controller);
-      this.events.push(...this.animator.events);
+      c.step(dt / n);
+      a.step(dt / n, c);
+      this.events.push(...a.events);
     }
-    return this.animator.pose;
+    return a.pose;
   }
 }

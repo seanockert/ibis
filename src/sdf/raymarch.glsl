@@ -17,6 +17,107 @@ const float FOCAL = 3.2;           // larger = more telephoto
 const float CAM_DIST = 6.2;
 const float CAM_YAW = -0.8;        // radians around the character; 0 = front
 
+// ---- view helpers, from shader-skills (MIT): https://github.com/gokayfem/shader-skills ----
+const float PI  = 3.14159265358979;
+const float TAU = 6.28318530717959;
+
+// ---- shader-skills library: hash ----
+// 3D integer hash, three decorrelated outputs.
+uvec3 pcg3d(uvec3 v) {
+    v = v * 1664525u + 1013904223u;
+    v.x += v.y * v.z;
+    v.y += v.z * v.x;
+    v.z += v.x * v.y;
+    v ^= v >> 16u;
+    v.x += v.y * v.z;
+    v.y += v.z * v.x;
+    v.z += v.x * v.y;
+    return v;
+}
+// Map a uint to [0,1) using the top 24 bits, so the result can never round up to 1.0.
+vec3 uintToUnit(uvec3 h) { return vec3(h >> 8u) * (1.0 / 16777216.0); }
+// Random vec2 in [0,1)^2 for an integer-valued 2D input.
+vec2 hash22(vec2 p) {
+    ivec2 q = ivec2(floor(p));
+    return uintToUnit(pcg3d(uvec3(q.x, q.y, 0x2545u))).xy;
+}
+
+// ---- shader-skills library: raymarch ----
+#define ZERO (min(iFrame, 0))
+const int RAYMARCH_MAX_STEPS = 256;
+// Surface normal from 4 tetrahedral samples (cheaper than 6 central differences, and still centered). eps should scale with distance, e.g. 0.0005 * t: that filters distant detail and avoids sparkling.
+vec3 calcNormal(vec3 p, float eps) {
+    vec3 n = vec3(0.0);
+    for (int i = ZERO; i < 4; i++) {
+        vec3 e = 0.5773 * (2.0 * vec3((((i + 3) >> 1) & 1), ((i >> 1) & 1), (i & 1)) - 1.0);
+        n += e * map(p + e * eps).x;
+    }
+    return normalize(n);
+}
+
+// ---- shader-skills library: camera ----
+// Camera-to-world matrix looking from ro toward ta, with roll in radians. Columns are (right, up, forward).
+mat3 cameraMatrix(vec3 ro, vec3 ta, float roll) {
+    vec3 w = normalize(ta - ro);
+    vec3 up = vec3(sin(roll), cos(roll), 0.0);
+    vec3 u = normalize(cross(w, up));
+    vec3 v = cross(u, w);
+    return mat3(u, v, w);
+}
+// Primary ray direction for screen point uv. focal is about 1.5-2.5 for natural framing.
+vec3 cameraRay(mat3 cam, vec2 uv, float focal) {
+    return normalize(cam * vec3(uv, focal));
+}
+
+// ---- shader-skills library: color ----
+// Exact sRGB decode (EOTF): encoded [0,1] -> linear.
+vec3 srgbToLinear(vec3 c) {
+    c = max(c, 0.0);
+    return mix(c / 12.92, pow((c + 0.055) / 1.055, vec3(2.4)), step(0.04045, c));
+}
+// Exact sRGB encode (OETF): linear -> display [0,1]. Apply exactly once, after tonemapping. pow(c, 1/2.2) is visibly wrong near black (0.001 encodes to 0.013 here vs 0.043 with 2.2).
+vec3 linearToSrgb(vec3 c) {
+    c = max(c, 0.0);
+    return mix(c * 12.92, 1.055 * pow(c, vec3(1.0 / 2.4)) - 0.055, step(0.0031308, c));
+}
+
+// ---- shader-skills library: post ----
+// Subpixel offset in [-0.5, 0.5)^2 for sample i of a supersampling loop (R2 low-discrepancy sequence). Better coverage than a regular grid for any sample count.
+vec2 aaOffset(int i) {
+    return fract(0.5 + float(i) * vec2(0.7548776662, 0.5698402910)) - 0.5;
+}
+// Triangular-PDF dither of +-1 LSB for 8-bit output. Add AFTER linearToSrgb, right before writing fragColor.
+vec3 ditherTPDF(vec2 fragCoord, int frame) {
+    vec2 r = hash22(vec2(floor(fragCoord) + 7919.0 * float(frame % 1024)));
+    return vec3((r.x + r.y - 1.0) / 255.0);
+}
+
+// ---- shader-skills library: debug ----
+// Distance field as contour bands: warm outside, cool inside, white zero line. Bands are 0.1 units apart.
+vec3 debugDistance(float d) {
+    vec3 col = (d > 0.0) ? vec3(0.9, 0.6, 0.3) : vec3(0.4, 0.7, 0.85);
+    col *= 1.0 - exp(-4.0 * abs(d));
+    col *= 0.8 + 0.2 * cos(TAU * d / 0.1);
+    return mix(col, vec3(1.0), 1.0 - smoothstep(0.0, 0.01, abs(d)));
+}
+// Normal as RGB.
+vec3 debugNormal(vec3 n) { return 0.5 + 0.5 * n; }
+// Distinct color per integer id.
+vec3 debugIdColor(float id) {
+    return 0.55 + 0.45 * cos(TAU * (0.618034 * id + vec3(0.0, 0.33, 0.67)));
+}
+// Heat ramp for a value in [0,1]: black, blue, magenta, orange, yellow, white.
+vec3 debugHeat(float t) {
+    t = clamp(t, 0.0, 1.0);
+    return clamp(vec3(1.5 * t, 1.6 * t * t * t - 0.1, 0.9 * sin(PI * t) + 0.2 * t * t), 0.0, 1.0);
+}
+
+// Toon colours in linear space.
+void palette(float id, out vec3 lit, out vec3 shade, out vec3 line) {
+    paletteSrgb(id, lit, shade, line);
+    lit = srgbToLinear(lit); shade = srgbToLinear(shade); line = srgbToLinear(line);
+}
+
 // ---- shading ----
 void camera(out vec3 ro, out vec3 ta) {
     float yaw = CAM_YAW, pitch = 0.22;

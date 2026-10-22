@@ -11,7 +11,7 @@ The game draws the mesh with toon materials and an outline. A procedural motion 
 ```sh
 npm install
 npm run dev     # demo at /index.html, SDF reference view at /sdf.html
-npm run bake    # SDF -> public/ibis.glb (about 25 s)
+npm run bake    # SDF -> public/ibis.glb (about 90 s)
 npm run build   # production build of the demo
 npm run shot -- out.png "index.html?anim=2&t=0.4" 700x700
 npm run strip -- out.png "index.html?anim=8&yaw=1.3&pitch=0.1" 0 1.2 12   # filmstrip of a move
@@ -129,14 +129,14 @@ The head turns apart from the neck, so the neck slides into the skull, as it doe
 
 ## Performance
 
-Measured on an Apple M4 Pro in headless Chrome. The values are frame times, CPU and GPU, with shadows and 4x MSAA.
+Measured on an iMac (2017: Intel Core i5-7500, Radeon Pro 570) in headless Chrome, with `npm run bench` and 60 frames. Other processes were running, so the times can be high. The values are frame times, CPU and GPU, with shadows and 4x MSAA.
 
 | View | 1280x800 | 1920x1080 |
 |---|---|---|
-| SDF raymarch, 1 ibis | 12.0 ms | 17.9 ms |
-| Mesh, 1 ibis | 1.0 ms | 1.1 ms |
-| Mesh, 100 ibises | 37 ms | |
+| SDF raymarch, 1 ibis | 58.7 ms | 91.5 ms |
+| Mesh, 1 ibis | 5.5 ms | 7.7 ms |
+| Mesh, 100 ibises | 39.9 ms | |
 
-The mesh has 14,950 triangles and the GLB file is 628 KB (smaller with gzip).
+The mesh has about 8,000 triangles and the GLB file is 95 KB.
 The motion costs 12 to 28 µs and the rig solve about 20 µs for each ibis in each frame (Node, one core).
 Each ibis uses 14 draw calls (5 body groups, 3 inner hull groups, 5 contour groups and the material lines) and 1 shadow draw.

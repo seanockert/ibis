@@ -46,6 +46,12 @@ export const FACES = {
 };
 export const face = name => ({ ...FACES.neutral, ...FACES[name] });
 
+// Blends the face keys of P toward expression name, with weight w.
+function blendFace(P, name, w) {
+  const f = face(name);
+  for (const key of FACE_KEYS) P[key] = mix(P[key], f[key], w);
+}
+
 // Blends Q into P in place, with weight w times the mask weight of each channel.
 export function blendMasked(P, Q, w, mask) {
   for (const [channel, keys] of Object.entries(CHANNELS)) {
@@ -235,10 +241,9 @@ export const ACTIONS = {
       P.headYaw = mix(P.headYaw, 0.15 * Math.sin(TAU * 0.6 * t), daze);
       // Faces: wide, then dazed, then smug.
       const wide = Math.max(take, back);
-      for (const [name, w] of [['wide', wide], ['dazed', daze], ['smug', smug]]) {
-        const f = face(name);
-        for (const key of FACE_KEYS) P[key] = mix(P[key], f[key], w);
-      }
+      blendFace(P, 'wide', wide);
+      blendFace(P, 'dazed', daze);
+      blendFace(P, 'smug', smug);
     },
   },
 
@@ -268,10 +273,8 @@ export const ACTIONS = {
       const glance = 0.5 * window4(1.05, 1.15, 1.3, 1.4, t) - 0.5 * window4(1.35, 1.45, 1.6, 1.7, t);
       P.headYaw = mix(P.headYaw, glance, proud);
       P.look.x = mix(P.look.x, 1.4 * glance, proud);
-      for (const [name, w] of [['wide', fall], ['smug', window4(0.8, 0.9, 1.0, 1.08, t) + window4(1.7, 1.8, 1.9, 2.0, t)]]) {
-        const f = face(name);
-        for (const key of FACE_KEYS) P[key] = mix(P[key], f[key], w);
-      }
+      blendFace(P, 'wide', fall);
+      blendFace(P, 'smug', window4(0.8, 0.9, 1.0, 1.08, t) + window4(1.7, 1.8, 1.9, 2.0, t));
     },
   },
 
@@ -295,8 +298,7 @@ export const ACTIONS = {
       P.jaw = 0.08 * d;
       const settle = smoothstep(1.0, 1.2, t);
       P.headPitch = mix(P.headPitch, -0.2, settle);
-      const f = face('smug');
-      for (const key of FACE_KEYS) P[key] = mix(P[key], f[key], settle);
+      blendFace(P, 'smug', settle);
     },
   },
 };

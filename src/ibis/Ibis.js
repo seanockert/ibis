@@ -94,7 +94,7 @@ export class Ibis {
 
   get input() { return this.character.input; }
 
-  // Plays an action (see ACTIONS): happy, headShake, peck, squawk, flap, flinch.
+  // Plays an action by name (see ACTIONS in motion/actions.js).
   act(name, options) { this.character.act(name, options); }
 
   // Steps the character and poses the mesh. The object follows the character's position and heading.

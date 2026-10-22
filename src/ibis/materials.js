@@ -19,8 +19,8 @@ const float LINE_MIN_PX = 1.0;
 
 `;
 
-const NOISE = /* glsl */`
-// Smooth value noise, 0 to 1.
+// Smooth value noise, 0 to 1. Also used by effects.js.
+export const NOISE = /* glsl */`
 float hash3(vec3 p) { return fract(sin(dot(p, vec3(127.1, 311.7, 74.7))) * 43758.5453); }
 float noise3(vec3 p) {
     vec3 i = floor(p), f = fract(p);
@@ -144,14 +144,14 @@ const SKIN_VERTEX = /* glsl */`
 // Two-band cel shading with lit and shade colours per material. Eyes draw the pupil and lids cut at
 // the lid line, both with a line on the edge. Where a wing sinks into the body, both draw a line on the
 // true intersection: the body tests the wing SDF and the wing tests the body SDF, from model.glsl with
-// the current rig in the g* uniforms (see setRig).
+// the current rig in the g* uniforms (see Ibis.setPose()).
 export function bodyMaterial(palette, shared) {
   const { lit, shade, line } = paletteArrays(palette);
   const rig = Object.fromEntries(Object.entries(rigUniforms(BIND_RIG)).map(([k, v]) => [k, { value: v }]));
   return new ShaderMaterial({
     name: 'ibis-body',
     uniforms: {
-      ...shared, ...rig, iFrame: { value: 0 }, uHeadInv: { value: headInv },
+      ...shared, ...rig, uHeadInv: { value: headInv },
       uLit: { value: lit }, uShade: { value: shade }, uLine: { value: line }, uLook: { value: new Vector2() }, uBlink: { value: 0 }, uExpr: { value: new Vector4(0, 0, 0, 1) },
       uMud: { value: 0 }, uWet: { value: 0 }, uMudLit: { value: MUD_LIT }, uMudShade: { value: MUD_SHADE },
     },
@@ -191,7 +191,6 @@ export function bodyMaterial(palette, shared) {
         vPixels = pixelsPerUnit(gl_Position.w);
       }`,
     fragmentShader: /* glsl */`
-      uniform int iFrame;   // read by the library
       ${library}
       ${model}
       ${ids}

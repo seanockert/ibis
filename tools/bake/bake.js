@@ -4,7 +4,7 @@
 import { MeshoptSimplifier } from 'meshoptimizer';
 import * as THREE from 'three';
 import { GLTFExporter } from 'three/examples/jsm/exporters/GLTFExporter.js';
-import { BIND_RIG, BONES, NECK_BIND_LENGTHS, NECK_BONES, bezier, boneMatrices, toeDir } from '../../src/ibis/rig.js';
+import { BIND_RIG, BONES, NECK_BIND_LENGTHS, NECK_BONES, bezier, boneMatrices, toeDir, toeLength } from '../../src/ibis/rig.js';
 import { MAT } from '../../src/ibis/materialIds.js';
 import { SdfEval } from './sdfEval.js';
 import { dualContour } from './dualContour.js';
@@ -349,8 +349,8 @@ function legWeights(s, side) {
     const hip = R['hip' + s], knee = R['knee' + s], foot = R['foot' + s];
     const upper = hip.clone().lerp(knee, 0.5);
     const toes = [0, 1, 2, 3].map(i => {
-      const dir = toeDir(side, i), len = i === 3 ? 0.20 : i === 1 ? 0.42 : 0.34;
-      return [foot.clone().addScaledVector(dir, 0.06), foot.clone().addScaledVector(dir, len)];
+      const dir = toeDir(side, i);
+      return [foot.clone().addScaledVector(dir, 0.06), foot.clone().addScaledVector(dir, toeLength(i))];
     });
     return Array.from({ length: pos.length / 3 }, (_, i) => {
       const p = V(pos, i);

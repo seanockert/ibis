@@ -28,8 +28,8 @@ src/ibis/rig.js     (pose -> joints -> bone matrices)
 | File | Purpose |
 |---|---|
 | `src/sdf/model.glsl` | SDF parts, material ids (`MAT_*`), `paletteSrgb()` colours, `wingSeam()` |
-| `src/sdf/library.glsl` | SDF primitives (`sdEllipsoid`, `smin`, ...) |
-| `src/sdf/raymarch.glsl` | Reference renderer for `sdf.html`. `DEBUG_MODE` shows ids, normals and masks |
+| `src/sdf/library.glsl` | SDF primitives (`sdEllipsoid`, `smin`, ...), shared by the game shader, the bake and `sdf.html` |
+| `src/sdf/raymarch.glsl` | Reference renderer for `sdf.html`, with its view helpers (camera, colour, dither, debug, `palette()`). `DEBUG_MODE` shows ids, normals and masks |
 | `src/ibis/rig.js` | `Pose`, authored clips (`idle peck squawk flap`), `solveRig()`, `boneMatrices()`, `rigUniforms()` |
 | `src/ibis/motion/spring.js` | `Spring` (implicit, stable at any dt), easing, `hash()` (seeded random) |
 | `src/ibis/motion/controller.js` | `Controller`: input to position, heading, speed, jump and flutter. `MOVE`, `JUMP` tuning |
@@ -51,7 +51,7 @@ src/ibis/rig.js     (pose -> joints -> bone matrices)
 
 ```sh
 npm run dev                                           # demo /index.html, reference /sdf.html
-npm run bake                                          # about 30 s, writes public/ibis.glb, prints triangles and KB
+npm run bake                                          # about 90 s, writes public/ibis.glb, prints triangles and KB
 npm run shot -- out.png "index.html?anim=5&t=0.1&yaw=1.3&pitch=0" 700x700
 npm run shot -- out.png "sdf.html?anim=5&t=0.1&yaw=1.3&pitch=0" 700x700
 npm run strip -- out.png "index.html?anim=8&yaw=1.3&pitch=0.1" 0 1.2 12   # filmstrip: 12 frames, t 0 to 1.2
@@ -65,7 +65,7 @@ npm run build
 - Useful views: back `yaw=3.14&pitch=0.3`, side `yaw=1.4&pitch=0.1`, wings fully open `anim=5&t=0.1`.
 - The tools start Vite and headless Chrome at `/Applications/Google Chrome.app`. They work on macOS only.
 - To zoom in, render at 1400x1400 or more and crop with `sips -c H W --cropOffset Y X in.png --out out.png`.
-- There is no git. Before you overwrite `public/ibis.glb`, copy it to a scratch folder.
+- `public/ibis.glb` is in git. To undo a bake, run `git checkout public/ibis.glb`.
 
 ## Motion
 
@@ -80,7 +80,7 @@ npm run build
 - To add a Pose field: add it to `restPose()` with a value that changes nothing (the bind pose must not change), use it in `solveRig()`, and add it to a channel in `CHANNELS`.
 - Lids: `gExpr` / `uExpr` (lid, tilt, lower lid, pupil). The formula is in `lidCover()` in `model.glsl` and `lidCut()` in `materials.js`. Change both.
 - Events (`character.events`): `crouch`, `jump`, `land` (`impact`), `liftOff` and `step` (`foot`, `scuff`), and action events (`thump` with `dust`, `shakeOff`). Use them for sound later. The demo uses `shakeOff` to dry the bird.
-- Effects (`effects.js`): run dust at `liftOff` above `RUN_DUST_SPEED`, skid dust, a ring on a hard `land`, a burst for events with `dust: 'rump'` or `'feet'`. Footprints at each `step` and `land`, along the rig's toes and foot turn, in the colour of the feet (`printStyle()`: dust, wet, mud), held 2.5 s then faded over 3.5 s. A ground material can replace `printStyle()` with a style for each surface. Footprints at each `step` and `land`, as wide as the SDF toes, along the rig's toes and foot turn, in the colour of the feet (`printStyle()`: dust, wet, mud), held 2.5 s then faded over 3.5 s. They write depth so overlapping parts blend once. A ground material can replace `printStyle()` with a style for each surface. Anger lines show while `animator.anger` (from the actions' `anger` field) is above 0.3. Puffs keep growing and dissolve (outline thins, then noise holes), so they stay opaque: no transparency or sorting. Each puff takes `ibis.mud` when made (`aMud`) and blends to mud-brown dust.
+- Effects (`effects.js`): run dust at `liftOff` above `RUN_DUST_SPEED`, skid dust, a ring on a hard `land`, a burst for events with `dust: 'rump'` or `'feet'`. Footprints at each `step` and `land`, as wide as the SDF toes, along the rig's toes and foot turn, in the colour of the feet (`printStyle()`: dust, wet, mud), held 2.5 s then faded over 3.5 s. They write depth so overlapping parts blend once. A ground material can replace `printStyle()` with a style for each surface. Anger lines show while `animator.anger` (from the actions' `anger` field) is above 0.3. Puffs keep growing and dissolve (outline thins, then noise holes), so they stay opaque: no transparency or sorting. Each puff takes `ibis.mud` when made (`aMud`) and blends to mud-brown dust.
 - Determinism: random values come from `hash()` with the seed. Do not use `Math.random()` in motion code.
 - Responsiveness: keep wind-ups short (jump crouch 0.06 s, action fade-in 0.02 to 0.05 s).
 
@@ -137,8 +137,10 @@ npm run build
 ## Known traps
 
 - The mesh is not on the SDF surface. The error is up to `SIMPLIFY_ERROR`. A runtime SDF test at `vPos` can get the wrong sign. Example: `overLine()` uses `abs(miss)` for the wings, because the torso can sit just inside a wing. Do not use `abs` for the scarf: its solid stand-in is larger than the drawn scarf, and `abs` opens a gap at its outline.
-- Constants are copied between `rig.js` and `model.glsl` (`WING_FOLD`, `NECK_BASE`, `HEAD_SCALE`). Change both.
+- Constants are copied between `rig.js` and `model.glsl` (`WING_FOLD`, `NECK_BASE`, `HEAD_SCALE`, the toe directions and lengths in `toeDir()` and `toeLength()`, the jaw hinge). Change both.
 - The renderer needs a stencil buffer (`stencil: true`).
+- Do not give `smin()` a far value such as `1e9`. It computes `mix(b, a, h)`, and in float that loses `a`. Use about `10.0`. Example: the head part in `bake.glsl`.
+- In `bake.glsl`, Chrome on Metal gave zeros for `idx / 32` in the palette mode, so the bake wrote a black palette. It uses `idx >> 5` and `idx & 31`. After a bake, check that the game mesh has its colours.
 - Bone count is 27 (`BONES` in `rig.js`). Byte joints allow up to 256.
 - `npm` and `npx` can be slow here. Run long installs in the background.
 

@@ -5,7 +5,7 @@ import { pack } from './pack.mjs';
 
 const { page, base, close } = await openBrowser();
 await page.goto(base + 'tools/bake/bake.html');
-await page.waitForFunction(() => window.bakeResult, null, { timeout: 60000 });
+await page.waitForFunction(() => window.bakeResult, null, { timeout: 300000 });
 const result = await page.evaluate(() => window.bakeResult);
 await close();
 if (result.error) { console.error(result.error); process.exit(1); }

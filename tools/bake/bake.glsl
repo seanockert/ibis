@@ -43,7 +43,8 @@ vec2 part(vec3 p) {
         return res;
     }
     if (uPart == PART_NECK) return vec2(neck(p), MAT_BLACK);
-    if (uPart == PART_HEAD) return vec2(skullBill(h, 1e9) * HEAD_SCALE, MAT_BLACK);
+    // No neck: a far distance. Not 1e9: smin() computes mix(b, a, 1) and in float that loses a.
+    if (uPart == PART_HEAD) return vec2(skullBill(h, 10.0) * HEAD_SCALE, MAT_BLACK);
     if (uPart == PART_LEG_L) return vec2(lowerLeg(p, gHipL, gKneeL, gFootL, 1.0), MAT_LEG);
     if (uPart == PART_LEG_R) return vec2(lowerLeg(p, gHipR, gKneeR, gFootR, -1.0), MAT_LEG);
     if (uPart == PART_WING_L) return wingL(p);
@@ -62,8 +63,9 @@ void main() {
     int idx = uOffset + int(gl_FragCoord.y) * uWidth + int(gl_FragCoord.x);
     if (uMode == 3) {
         vec3 lit, shade, line;
-        paletteSrgb(float(idx % 32), lit, shade, line);
-        int row = idx / 32;
+        // Bit operations, not / and %: Chrome on Metal gave zeros for idx / 32 here.
+        paletteSrgb(float(idx & 31), lit, shade, line);
+        int row = idx >> 5;
         outColor = vec4(row == 0 ? lit : row == 1 ? shade : line, 1.0);
         return;
     }

@@ -85,7 +85,10 @@ export class Animator {
     for (const a of this.actions) if (!a.out) Object.assign(a, { out: true, outFrom: a.weight, outT: 0 });
   }
 
-  get action() { const a = this.actions.find(x => !x.out); return a ? a.name : null; }
+  // The action that plays now and does not fade out, or null.
+  get playing() { return this.actions.find(x => !x.out) ?? null; }
+
+  get action() { return this.playing?.name ?? null; }
 
   // Looks toward a world heading for some seconds. The head turns first, then the body if it must.
   lookAt(heading, seconds) { this.look = { heading, until: this.time + seconds }; }
@@ -144,7 +147,7 @@ export class Animator {
 
   // Root motion and input lock from the action that plays now. See actions.js.
   get root() {
-    const a = this.actions.find(x => !x.out);
+    const a = this.playing;
     return a && a.def.root ? a.def.root(a.t) : null;
   }
 
@@ -154,7 +157,7 @@ export class Animator {
   }
 
   get locked() {
-    const a = this.actions.find(x => !x.out);
+    const a = this.playing;
     return !!a && !!a.def.lock && a.t < (a.def.cancelAfter ?? a.def.length);
   }
 

@@ -11,7 +11,7 @@ export class SdfEval {
     const gl = canvas.getContext('webgl2');
     if (!gl.getExtension('EXT_color_buffer_float')) throw new Error('EXT_color_buffer_float is not available');
     this.gl = gl;
-    this.prog = createProgram(gl, fragmentSource('uniform int iFrame;   // read by the library', kernel));
+    this.prog = createProgram(gl, fragmentSource('', kernel));
     gl.useProgram(this.prog);
     setRigUniforms(gl, this.prog, rig);
     this.target = gl.createTexture();
