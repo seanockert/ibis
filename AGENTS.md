@@ -42,6 +42,8 @@ src/ibis/rig.js     (pose -> joints -> bone matrices)
 | `src/ibis/materials.js` | Runtime shaders: body (cel shading, eye, lids, wing and scarf lines), hull outline, border lines |
 | `src/ibis/Ibis.js` | `loadIbis()`, `Ibis` class, part groups, stencil setup, border line geometry |
 | `src/demo.js` | Demo page and URL parameters |
+| `src/world/physics.js` | `Physics`: the crashcat world, the bird's solid, shove and room. The only file that imports crashcat |
+| `src/world/props.js` | `Ball` (AFL football) and `Bin` (wheelie bin with a hinged lid): bodies and toon meshes |
 | `tools/bake/bake.js` | Bake: grid, dual contouring, material split, simplify, normals, skin weights, GLB export |
 | `tools/bake/bake.glsl` | Bake kernel: which SDF each `PART_*` is |
 | `tools/pack.mjs` | Small vertex types and `EXT_meshopt_compression` |
@@ -58,7 +60,7 @@ npm run strip -- out.png "index.html?anim=8&yaw=1.3&pitch=0.1" 0 1.2 12   # film
 npm run build
 ```
 
-- URL parameters: `anim` (a move from `MOVES` in `src/moves.js`, index + 1: 1 idle, 2 walk, 3 peck, 4 squawk, 5 flap, 6 run, 7 jump, 8 happy, 9 shake head, 10 threat, 11 startle, 12 stumble, 13 shake, 14 turn, 15 prod), `t`, `yaw`, `pitch`, `ui=0` (hide the buttons). `index.html` also takes `count`. `sdf.html` also takes `debug`.
+- URL parameters: `anim` (a move from `MOVES` in `src/moves.js`, index + 1: 1 idle, 2 walk, 3 peck, 4 squawk, 5 flap, 6 run, 7 jump, 8 happy, 9 shake head, 10 threat, 11 startle, 12 stumble, 13 shake, 14 turn, 15 prod), `t`, `yaw`, `pitch`, `ui=0` (hide the buttons). `index.html` also takes `count`, `props=0` and `physics=1`. `sdf.html` also takes `debug`.
 - `index.html` with no `t`, `yaw` or `count` is free play: a wide camera, keys, taps. With `t` or `yaw` it uses the close camera of `sdf.html`.
 - A fixed `t` runs the move's script from 0 at 60 steps per second (`playScript()`), so both pages show the same pose, and `index.html` the same effects. `sdf.html` ignores position and heading (the bird moves on the spot). On `index.html`, `root=1` places the bird where the move took it, and the camera moves with it: use it to see dust trails and turns.
 - Use the same parameters on `index.html` and `sdf.html` to compare the mesh with the SDF.
@@ -125,6 +127,30 @@ npm run build
 - Only the game shows mud and wet. `sdf.html` does not. No bake is needed.
 - Demo: the Mud and Wet buttons at the top right fade the values over 2 s. URL parameters `mud` and `wet` set them for screenshots, for example `index.html?anim=1&t=0.5&mud=1`.
 - With `uMud = 0` and `uWet = 0`, the render is the same as without the effects.
+
+## Physics and props
+
+- Engine: crashcat (pure JS, based on Jolt). Only `src/world/physics.js` imports it, so the engine can change in one file. `registerShapes()` and `registerConstraints()` list only what is used, for tree shaking. Add a shape there before you use it.
+- Units: world units (the ibis is about 2 tall), kg, `GRAVITY = 22`. The step is at most 1/120 s, as in `Character`.
+- The controller still owns the root. `character.collide` (a hook after each controller sub step) runs the kcc: it sweeps the bird's solid (`BIRD.solid`, one upright capsule from the feet to the chest) and moves the root back out of props. The solid must be one convex shape: in crashcat 0.0.5 the kcc's padding correction does not handle a compound and throws (`setSupport is not a function`).
+- Layers: `fixed` (ground), `fence` (stops light props only), `heavy` (blocks the bird: the bin), `light` (the feet and head kick it: the ball), `limb` (the bird's kinematic foot and head spheres, from the rig), `ghost` (the bird's solid for the debug view; it collides with nothing). Use `filter.create()` and set `enabledObjectLayers[i] = 0`: `filter.createEmpty()` has a zero collision mask, and `disableObjectLayer()` also turns off the shared broadphase layer.
+- Shove: rays ahead of the head find a heavy prop and set `controller.shove`. The animator puts the head down (the `brace` spring), so the forehead takes the weight and the beak points down. The head sphere in `BIRD.head` sits where the brace puts the head. Change both. The brace distance grows with speed (`BIRD.braceAhead`), so a run braces as a walk does. The rays must reach past the bill in the run pose (`look.ahead`), or the room check stops the bird first.
+- Room: each sub step, `makeRoom()` casts rays to the posed head and bill (`BIRD.reach`, from `skullBill()` in `model.glsl`). The bird steps back by the overlap, and the prop gets a push. This keeps the beak out of the bin in actions (peck, threat).
+- Push: whatever stops the bird (the forehead from `shove()`, or the bill from `makeRoom()`) takes the push in `push()`, always at forehead height (a low push slides the bin and does not tip it). Every bird push goes through `pushUpTo()`: it stops where the contact point moves at the bird's speed (`BIRD.bounce` times that for the first bump), with the effective mass at the point, turn included. Without this cap a bump threw the bin like it had no weight. Both checks run every sub step. There is no brace and no push in the air: the bird has nothing to push from, and it must be able to land on a prop.
+- Push tuning: `BIRD.shove` (steady push for each unit of speed: a walk stays below the tip force of the bin, a run is above it) and `BIRD.bump` (one impulse when the forehead first touches: the walk rock).
+- Floor: `floorUnder()` casts rays down from `BIRD.stepUp` above each foot and toe tip (`BIRD.toes`) onto heavy props, and sets `controller.floor` to the highest hit plus `BIRD.clear`. One ray under the root lets the toes sink into a sloped top. The controller lands on it, keeps the feet on it, and falls (event `fall`, no flutter) when the bird walks off the edge. The pose lifts the bird by `position.y`. Footprints are skipped above the ground.
+- Jump: the flutter (`JUMP.flutter`, `JUMP.flutterRise`) reaches about 2.0, enough for the top of a fallen bin (1.5 to 1.7).
+- Demo bounds: in free play the bird can go to `PLAY_BOUNDS` (10) from the centre. The fence for light props is 0.5 outside it.
+- Demo camera: in free play, `follow()` moves the camera and its orbit centre together toward the bird when the bird leaves the screen dead zone (`DEAD_ZONE`) or gets farther than `LEASH` from the orbit centre. Orbit with a drag still works. Fixed views (`t`, `yaw`) do not follow.
+- The bin and its lid share a collision group (`newGroup()`), so they don't collide. The hinge has a soft position spring: the lid opens with the tilt and the spin of the bin (`BIN.flap`). Gravity alone keeps a lid shut in most falls.
+- Slam dust: `Bin.update()` keeps the fastest spin of a fall with its velocities (`peak`). When the spin drops below `BIN.slam.keep` of it, the bin sends a `slam` event with points on its low edges, each with the speed of the hit there (v + w x r). Only the fast points (the top end) make dust, in `IbisEffects.burst()`. A check of two frames in a row missed hits that fell in one long frame. Edges within `BIN.slam.low` of the lowest corner count, as the open lid holds the top end up a little.
+- Bird dust starts at `controller.floor`, so a landing on the bin puts its dust on the bin.
+- The bin looks hollow: two flat dark squares on top of the tub (the inner wall and the depth) show when the lid opens. The bin is a solid box to the physics.
+- A root move longer than `BIRD.teleport` in one sub step jumps, with no sweep: a long kcc sweep can stall the page.
+- A sleeping body ignores a new hinge target. Wake it with an impulse if you drive the lid from code.
+- A scaled sphere does not collide as an ellipsoid: the ball is a convex hull of points on the ellipsoid.
+- The ground body needs its own friction. crashcat combines the two values, and the default ground friction lets the bin slide where it must tip.
+- Demo: props are on in free play. `props=0` turns them off, `physics=1` shows wireframes of the colliders (the debug renderer loads only then). `window.demo` has `physics`, `props`, `fx`, `camera` and `controls` for the console and the tools.
 
 ## Bake and pack
 

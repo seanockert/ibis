@@ -18,6 +18,9 @@ export class Character {
     this.controller = new Controller();
     this.animator = new Animator(seed);
     this.events = [];   // this update: controller and animator events, for sound and effects
+    // (controller, dt) => void, or null. Runs after each controller sub step, and can move the root
+    // back out of solid things (src/world/physics.js).
+    this.collide = null;
   }
 
   get input() { return this.controller.input; }
@@ -57,6 +60,7 @@ export class Character {
       c.locked = a.locked;
       c.pivot = a.pivot;
       c.step(dt / n);
+      this.collide?.(c, dt / n);
       a.step(dt / n, c);
       this.events.push(...a.events);
     }

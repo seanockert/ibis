@@ -210,6 +210,16 @@ export class IbisEffects {
     }
   }
 
+  // Dust out from points on the ground, away from centre, as a heavy thing lands (a bin that falls
+  // over). points: [{ at, strength }], strength about 0 to 1 (the speed of the hit there).
+  burst(points, centre) {
+    this.mudNow = 0;
+    for (const { at, strength } of points) {
+      const dir = new Vector3(at.x - centre.x, 0, at.z - centre.z).normalize();
+      this.puff(at, dir, { size: 0.1 + 0.12 * strength, speed: 0.6 + 1.8 * strength, up: 0.25 + 0.2 * strength, life: 0.45 + 0.25 * strength });
+    }
+  }
+
   update(dt, ibises, camera) {
     this.time += dt;
     for (const ibis of ibises) { this.spawn(ibis, dt); this.angerLines(ibis, dt, camera); }
@@ -248,7 +258,8 @@ export class IbisEffects {
     if (!R) return;
     ibis.object.updateMatrixWorld();
     this.mudNow = ibis.mud;   // puffs off muddy feet are mud brown
-    const world = v => v.clone().setY(0).applyMatrix4(ibis.object.matrixWorld);
+    // Dust starts on what the feet stand on: the ground, or the top of a prop (controller.floor).
+    const world = v => v.clone().setY(ctrl.floor).applyMatrix4(ibis.object.matrixWorld);
     const back = new Vector3(0, 0, -1).transformDirection(ibis.object.matrixWorld).setY(0).normalize();
     const feet = () => world(R.footL).add(world(R.footR)).multiplyScalar(0.5);
     for (const e of c.events) {
@@ -294,6 +305,7 @@ export class IbisEffects {
 
   // A print where the foot is, turned as the foot is (body heading, foot turn and toe splay).
   footprint(ibis, foot) {
+    if (ibis.character.position.y > 0.05) return;   // on top of a prop: prints go on the ground only
     const R = ibis.rig, side = foot === 'L' ? 1 : -1;
     const at = R['foot' + foot].clone().setY(0).applyMatrix4(ibis.object.matrixWorld).setY(0.003);
     const fwd = new Vector3(0, 0, 1).transformDirection(ibis.object.matrixWorld);

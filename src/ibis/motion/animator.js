@@ -59,6 +59,7 @@ export class Animator {
     this.lean = new Spring(0, 2.5, 0.6);   // pitch from speed changes
     this.bank = new Spring(0, 2.5, 0.6);   // roll into turns
     this.squash = new Spring(0, 3.2, 0.4); // more than 0 squash, less than 0 stretch
+    this.brace = new Spring(0, 7, 0.9);   // shove pose: head down, forehead forward
     this.hitPitch = new Spring(0, 2.6, 0.35);
     this.hitRoll = new Spring(0, 2.6, 0.35);
     this.flickL = new Spring(0, 3, 0.3);
@@ -359,6 +360,14 @@ export class Animator {
     P.pitch += 0.1 * s;
     P.wingL += 0.15 * Math.max(s, 0);
     P.wingR += 0.15 * Math.max(s, 0);
+
+    // Shove: the head goes down so the beak points along the face of what is ahead, and the forehead
+    // takes the weight. The body leans in. The head sphere in physics.js sits where this puts the head.
+    const brace = clamp(this.brace.update(dt, c.shove), 0, 1);
+    P.headPitch += 1.1 * brace;
+    P.stretch *= 1 - 0.25 * brace;
+    P.pitch += 0.2 * brace;
+    P.bob -= 0.06 * brace;
 
     // Hit reactions and wing flicks.
     P.pitch += this.hitPitch.update(dt, 0);

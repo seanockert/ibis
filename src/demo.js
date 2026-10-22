@@ -1,20 +1,31 @@
 // three.js demo of the baked ibis. URL params: anim (0 free play, 1 and up one move from src/moves.js),
 // t (fixed time), yaw and pitch (fixed camera, as in sdf.html), scale, count (ibises in a grid), bench
-// (frames to time), mud and wet (0 to 1), root (1: with t, place the bird where the move took it).
+// (frames to time), mud and wet (0 to 1), root (1: with t, place the bird where the move took it),
+// props (0: no ball and bin in free play), physics (1: show the colliders).
 // Free play: WASD or the arrow keys walk, Shift runs, Space jumps (hold to flutter). A tap on the ground
-// walks there; a tap on the bird prods it.
+// walks there; a tap on the bird prods it. The bird can push the football and the wheelie bin.
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { IbisEffects } from './ibis/effects.js';
 import { Ibis, loadIbis } from './ibis/Ibis.js';
 import { Character } from './ibis/motion/character.js';
 import { ARENA, MOVES, playScript, startMove } from './moves.js';
+import { Physics } from './world/physics.js';
+import { Ball, Bin } from './world/props.js';
 
 const FOCAL = 3.2;   // the SDF view's lens: vertical half-angle atan(1 / FOCAL)
 const CAM_DIST = 6.2;        // close camera, as in the SDF view: screenshots and the grid
-const CAM_DIST_PLAY = 12.5;  // free play: the whole walk circle is in view
+const CAM_DIST_PLAY = 12.5;  // free play: the whole walk circle is in view, then the camera follows
 const TARGET = new THREE.Vector3(0, 1, 0.3);
 const TARGET_PLAY = new THREE.Vector3(0, 0.6, 0);
+const PLAY_BOUNDS = 10;      // free play: radius the bird can't leave
+// Free play camera: it keeps still while the bird is inside this part of the view (screen x and y,
+// -1 to 1), and eases after it when the bird goes past. FOLLOW: catch-up rate per second, at full pull.
+// LEASH: it also follows when the bird is this far from the orbit centre on the ground, so a bird
+// that walks straight away from the camera doesn't get small.
+const DEAD_ZONE = new THREE.Vector2(0.5, 0.45);
+const LEASH = 4.5;
+const FOLLOW = 3;
 const GROUND_LIT = new THREE.Color().setRGB(0.925, 0.902, 0.855, 'srgb');
 const GROUND_SHADE = new THREE.Color().setRGB(0.80, 0.78, 0.86, 'srgb');
 const WEATHER_RATE = 0.5;   // mud and wet change per second when toggled
@@ -86,8 +97,23 @@ const ibises = Array.from({ length: count }, (_, i) => {
 const bird = ibises[0];
 const fx = new IbisEffects(asset);
 scene.add(fx.object);
-bird.character.controller.bounds = ARENA + 0.5;
-window.demo = { ibises, render: () => renderer.render(scene, camera) };   // for the console
+bird.character.controller.bounds = play ? PLAY_BOUNDS : ARENA + 0.5;
+
+// Props in free play: the bird pushes them, kicks and pecks the ball, and runs the bin over.
+const physics = play && params.get('props') !== '0' ? new Physics() : null;
+const props = [];
+let physicsView = null;
+if (physics) {
+  physics.addFence(PLAY_BOUNDS + 0.5);
+  physics.addBird(bird);
+  props.push(new Ball(physics, asset, [1.4, 1.3], 0.7), new Bin(physics, asset, [-1.3, -1.1], 0.87));
+  for (const prop of props) scene.add(prop.object);
+  if (params.get('physics') === '1') {
+    physicsView = await physics.debugView();
+    scene.add(physicsView.object);
+  }
+}
+window.demo = { ibises, physics, props, fx, camera, controls, render: () => renderer.render(scene, camera) };   // for the console
 if (count > 1) {
   Object.assign(sun.shadow.camera, { left: -side * 1.5, right: side * 1.5, top: side * 2.5, bottom: -side * 1.5 });
   sun.shadow.camera.updateProjectionMatrix();
@@ -146,7 +172,7 @@ canvas.addEventListener('pointerup', e => {
   const d = bird.hit(ray.ray);
   if (d !== null) { bird.prod(ray.ray.at(d, new THREE.Vector3())); return; }
   const p = ray.ray.intersectPlane(groundPlane, new THREE.Vector3());
-  if (!p || p.length() > ARENA + 0.5) return;
+  if (!p || p.length() > bird.character.controller.bounds) return;
   setFree();
   goal = { x: p.x, z: p.z, fast: p.distanceTo(bird.object.position) > 2.5 };
 });
@@ -177,13 +203,38 @@ function frame() {
       wetButton.setAttribute('aria-pressed', String(weather.wet > 0));
     }
   });
+  if (physics) {
+    physics.step(dt);
+    for (const prop of props) {
+      prop.update();
+      for (const e of prop.events) if (e.type === 'slam') fx.burst(e.points, e.centre);
+    }
+    physicsView?.update();
+  }
   fx.update(dt, ibises, camera);
   if (play) {
+    follow(dt);
     // The shadow camera follows the bird.
     sun.target.position.copy(bird.object.position);
     sun.position.copy(asset.sun).multiplyScalar(6).add(bird.object.position);
   }
   renderer.render(scene, camera);
+}
+
+// Moves the camera and its orbit centre together toward the bird, when the bird is out of the dead
+// zone or past the leash. The pull grows with how far out it is, so the camera starts gently.
+const onScreen = new THREE.Vector3();
+function follow(dt) {
+  const c = bird.character.position;
+  onScreen.set(c.x, c.y + 0.8, c.z).project(camera);
+  const away = Math.hypot(c.x - controls.target.x, c.z - controls.target.z);
+  const out = Math.max(Math.abs(onScreen.x) - DEAD_ZONE.x, Math.abs(onScreen.y) - DEAD_ZONE.y, (away - LEASH) / 10, 0);
+  if (out === 0) return;
+  const pull = Math.min(out / 0.3, 1) * FOLLOW * dt;
+  const shift = new THREE.Vector3(c.x - controls.target.x, 0, c.z - controls.target.z).multiplyScalar(Math.min(pull, 1));
+  controls.target.add(shift);
+  camera.position.add(shift);
+  controls.update();
 }
 
 addEventListener('resize', () => {

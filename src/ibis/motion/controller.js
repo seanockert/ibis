@@ -22,8 +22,8 @@ export const JUMP = {
   fallGravity: 24,          // on the way down: a snappier arc
   cut: 0.45,                // part of the up speed kept when the button is let go early: a tap gives a hop
   buffer: 0.12,             // a press this long before landing still jumps
-  flutter: 1.0,             // seconds of flutter per jump, while the button is held
-  flutterRise: 0.5,         // up speed the flutter climbs to
+  flutter: 1.4,             // seconds of flutter per jump, while the button is held
+  flutterRise: 1.0,         // up speed the flutter climbs to: a full flutter gets on top of a fallen bin
   flutterAccel: 9,
 };
 
@@ -32,6 +32,7 @@ export class Controller {
     // move: wanted direction on the ground (x, z), length 0 to 1. fast: run. jump: button held.
     this.input = { move: new Vector2(), fast: false, jump: false };
     this.position = new Vector3();   // y is the height above the ground
+    this.floor = 0;                  // height of what is under the bird: 0, or the top of a prop (physics.js)
     this.heading = 0;
     this.wantHeading = 0;            // heading of the input, or the heading when there is no input
     this.speed = 0;                  // along the heading. Less than 0 is backward (root motion only)
@@ -45,6 +46,7 @@ export class Controller {
     this.locked = false;             // true: an action owns the bird and the input does nothing
     this.faceTarget = null;          // heading to turn to on the spot, or null
     this.pivot = null;               // world { x, z } of the foot that carries the weight, from the animator
+    this.shove = 0;                  // 0 to 1: a heavy thing just ahead of the head (src/world/physics.js)
     this.events = [];                // this step: { type: crouch | jump | land, ... }
     this.held = false;
     this.buffer = 0;
@@ -121,7 +123,14 @@ export class Controller {
       this.cutDone = false;
       this.enter('air');
     }
-    if (this.state !== 'air') return;
+    if (this.state !== 'air') {
+      if (this.position.y <= this.floor + 0.01) { this.position.y = this.floor; return; }
+      // Walked off the edge of something: fall, with no flutter.
+      this.vy = 0;
+      this.flutterLeft = 0;
+      this.cutDone = true;
+      this.enter('air', {}, 'fall');
+    }
 
     if (!this.held && !this.cutDone && this.vy > 0) { this.vy *= JUMP.cut; this.cutDone = true; }
     this.fluttering = this.held && this.flutterLeft > 0 && this.vy < JUMP.flutterRise + 0.1;
@@ -132,18 +141,18 @@ export class Controller {
       this.vy -= (this.vy > 0 ? JUMP.gravity : JUMP.fallGravity) * dt;
     }
     this.position.y += this.vy * dt;
-    if (this.position.y <= 0) {
+    if (this.position.y <= this.floor) {
       const impact = -this.vy;
-      this.position.y = 0;
+      this.position.y = this.floor;
       this.vy = 0;
       this.fluttering = false;
       this.enter('ground', { impact });
     }
   }
 
-  enter(state, info = {}) {
+  enter(state, info = {}, type = state === 'ground' ? 'land' : state === 'crouch' ? 'crouch' : 'jump') {
     this.state = state;
     this.stateTime = 0;
-    this.events.push({ type: state === 'ground' ? 'land' : state === 'crouch' ? 'crouch' : 'jump', ...info });
+    this.events.push({ type, ...info });
   }
 }

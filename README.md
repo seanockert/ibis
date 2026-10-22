@@ -121,6 +121,13 @@ The head turns apart from the neck, so the neck slides into the skull, as it doe
 - The line width changes slowly along each line (smooth noise on the bind position), so the lines look hand-drawn. The pattern stays on the body when it moves.
 - Lines along material borders (wing tips, mouth, scarf bands) are screen-space quads that the runtime makes from the mesh at load time.
 
+### Physics (`src/world/`)
+
+- `physics.js` runs a crashcat world (pure JS, about 76 KB gzip). The bird is a kinematic character controller: the controller still moves it, and props stop it.
+- The bird pushes props: it kicks and pecks the football, and it puts its head down and shoves the wheelie bin. A walk rocks the bin. A run tips it over, and the lid flaps open.
+- `props.js` has the `Ball` and the `Bin`, with toon meshes and outlines in the style of the ibis.
+- In free play the props are on. `props=0` turns them off, and `physics=1` shows the colliders.
+
 ## Change the character
 
 - To change the shape or the colours, edit `src/sdf/model.glsl`, then run `npm run bake`.
