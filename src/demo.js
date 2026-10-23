@@ -2,9 +2,10 @@
 // t (fixed time), yaw and pitch (fixed camera, as in sdf.html), scale, count (ibises in a grid), bench
 // (frames to time), mud and wet (0 to 1), root (1: with t, place the bird where the move took it),
 // props (0: no ball and bin in free play), physics (1: show the colliders), env (0 or 1: the street and
-// the sky; on in free play, off in the fixed views, so they still match sdf.html), sound (0: no sound).
-// Free play: WASD or the arrow keys walk, Shift runs, Space jumps (hold to flutter). A tap on the ground
-// walks there; a tap on the bird prods it. The bird can push the football and the wheelie bin.
+// the sky; on in free play, off in the fixed views, so they still match sdf.html), sound (0: no sound),
+// terrain (1: steps, a ramp and a kerb in free play, to test the foot placement).
+// Free play: WASD, the arrow keys or the joystick walk, Shift or Run runs, Space or Jump jumps (hold to
+// flutter). A tap on the ground walks there; a tap on the bird prods it. The bird can push the football and the wheelie bin.
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { IbisEffects } from './ibis/effects.js';
@@ -14,6 +15,7 @@ import { Character } from './ibis/motion/character.js';
 import { ARENA, MOVES, playScript, startMove } from './moves.js';
 import { Physics } from './world/physics.js';
 import { Ball, Bin } from './world/props.js';
+import { Terrain } from './world/terrain.js';
 import { Grade } from './world/grade.js';
 import { Backdrop } from './world/backdrop.js';
 import { Sky } from './world/sky.js';
@@ -36,13 +38,14 @@ const GROUND_LIT = new THREE.Color().setRGB(0.925, 0.902, 0.855, 'srgb');
 const GROUND_SHADE = new THREE.Color().setRGB(0.80, 0.78, 0.86, 'srgb');
 const WEATHER_RATE = 0.5;   // mud and wet change per second when toggled
 const TAP_PX = 8;           // a pointer that moves less than this between down and up is a tap
+const STICK_DEAD = 0.12;    // joystick dead zone, part of its reach
 const CAM_MIN_Y = 0.3;      // the orbit can't take the camera lower than this
 // Free play sun shadow: half size of the area, map size, and the sun's distance from the area's centre.
 const SHADOW = { half: 10, map: 4096, sun: 20 };
 
 const params = new URLSearchParams(location.search);
-// ui=0 hides the buttons and the hint, for tools/strip.mjs.
-if (params.get('ui') === '0') for (const el of document.querySelectorAll('.bar, .hint')) el.style.display = 'none';
+// ui=0 hides the buttons and the joystick, for tools/strip.mjs.
+if (params.get('ui') === '0') for (const el of document.querySelectorAll('.bar, .stick, .acts')) el.style.display = 'none';
 let anim = Number(params.get('anim') || 0);
 const fixedTime = params.has('t') ? Number(params.get('t')) : null;
 const scale = Number(params.get('scale') || Math.min(window.devicePixelRatio, 1.5));
@@ -135,6 +138,7 @@ if (physics) {
   physics.addBird(bird);
   props.push(new Ball(physics, asset, [1.4, 1.3], 0.7), new Bin(physics, asset, [-1.3, -1.1], 0.87));
   for (const prop of props) scene.add(prop.object);
+  if (params.get('terrain') === '1') scene.add(new Terrain(physics, asset).object);
   if (params.get('physics') === '1') {
     physicsView = await physics.debugView();
     scene.add(physicsView.object);
@@ -168,13 +172,13 @@ addEventListener('keyup', e => keys.delete(e.code));
 addEventListener('blur', () => keys.clear());
 
 function freeInput(c) {
-  const ax = (keys.has('KeyD') || keys.has('ArrowRight') ? 1 : 0) - (keys.has('KeyA') || keys.has('ArrowLeft') ? 1 : 0);
-  const ay = (keys.has('KeyW') || keys.has('ArrowUp') ? 1 : 0) - (keys.has('KeyS') || keys.has('ArrowDown') ? 1 : 0);
-  // Camera relative: up on the keys is away from the camera.
+  const ax = (keys.has('KeyD') || keys.has('ArrowRight') ? 1 : 0) - (keys.has('KeyA') || keys.has('ArrowLeft') ? 1 : 0) + stick.x;
+  const ay = (keys.has('KeyW') || keys.has('ArrowUp') ? 1 : 0) - (keys.has('KeyS') || keys.has('ArrowDown') ? 1 : 0) + stick.y;
+  // Camera relative: up on the keys and the joystick is away from the camera.
   const fwd = new THREE.Vector3().subVectors(controls.target, camera.position).setY(0).normalize();
   const right = new THREE.Vector3(-fwd.z, 0, fwd.x);
   const move = fwd.multiplyScalar(ay).add(right.multiplyScalar(ax));
-  c.input.fast = keys.has('ShiftLeft') || keys.has('ShiftRight');
+  c.input.fast = keys.has('ShiftLeft') || keys.has('ShiftRight') || runButton;
   if (move.lengthSq() > 0) goal = null;
   else if (goal) {
     move.set(goal.x - c.position.x, 0, goal.z - c.position.z);
@@ -183,7 +187,7 @@ function freeInput(c) {
     else c.input.fast = goal.fast;
   }
   c.input.move.set(move.x, move.z);
-  if (c.input.move.lengthSq() > 1) c.input.move.normalize();
+  if (c.input.move.lengthSq() > 1) c.input.move.normalize();   // the joystick keeps its analog length
   c.input.jump = keys.has('Space') || jumpButton;
 }
 
@@ -288,30 +292,89 @@ addEventListener('resize', () => {
 });
 
 // ---- buttons ----
-// Walk and Run stay on and walk the circle. Jump jumps while held (hold for the flutter). The others
-// play once (press in src/moves.js).
+// Free play: a joystick, a diamond of Jump, Peck, Run and Threat, and a row of the other one-shot
+// actions. Jump and Run act while held. Other views: one button for each move script.
 const bar = document.getElementById('bar');
-let jumpButton = false;
-const buttons = MOVES.map((move, i) => {
+let jumpButton = false, runButton = false;
+const stick = new THREE.Vector2();   // joystick: x right, y up, length 0 to 1
+const moveIndex = name => MOVES.findIndex(m => m.name === name);
+const DIAMOND = [   // grid cell, move, icon (24 by 24 SVG path)
+  ['1 / 2', 'Threat', 'M13 3 5 13.5h6L10 21l8-10.5h-6z'],
+  ['2 / 1', 'Run', 'M5 6l6 6-6 6M13 6l6 6-6 6'],
+  ['2 / 3', 'Peck', 'M12 3v10M7 8l5 5 5-5M12 17.5a1.75 1.75 0 1 1 0 3.5a1.75 1.75 0 1 1 0-3.5'],
+  ['3 / 2', 'Jump', 'M12 18V5M6 11l6-6 6 6M6 21h12'],
+];
+const PAD = ['Idle', 'Walk', 'Run', 'Jump', 'Peck', 'Threat', 'Turn', 'Prod'];
+
+// Jump and Run: on while a pointer holds them.
+function hold(b, set) {
+  b.addEventListener('pointerdown', e => { b.setPointerCapture(e.pointerId); setFree(); set(true); });
+  for (const ev of ['pointerup', 'pointercancel', 'lostpointercapture']) b.addEventListener(ev, () => set(false));
+}
+
+let buttons = [];
+if (play) {
+  const acts = document.getElementById('acts');
+  for (const [area, name, icon] of DIAMOND) {
+    const move = MOVES[moveIndex(name)];
+    const b = document.createElement('button');
+    b.style.gridArea = area;
+    b.setAttribute('aria-label', name);
+    b.title = name;
+    b.innerHTML = `<svg viewBox="0 0 24 24"><path d="${icon}"/></svg>`;
+    if (name === 'Jump') hold(b, on => { jumpButton = on; });
+    else if (name === 'Run') hold(b, on => { runButton = on; });
+    else b.addEventListener('pointerdown', () => move.press(bird.character));
+    acts.appendChild(b);
+  }
+  acts.hidden = false;
+
+  // Joystick: the knob follows the pointer out to the rim. Its offset is the walk input.
+  const pad = document.getElementById('stick'), knob = pad.firstElementChild;
+  let finger = null;
+  const aim = e => {
+    const r = pad.getBoundingClientRect(), reach = r.width / 2;
+    stick.set(e.clientX - r.left - reach, r.top + reach - e.clientY).divideScalar(reach);
+    if (stick.length() > 1) stick.normalize();
+    knob.style.transform = `translate(${stick.x * reach}px, ${-stick.y * reach}px)`;
+    const n = stick.length();
+    stick.multiplyScalar(n < STICK_DEAD ? 0 : (n - STICK_DEAD) / (1 - STICK_DEAD) / n);
+  };
+  pad.addEventListener('pointerdown', e => {
+    if (finger !== null) return;
+    finger = e.pointerId;
+    pad.setPointerCapture(finger);
+    setFree();
+    aim(e);
+  });
+  pad.addEventListener('pointermove', e => { if (e.pointerId === finger) aim(e); });
+  for (const ev of ['pointerup', 'pointercancel']) pad.addEventListener(ev, e => {
+    if (e.pointerId !== finger) return;
+    finger = null;
+    stick.set(0, 0);
+    knob.style.transform = '';
+  });
+  pad.hidden = false;
+  bar.classList.add('list');
+}
+for (const [i, move] of MOVES.entries()) {
+  if (play && PAD.includes(move.name)) continue;
   const b = document.createElement('button');
   b.textContent = move.name;
   b.setAttribute('aria-pressed', String(i === anim - 1 && (move.loop || !play)));
-  if (move.hold && play) {
-    b.addEventListener('pointerdown', () => { setFree(); jumpButton = true; });
-    for (const ev of ['pointerup', 'pointerleave', 'pointercancel']) b.addEventListener(ev, () => { jumpButton = false; });
-  } else {
+  if (move.hold && play) hold(b, on => { jumpButton = on; });
+  else {
     b.onclick = () => {
       if (play && move.press) { move.press(bird.character); return; }
-      if (play && !move.loop) { setFree(); return; }   // Idle: stand
       freePlay = false;
       for (const [k, ibis] of ibises.entries()) scripts[k] = { move: i, run: startMove(ibis.character, i), time: 0 };
       setPressed(i);
     };
   }
   bar.appendChild(b);
-  return b;
-});
-function setPressed(i) { buttons.forEach((x, j) => x.setAttribute('aria-pressed', String(j === i))); }
+  buttons[i] = b;
+}
+function setPressed(i) { buttons.forEach((x, j) => x?.setAttribute('aria-pressed', String(j === i))); }
 
 // Mud and wet toggles: the ibis gets muddy or wet over two seconds, and clean or dry again.
 const weatherBar = document.getElementById('weather');
@@ -337,7 +400,6 @@ if (sound) {
   };
   weatherBar.appendChild(b);
 }
-if (play) document.getElementById('hint').textContent = 'WASD or arrows: walk · Shift: run · Space: jump (hold to flutter) · tap the ground: go there · tap the bird: prod · drag: orbit';
 
 if (params.has('bench')) {
   // Draw N frames in a blocking loop and put the mean frame time in the title.

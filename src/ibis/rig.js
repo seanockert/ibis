@@ -2,7 +2,7 @@
 // Procedural motion (gait, jump, actions, expressions) is in src/ibis/motion/. It makes Poses too.
 // This is the one source of the animation. The game, the SDF view (sdf.html) and the bake all use it.
 // Character space: y up, +z toward the beak, feet on y = 0.
-import { Matrix3, Matrix4, Vector2, Vector3, Vector4 } from 'three';
+import { Matrix3, Matrix4, Quaternion, Vector2, Vector3, Vector4 } from 'three';
 import { TAU, clamp, mix, smoothstep } from './motion/spring.js';
 
 const PELVIS_Y = 0.58;
@@ -40,6 +40,10 @@ export function restPose() {
     footR: new Vector3(-0.25, 0.05, 0.06),
     splay: 0,                               // toes turn out, radians
     footYawL: 0, footYawR: 0,               // foot turn about y, radians: a planted foot keeps its heading
+    floorL: 0, floorR: 0,                   // ground height under each foot, from the root: steps and slopes
+    slopeL: new Vector3(0, 1, 0),           // ground normal under each foot, character space: the foot
+    slopeR: new Vector3(0, 1, 0),           // and the toes lie on it
+    air: 0,                                 // height of the root above the ground: the toes curl in the air
     neck: 0,                                // 0 upright, 1 reaching to the ground
     reach: 0,                               // 1 neck straight out in front
     stretch: 1,                             // neck length: less than 1 squashes the head into the body
@@ -170,8 +174,12 @@ export function solveRig(P) {
   R.pole = at(rotY(P.yaw), 0, 0, -1);
   R.hipL = toBody(0.20, 0.04, 0.0);
   R.hipR = toBody(-0.20, 0.04, 0.0);
-  R.footL = P.footL.clone().setY(P.footL.y + P.lift);
-  R.footR = P.footR.clone().setY(P.footR.y + P.lift);
+  R.footL = P.footL.clone().setY(P.footL.y + P.lift + P.floorL);
+  R.footR = P.footR.clone().setY(P.footR.y + P.lift + P.floorR);
+  R.clearL = P.footL.y + P.air;   // foot height above the ground under it
+  R.clearR = P.footR.y + P.air;
+  R.slopeL = P.slopeL.clone().normalize();
+  R.slopeR = P.slopeR.clone().normalize();
   R.splay = P.splay;
   R.footYawL = P.footYawL;
   R.footYawR = P.footYawR;
@@ -220,9 +228,9 @@ export function toeDir(side, i) {
 // Toe length from the ankle, character units. Same as lowerLeg() in model.glsl.
 export const toeLength = i => (i === 3 ? 0.20 : i === 1 ? 0.42 : 0.34);
 
-// Toes curl down while the foot is lifted.
-function toeCurl(foot, side, i) {
-  const curl = clamp((foot.y - 0.06) * 3, 0, 0.5);
+// Toes curl down while the foot is lifted. clear: foot height above the ground.
+function toeCurl(clear, side, i) {
+  const curl = clamp((clear - 0.06) * 3, 0, 0.5);
   const drop = Math.atan2((i === 3 ? 0.06 : 0.18) * curl, toeLength(i));
   const axis = new Vector3(0, 1, 0).cross(toeDir(side, i)).normalize();
   return new Matrix4().makeRotationAxis(axis, drop);
@@ -235,6 +243,7 @@ function aimFrame(dir, pole) {
   return new Matrix4().makeBasis(new Vector3().crossVectors(y, z), y, z);
 }
 
+const UP = new Vector3(0, 1, 0);
 const place = (pos, rot) => new Matrix4().setPosition(pos).multiply(rot);
 
 // Neck sample points along the Bezier, from the base to the head.
@@ -268,9 +277,11 @@ export function boneMatrices(R, bindLengths) {
     const hip = R['hip' + s], knee = R['knee' + s], foot = R['foot' + s];
     out['thigh' + s] = place(hip, aimFrame(knee.clone().sub(hip), R.pole));
     out['shank' + s] = place(knee, aimFrame(foot.clone().sub(knee), R.pole));
-    const turn = rotY(side * R.splay + R['footYaw' + s]);
+    // The foot lies on the ground: up turns to the slope normal, then the foot turns about it.
+    const tilt = new Matrix4().makeRotationFromQuaternion(new Quaternion().setFromUnitVectors(UP, R['slope' + s]));
+    const turn = tilt.multiply(rotY(side * R.splay + R['footYaw' + s]));
     out['foot' + s] = place(foot, turn);
-    for (const i of TOES) out['toe' + s + i] = place(foot, mul(turn.clone(), toeCurl(foot, side, i)));
+    for (const i of TOES) out['toe' + s + i] = place(foot, mul(turn.clone(), toeCurl(R['clear' + s], side, i)));
   }
   return BONES.map(name => out[name]);
 }

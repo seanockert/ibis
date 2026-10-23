@@ -28,6 +28,7 @@ export const CHANNELS = {
   jaw: ['jaw'],
   wings: ['wingL', 'wingR', 'sweepL', 'sweepR'],
   face: ['blink', 'look', 'lid', 'lidTilt', 'lowLid', 'pupil'],
+  ground: ['floorL', 'floorR', 'slopeL', 'slopeR', 'air'],   // set after the actions (Animator.ground()). No mask uses it
 };
 export const FACE_KEYS = ['blink', 'lid', 'lidTilt', 'lowLid', 'pupil'];
 

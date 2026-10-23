@@ -133,6 +133,7 @@ The head turns apart from the neck, so the neck slides into the skull, as it doe
 - The bird pushes props: it kicks and pecks the football, and it puts its head down and shoves the wheelie bin. A walk rocks the bin. A run tips it over, and the lid flaps open.
 - `props.js` has the `Ball` and the `Bin`, with toon meshes and outlines in the style of the ibis.
 - In free play the props are on. `props=0` turns them off, and `physics=1` shows the colliders.
+- `terrain=1` adds a test course (steps, a ramp, a kerb). The feet go onto uneven ground, and the body follows them.
 - In free play the street and the sky are on. `env=0` turns them off, `env=1` turns them on in fixed views.
 
 ## Change the character

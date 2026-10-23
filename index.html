@@ -13,18 +13,30 @@
   .bar button { border: 1.5px solid var(--ink); background: var(--chip); color: var(--ink); border-radius: 999px; padding: 6px 14px; font: inherit; cursor: pointer; user-select: none; }
   .bar button[aria-pressed="true"] { background: var(--ink); color: var(--chip); }
   .bar.weather { left: auto; right: 16px; top: 12px; bottom: auto; transform: none; }
-  .hint { position: fixed; bottom: 6px; text-align: center; font-size: 12px; opacity: 0.6; width: 100vw; }
+  /* Free play: joystick bottom left, action diamond bottom right, the other actions in a row below. */
+  .bar.list { bottom: max(10px, env(safe-area-inset-bottom)); flex-wrap: nowrap; justify-content: flex-start; overflow-x: auto; padding: 0 16px; box-sizing: border-box; scrollbar-width: none; }
+  .bar.list::-webkit-scrollbar { display: none; }
+  .bar.list button { flex: none; }
+  .bar.list::after { content: ''; flex: none; width: 10px; }
+  .stick, .acts { position: fixed; bottom: calc(max(10px, env(safe-area-inset-bottom)) + 52px); touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+  .stick { left: 20px; width: 128px; height: 128px; border-radius: 50%; border: 1.5px solid var(--ink); background: rgb(246 242 234 / 0.45); }
+  .stick .knob { position: absolute; left: 50%; top: 50%; width: 56px; height: 56px; margin: -28px 0 0 -28px; border-radius: 50%; border: 1.5px solid var(--ink); background: var(--chip); box-sizing: border-box; pointer-events: none; }
+  .acts { right: 20px; display: grid; grid-template: repeat(3, 48px) / repeat(3, 48px); }
+  .acts button { width: 60px; height: 60px; margin: -6px; padding: 0; border: 1.5px solid var(--ink); border-radius: 50%; background: var(--chip); color: var(--ink); display: grid; place-items: center; cursor: pointer; touch-action: none; }
+  .acts button:active, .acts button[aria-pressed="true"] { background: var(--ink); color: var(--chip); }
+  .acts svg { width: 26px; height: 26px; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; pointer-events: none; }
+  .stick[hidden], .acts[hidden] { display: none; }
   @media (max-width: 600px) {
     .bar { bottom: 1rem; }
-    .hint { display: none; }
   }
 </style>
 </head>
 <body>
 <canvas id="c"></canvas>
-<div class="hint" id="hint">Drag to orbit</div>
 <div class="bar" id="bar"></div>
 <div class="bar weather" id="weather"></div>
+<div class="stick" id="stick" hidden><div class="knob"></div></div>
+<div class="acts" id="acts" hidden></div>
 <script type="module" src="/src/demo.js"></script>
 </body>
 </html>

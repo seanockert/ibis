@@ -4,11 +4,13 @@
 //   3. Actions: one-shot moves over the base, with channel masks (see actions.js).
 //   4. Secondary: the look chain (eyes, then head, then body), lean into speed changes and turns,
 //      squash and stretch, hit reactions and wing flicks on springs, and blinks.
+//   5. Ground: each foot goes onto the ground under it (steps, slopes, prop tops), the body drops over
+//      the lower foot and leans with the slope.
 // The pose comes only from the state and the time step, so the same input gives the same motion.
 import { Vector2, Vector3 } from 'three';
 import { clipPose, mixPose, restPose } from '../rig.js';
 import { ACTIONS, FACE_KEYS, blendMasked, face } from './actions.js';
-import { MOVE } from './controller.js';
+import { GROUND, MOVE } from './controller.js';
 import { Spring, TAU, clamp, damp, hash, mix, smoothstep, window4, wrapAngle } from './spring.js';
 
 // Waddle. Pairs are [slow, fast]; the gait blends between them by speed.
@@ -25,7 +27,13 @@ export const GAIT = {
   spinLift: 0.07,
   footLock: 0.75,         // part of the body turn that a planted foot keeps (the rest is a pivot on the foot)
   settle: 0.04,           // after a stop, the bird steps until each foot is this near its place
+  climb: 0.5,             // a swing foot gets over a step in this part of the swing: up early, down late
+  climbLift: 0.5,         // more swing lift for each unit of step height
+  climbSquash: 25,        // squash kick for each unit of step height at touch-down
+  slopeLean: 0.5,         // body pitch for each unit of slope ahead: into a climb, back on a descent
+  maxTilt: 0.6,           // a foot tilts this far at most (radians); a steeper normal counts as flat
 };
+const UP = new Vector3(0, 1, 0);
 
 const LOOK = {
   headHalflife: 0.05,     // the head follows the eyes this fast
@@ -48,8 +56,15 @@ export class Animator {
     this.phase = 0;                      // left foot cycle, 0..1. The right foot is half a cycle on
     this.steps = 0;
     this.scuff = [false, false];
-    this.plants = [null, null];          // world { x, z, yaw } of each foot on the ground, or null
-    this.swingFrom = [null, null];       // world { x, z, yaw } where each foot lifted off
+    this.plants = [null, null];          // world { x, z, yaw, y, n } of each foot on the ground, or null
+    this.swingFrom = [null, null];       // world { x, z, yaw, y, n } where each foot lifted off
+    // Ground under each foot as the pose uses it: world height and normal. The gait sets it from the
+    // plants and the swing; otherwise it eases to the ground under the posed feet (controller.feet).
+    this.ground = [{ y: 0, n: UP.clone() }, { y: 0, n: UP.clone() }];
+    this.gaitGround = false;             // the gait set this.ground this step
+    this.base = 0;                       // root height on the ground, or at take-off in the air
+    this.placed = false;                 // false: the first step takes the ground under the feet at once
+    this.landing = { y: 0, n: UP.clone() };   // scratch for ground queries
     this.footError = 0;                  // how far the planted feet are from their places
     this.pivot = null;                   // world { x, z } of the foot that carries the weight
     this.twist = 0;                      // chest turn ahead of the legs
@@ -64,6 +79,7 @@ export class Animator {
     this.bank = new Spring(0, 2.5, 0.6);   // roll into turns
     this.squash = new Spring(0, 3.2, 0.4); // more than 0 squash, less than 0 stretch
     this.brace = new Spring(0, 7, 0.9);   // shove pose: head down, forehead forward
+    this.slope = new Spring(0, 2, 1);     // body pitch from the slope
     this.hitPitch = new Spring(0, 2.6, 0.35);
     this.hitRoll = new Spring(0, 2.6, 0.35);
     this.flickL = new Spring(0, 3, 0.3);
@@ -114,6 +130,15 @@ export class Animator {
     this.time += dt;
     this.events.length = 0;
     for (const e of c.events) this.onEvent(e);
+    // First step, and a landing: the feet take the ground under them now.
+    if (!this.placed || c.events.some(e => e.type === 'land')) {
+      this.ground.forEach((g, i) => {
+        g.y = c.feet[i].y;
+        g.n.copy(c.feet[i].n);
+        for (const w of [this.plants[i], this.swingFrom[i]]) if (w) { w.y = g.y; w.n.copy(g.n); }
+      });
+      this.placed = true;
+    }
 
     const speed = Math.abs(c.speed);
     const fast = clamp((speed - MOVE.slow) / (MOVE.fast - MOVE.slow), 0, 1);
@@ -125,6 +150,7 @@ export class Animator {
     const airW = this.airW.update(dt, c.state === 'air' ? 1 : 0);
 
     // 1. Base.
+    this.gaitGround = false;
     let P = clipPose('idle', this.time);
     if (gaitW > 0.001 || drive > 0.04) {
       const W = this.waddle(dt, c, fast, drive);
@@ -146,6 +172,8 @@ export class Animator {
     // 4. Secondary.
     this.secondary(P, dt, c);
     this.beatEvents(P);
+    // 5. Ground.
+    this.groundPose(P, dt, c, clamp(airW, 0, 1));
     P.lift = c.position.y;
     this.pose = P;
     return P;
@@ -215,8 +243,8 @@ export class Animator {
       return new Vector3(dx * ch - dz * sh, y, dx * sh + dz * ch);
     };
     const yawOf = w => clamp(wrapAngle(w.yaw - c.heading), -0.9, 0.9) * GAIT.footLock;
-    const landing = side => {
-      const x = side * g('width'), z = 0.06 + stride, ca = Math.cos(ahead), sa = Math.sin(ahead);
+    const landing = (side, toes = 0) => {
+      const x = side * g('width'), z = 0.06 + stride + toes, ca = Math.cos(ahead), sa = Math.sin(ahead);
       return new Vector3(x * ca + z * sa, 0.05, z * ca - x * sa);
     };
 
@@ -224,20 +252,39 @@ export class Animator {
     if (!this.plants[0] && !this.plants[1]) {
       const first = c.turn < -0.1 ? 1 : 0;
       this.phase = first === 0 ? duty - 1e-4 : (duty + 0.5 - 1e-4) % 1;
-      ['footL', 'footR'].forEach((key, i) => { this.plants[i] = toWorld(this.pose[key], this.pose['footYaw' + key[4]]); });
+      ['footL', 'footR'].forEach((key, i) => {
+        this.plants[i] = { ...toWorld(this.pose[key], this.pose['footYaw' + key[4]]), y: this.ground[i].y, n: this.ground[i].n.clone() };
+      });
     }
 
     const before = this.phase;
     this.phase = (this.phase + cadence * dt) % 1;
+    // A planted foot keeps the ground where it landed: the higher of the ankle and the toe tip. A drop
+    // past stepDown is no step: the foot stays level and the bird falls when it walks off.
+    const plant = (side, from) => {
+      const w = toWorld(landing(side), ahead), tip = toWorld(landing(side, GROUND.toes), ahead);
+      const g = c.groundAt(w.x, w.z, this.landing), y = g.y, n = g.n.clone();
+      c.groundAt(tip.x, tip.z, g);
+      if (g.y < y) { g.y = y; g.n.copy(n); }
+      const level = from && from.y - g.y > GROUND.stepDown;
+      return Object.assign(w, { y: level ? from.y : g.y, n: (level ? from.n : g.n).clone() });
+    };
     const G = restPose();
     let error = 0, pivot = null, pivotDepth = 1;
     [[this.phase, before, 1], [(this.phase + 0.5) % 1, (before + 0.5) % 1, -1]].forEach(([p, prev, side], i) => {
       const key = i === 0 ? 'footL' : 'footR', yawKey = i === 0 ? 'footYawL' : 'footYawR';
       if (prev < duty && p >= duty) { this.liftOff(i, c); this.swingFrom[i] = this.plants[i]; this.plants[i] = null; }
-      if (p < prev) { this.touchDown(i, side); this.plants[i] = toWorld(landing(side), ahead); }
+      if (p < prev) {
+        const from = this.swingFrom[i] ?? this.ground[i];
+        this.plants[i] = plant(side, from);
+        this.touchDown(i, side, this.plants[i].y - from.y);
+      }
+      const ground = this.ground[i];
       if (p < duty) {
-        if (!this.plants[i]) this.plants[i] = toWorld(landing(side), ahead);
+        if (!this.plants[i]) this.plants[i] = plant(side, ground);
         const w = this.plants[i];
+        ground.y = w.y;
+        ground.n.copy(w.n);
         G[key].copy(toLocal(w, 0.05));
         G[yawKey] = yawOf(w);
         const home = new Vector3(side * GAIT.width[0], 0.05, 0.06);
@@ -245,16 +292,22 @@ export class Animator {
         const depth = Math.abs(p / duty - 0.5);
         if (depth < pivotDepth) { pivotDepth = depth; pivot = w; }
       } else {
-        const u = smoothstep(0, 1, (p - duty) / (1 - duty));
+        const t = (p - duty) / (1 - duty), u = smoothstep(0, 1, t);
         const from = this.swingFrom[i];
         const start = from ? toLocal(from, 0.05) : landing(side);
         G[key].copy(start.lerp(landing(side), u));
-        G[key].y += mix(g('lift'), GAIT.spinLift, spin) * (this.scuff[i] ? 0.25 : 1) * Math.sin(Math.PI * (p - duty) / (1 - duty));
+        // Over a step: the foot rises before it gets to the edge and drops only past it, and lifts higher.
+        const fromY = from ? from.y : ground.y, to = plant(side, from ?? ground), rise = to.y - fromY;
+        ground.y = fromY + rise * (rise > 0 ? smoothstep(0, GAIT.climb, t) : smoothstep(1 - GAIT.climb, 1, t));
+        ground.n.copy(from ? from.n : ground.n).lerp(to.n, u);
+        const lift = mix(g('lift'), GAIT.spinLift, spin) * (this.scuff[i] ? 0.25 : 1) + GAIT.climbLift * Math.abs(rise);
+        G[key].y += lift * Math.sin(Math.PI * t);
         G[yawKey] = mix(from ? yawOf(from) : 0, ahead * GAIT.footLock, u);
       }
     });
     this.footError = error;
     this.pivot = pivot;
+    this.gaitGround = true;
 
     // The weight goes over the foot on the ground, more so in a turn on the spot, with a lean into it.
     const m = TAU * (this.phase - duty / 2);   // 0 when the left foot is in the middle of its stance
@@ -280,11 +333,13 @@ export class Animator {
     this.scuff[i] = c.speed > 0.3 && c.root === null && hash(this.steps * 7919 + this.seed) < GAIT.misstep;
   }
 
-  // A scuffed step lands badly: the body lurches forward, a wing flicks out, the eyes blink.
-  touchDown(i, side) {
+  // A scuffed step lands badly: the body lurches forward, a wing flicks out, the eyes blink. A step up
+  // or down loads the leg: a small squash. rise: height of the step.
+  touchDown(i, side, rise) {
     const scuff = this.scuff[i];
     this.scuff[i] = false;
     this.events.push({ type: 'step', foot: side > 0 ? 'L' : 'R', scuff });
+    this.squash.kick(GAIT.climbSquash * Math.abs(rise));
     if (!scuff) return;
     this.hitPitch.kick(2.5);
     this.hitRoll.kick(-1.5 * side);
@@ -402,5 +457,38 @@ export class Animator {
     }
     const b = window4(0, 0.04, 0.08, BLINK_TIME, this.time - this.blinkAt);
     P.lid = mix(P.lid, 1, b * (1 - P.blink));
+  }
+
+  // Foot placement, after every other layer (as a foot IK pass). Each foot goes to the ground under it
+  // and lies on its slope. The pelvis drops by the lower foot, so that leg keeps its reach and the
+  // other bends: on flat ground nothing changes. The body leans into a climb. In the air the feet fade
+  // to the air pose, from where they were at take-off. The mean foot height is the root height for the
+  // controller (support).
+  groundPose(P, dt, c, airW) {
+    const on = 1 - airW, sn = Math.sin(c.heading), cs = Math.cos(c.heading);
+    if (c.grounded) this.base = c.position.y;
+    const k = damp(0.04, dt);
+    let low = 0, ahead = 0;
+    this.ground.forEach((g, i) => {
+      if (!this.gaitGround && c.grounded) {
+        // Ground out of reach below (an edge under the foot): the foot stays level with the root.
+        const f = c.feet[i], over = f.y < c.position.y - GROUND.stepDown;
+        g.y += ((over ? c.position.y : f.y) - g.y) * k;
+        g.n.lerp(over ? UP : f.n, k).normalize();
+      }
+      const floor = (g.y - this.base) * on;
+      // World normal to character space, flat if too steep.
+      const slope = i === 0 ? P.slopeL : P.slopeR;
+      slope.set(g.n.x * cs - g.n.z * sn, g.n.y, g.n.x * sn + g.n.z * cs);
+      if (slope.y < Math.cos(GAIT.maxTilt)) slope.copy(UP);
+      slope.lerp(UP, airW);
+      if (i === 0) P.floorL = floor; else P.floorR = floor;
+      low = Math.min(low, floor);
+      ahead -= slope.z / slope.y / 2;
+    });
+    P.bob += low;
+    P.pitch += this.slope.update(dt, GAIT.slopeLean * ahead);
+    P.air = c.state === 'air' ? Math.max(c.position.y - c.floor, 0) : 0;
+    c.support = (this.ground[0].y + this.ground[1].y) / 2;
   }
 }

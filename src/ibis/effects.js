@@ -275,8 +275,10 @@ export class IbisEffects {
     if (!R) return;
     ibis.object.updateMatrixWorld();
     this.mudNow = ibis.mud;   // puffs off muddy feet are mud brown
-    // Dust starts on what the feet stand on: the ground, or the top of a prop (controller.floor).
-    const world = v => v.clone().setY(ctrl.floor).applyMatrix4(ibis.object.matrixWorld);
+    // Dust starts on what the feet stand on: the ground, a step or the top of a prop (controller.floor,
+    // or the ground under one foot).
+    const ground = c.animator.ground;
+    const world = (v, y = ctrl.floor) => v.clone().setY(y).applyMatrix4(ibis.object.matrixWorld);
     const back = new Vector3(0, 0, -1).transformDirection(ibis.object.matrixWorld).setY(0).normalize();
     const feet = () => world(R.footL).add(world(R.footR)).multiplyScalar(0.5);
     for (const e of c.events) {
@@ -285,7 +287,7 @@ export class IbisEffects {
       // Run: a small puff kicks up behind the heel as each foot pushes off. It stays where it was made,
       // so the puffs trail behind the bird.
       if (e.type === 'liftOff' && ctrl.speed > RUN_DUST_SPEED) {
-        const heel = world(e.foot === 'L' ? R.footL : R.footR).addScaledVector(back, 0.14);
+        const heel = (e.foot === 'L' ? world(R.footL, ground[0].y) : world(R.footR, ground[1].y)).addScaledVector(back, 0.14);
         this.cloud(heel, back, { size: 0.12 + 0.05 * (ctrl.speed - RUN_DUST_SPEED), speed: 0.35, up: 0.25, life: 0.6 }, 3);
       }
       if (e.type === 'land' && e.impact > 2.5) {
@@ -309,7 +311,8 @@ export class IbisEffects {
     const clock = (this.skidClock.get(ibis) ?? 0) + dt;
     if (ctrl.grounded && ctrl.accel < SKID_DECEL && Math.abs(ctrl.speed) > SKID_SPEED && clock > SKID_EVERY) {
       this.skidClock.set(ibis, 0);
-      this.puff(world(this.rand() < 0.5 ? R.footL : R.footR), back.clone().negate(), { size: 0.09, speed: 0.5, up: 0.3 });
+      const i = this.rand() < 0.5 ? 0 : 1;
+      this.puff(world(i === 0 ? R.footL : R.footR, ground[i].y), back.clone().negate(), { size: 0.09, speed: 0.5, up: 0.3 });
     } else this.skidClock.set(ibis, clock);
   }
 
@@ -326,8 +329,8 @@ export class IbisEffects {
 
   // A print where the foot is, turned as the foot is (body heading, foot turn and toe splay).
   footprint(ibis, foot) {
-    if (ibis.character.position.y > 0.05) return;   // on top of a prop: prints go on the ground only
     const R = ibis.rig, side = foot === 'L' ? 1 : -1;
+    if (ibis.character.animator.ground[side > 0 ? 0 : 1].y > 0.05) return;   // on a step or a prop: prints go on the ground only
     const at = R['foot' + foot].clone().setY(0).applyMatrix4(ibis.object.matrixWorld).setY(0.003);
     const fwd = new Vector3(0, 0, 1).transformDirection(ibis.object.matrixWorld);
     const yaw = Math.atan2(fwd.x, fwd.z) + R['footYaw' + foot] + side * R.splay + (this.rand() - 0.5) * 0.08;

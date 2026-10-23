@@ -180,7 +180,7 @@ function ellipsoid(scale, w, h, [a, b, c], phi = [0, Math.PI * 2], theta = [0, M
 }
 
 // The toon mesh, and with a line colour, its outline.
-function toon(geometry, [lit, shade, line], shared) {
+export function toon(geometry, [lit, shade, line], shared) {
   const mesh = new Mesh(geometry, toonMaterial(lit, shade, shared));
   mesh.castShadow = true;
   mesh.receiveShadow = true;

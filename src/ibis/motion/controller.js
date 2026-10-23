@@ -1,8 +1,9 @@
-// Character controller: turns player input into motion on the ground plane, and runs the jump.
-// It owns where the ibis is. The animator reads its state and makes the pose to match.
+// Character controller: turns player input into motion on the ground, and runs the jump.
+// It owns where the ibis is. The animator reads its state and makes the pose to match. On the ground,
+// the root height follows the feet (support, from the animator), so steps and slopes don't pop.
 // World units, the ibis is about 2 tall. Heading 0 faces +z; heading a faces (sin a, cos a).
 import { Vector2, Vector3 } from 'three';
-import { approach, clamp, mix, wrapAngle } from './spring.js';
+import { approach, clamp, damp, mix, wrapAngle } from './spring.js';
 
 export const MOVE = {
   slow: 1.25, fast: 3.0,    // top speeds, units per second
@@ -27,12 +28,32 @@ export const JUMP = {
   flutterAccel: 9,
 };
 
+// Uneven ground. Higher than stepUp is a wall (the solid in physics.js stops the bird); a drop farther
+// than stepDown is a fall.
+export const GROUND = {
+  stepUp: 0.25,             // the bird steps up onto a top this much higher, with no jump
+  stepDown: 0.3,
+  toes: 0.2,                // the ground under a foot is the higher of the ankle and this far ahead: toes on a step edge
+  follow: 0.05,             // half-life (s) of the root height toward the feet
+};
+
+// Flat ground at y = 0: the default when no physics gives the ground.
+function flatGround(x, z, out) {
+  out.y = 0;
+  out.n.set(0, 1, 0);
+  return out;
+}
+
 export class Controller {
   constructor() {
     // move: wanted direction on the ground (x, z), length 0 to 1. fast: run. jump: button held.
     this.input = { move: new Vector2(), fast: false, jump: false };
     this.position = new Vector3();   // y is the height above the ground
-    this.floor = 0;                  // height of what is under the bird: 0, or the top of a prop (physics.js)
+    this.floor = 0;                  // highest ground under the feet and toes: the bird lands on it
+    // Ground under each posed foot (ankle or toe tip, the higher): world height and normal (physics.js).
+    this.feet = [{ y: 0, n: new Vector3(0, 1, 0) }, { y: 0, n: new Vector3(0, 1, 0) }];
+    this.groundAt = flatGround;      // (x, z, out) => out { y, n }: the ground under a world point
+    this.support = null;             // height the feet carry the root at, from the animator, or null
     this.heading = 0;
     this.wantHeading = 0;            // heading of the input, or the heading when there is no input
     this.speed = 0;                  // along the heading. Less than 0 is backward (root motion only)
@@ -126,7 +147,11 @@ export class Controller {
       this.enter('air');
     }
     if (this.state !== 'air') {
-      if (this.position.y <= this.floor + 0.01) { this.position.y = this.floor; return; }
+      // The root eases to the height the feet carry it at: a step up or down takes a few frames.
+      if (this.position.y <= this.floor + GROUND.stepDown) {
+        this.position.y += ((this.support ?? this.floor) - this.position.y) * damp(GROUND.follow, dt);
+        return;
+      }
       // Walked off the edge of something: fall, with no flutter.
       this.vy = 0;
       this.flutterLeft = 0;
