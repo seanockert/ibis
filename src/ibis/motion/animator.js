@@ -34,6 +34,9 @@ const LOOK = {
 };
 
 const BLINK_TIME = 0.16;
+// Wing beats, for sound. A beat turns when the wings move back this far from the top or the bottom. A
+// beat this high or more gives a 'flap' event (the run flap and the walk swing are less).
+const BEAT = { turn: 0.03, min: 0.3 };
 
 export class Animator {
   constructor(seed = 0) {
@@ -55,6 +58,7 @@ export class Animator {
     this.airW = new Spring(0, 8, 1);     // 0 on the ground, 1 in the air
     this.air = { pitch: 0, tuck: 0, pedal: 0, headPitch: 0, lookY: 0, jaw: 0, wingBase: 0, wingAmp: 0, wingFreq: 3 };
     this.wingPhase = 0;
+    this.beat = { up: false, bottom: Infinity };   // wing beat tracker: see beatEvents()
 
     this.lean = new Spring(0, 2.5, 0.6);   // pitch from speed changes
     this.bank = new Spring(0, 2.5, 0.6);   // roll into turns
@@ -141,6 +145,7 @@ export class Animator {
 
     // 4. Secondary.
     this.secondary(P, dt, c);
+    this.beatEvents(P);
     P.lift = c.position.y;
     this.pose = P;
     return P;
@@ -160,6 +165,21 @@ export class Animator {
   get locked() {
     const a = this.playing;
     return !!a && !!a.def.lock && a.t < (a.def.cancelAfter ?? a.def.length);
+  }
+
+  // A 'flap' event as the wings start down: amount is the height of the beat, time the seconds of the
+  // up stroke. It reads the final pose, so it works for the air pose, the actions and the flicks.
+  beatEvents(P) {
+    const w = (P.wingL + P.wingR) / 2, b = this.beat;
+    if (!b.up) {
+      b.bottom = Math.min(b.bottom, w);
+      if (w > b.bottom + BEAT.turn) Object.assign(b, { up: true, top: w, topAt: this.time, at: this.time });
+      return;
+    }
+    if (w > b.top) Object.assign(b, { top: w, topAt: this.time });
+    if (w > b.top - BEAT.turn) return;
+    if (b.top - b.bottom >= BEAT.min) this.events.push({ type: 'flap', amount: b.top - b.bottom, time: b.topAt - b.at });
+    Object.assign(b, { up: false, bottom: w });
   }
 
   onEvent(e) {

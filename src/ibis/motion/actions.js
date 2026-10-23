@@ -11,7 +11,9 @@
 //                     it through the gait, with no foot slide
 //   lock              true: player input does nothing until cancelAfter seconds, then input ends the action
 //   events            optional [{ at, type, ... }]: events at action times, for effects and sound.
-//                     'thump' { amount } kicks the squash spring. dust: 'rump' or 'feet' makes a puff there
+//                     'thump' { amount } kicks the squash spring. dust: 'rump' or 'feet' makes a puff there.
+//                     Sound only (sound.js): 'call' { pitch, gain } a honk, 'hiss' { length }, 'clack'
+//                     { amount } the bill snaps shut, 'stamp' a foot hits the ground
 //   anger             0 to 1: comic anger lines round the head while the action plays (effects.js)
 import { Vector3 } from 'three';
 import { clipPose } from '../rig.js';
@@ -74,9 +76,9 @@ function hop(u) {
 
 // An authored clip from rig.js as an action. It sets the whole pose, so the look and the root heading
 // layers still apply on top.
-function clipAction(name, length) {
+function clipAction(name, length, events) {
   return {
-    length, fadeIn: 0.12, fadeOut: 0.3, mask: ALL, moveMask: UPPER,
+    length, fadeIn: 0.12, fadeOut: 0.3, mask: ALL, moveMask: UPPER, events,
     apply(P, t) {
       const Q = clipPose(name, t);
       for (const key in Q) P[key] = Q[key];
@@ -86,13 +88,15 @@ function clipAction(name, length) {
 
 export const ACTIONS = {
   peck: clipAction('peck', 2 / 1.2),
-  squawk: clipAction('squawk', 1.5),
+  // A honk at each jaw beat.
+  squawk: clipAction('squawk', 1.5, [0.08, 0.58, 1.08].map((at, i) => ({ at, type: 'call', pitch: [1, 0.96, 0.92][i] }))),
   flap: clipAction('flap', 2 / 0.75),
 
   // Two quick hops with happy eyes, a head tilt to one side then the other, a honk at each top, and
   // the wings fluttering. It ends chest out and head up.
   happy: {
     length: 1.25, fadeIn: 0.05, fadeOut: 0.3, mask: ALL, moveMask: UPPER, face: 'happy',
+    events: [{ at: 0.06, type: 'call', pitch: 1.12, gain: 0.8 }, { at: 0.48, type: 'call', pitch: 1.2, gain: 0.8 }],
     apply(P, t) {
       const hops = [0, 0.42];
       let h = 0, honk = 0;
@@ -123,6 +127,11 @@ export const ACTIONS = {
   // "hmph": the head turns away and up with the eyes shut.
   headShake: {
     length: 1.4, fadeIn: 0.04, fadeOut: 0.3, mask: ALL, moveMask: { neck: 1, jaw: 1, face: 1 }, face: 'angry', anger: 1,
+    // The bill shuts at each 1/13 s while the shake dies away, then the stamp.
+    events: [
+      ...Array.from({ length: 9 }, (_, k) => ({ at: (k + 1) / 13, type: 'clack', amount: (1 - (k + 1) / 13 / 0.7) ** 1.5 })),
+      { at: 0.8, type: 'stamp' },
+    ],
     apply(P, t) {
       const shake = t < 0.7 ? Math.sin(TAU * 6.5 * t) * (1 - t / 0.7) ** 1.5 : 0;
       const pull = smoothstep(0, 0.06, t);
@@ -154,6 +163,7 @@ export const ACTIONS = {
   // away and flick the wings are in the animator (prod()).
   flinch: {
     length: 0.45, fadeIn: 0.02, fadeOut: 0.25, mask: HEAD, moveMask: HEAD, face: 'squint',
+    events: [{ at: 0.02, type: 'call', pitch: 1.35, gain: 0.35 }],
     apply(P, t) {
       const k = window4(0, 0.03, 0.2, 0.45, t);
       P.stretch = mix(P.stretch, 0.82, k);
@@ -178,6 +188,7 @@ export const ACTIONS = {
   // open in a hiss that shakes, and the head swaying like a snake.
   threat: {
     length: 1.5, fadeIn: 0.03, fadeOut: 0.25, mask: ALL, moveMask: UPPER, face: 'angry', anger: 1,
+    events: [{ at: 0.06, type: 'hiss', length: 1.2 }],
     apply(P, t) {
       const rise = window4(0, 0.03, 0.05, 0.1, t);
       const k = smoothstep(0.04, 0.12, t) * (1 - smoothstep(1.2, 1.5, t));
@@ -205,7 +216,7 @@ export const ACTIONS = {
   startle: {
     length: 1.75, fadeIn: 0.02, fadeOut: 0.25, mask: ALL, moveMask: ALL, lock: true, cancelAfter: 1.3,
     root: t => (t < 0.06 ? 0 : t < 0.55 ? -1.8 : t < 0.68 ? -0.6 : 0),
-    events: [{ at: 0.66, type: 'thump', amount: 14, dust: 'rump' }],
+    events: [{ at: 0.02, type: 'call', pitch: 1.25 }, { at: 0.66, type: 'thump', amount: 14, dust: 'rump' }],
     apply(P, t) {
       const take = window4(0, 0.02, 0.05, 0.1, t);
       const back = window4(0.05, 0.1, 0.52, 0.62, t);
@@ -253,7 +264,7 @@ export const ACTIONS = {
   stumble: {
     length: 2.0, fadeIn: 0.02, fadeOut: 0.3, mask: ALL, moveMask: ALL, lock: true, cancelAfter: 1.2,
     root: t => (t < 0.15 ? 1.7 : t < 0.7 ? 1.2 : t < 0.85 ? 0.4 : 0),
-    events: [{ at: 0.75, type: 'thump', amount: 8, dust: 'feet' }],
+    events: [{ at: 0.1, type: 'call', pitch: 1.1, gain: 0.6 }, { at: 0.75, type: 'thump', amount: 8, dust: 'feet' }],
     apply(P, t) {
       const caught = window4(0, 0.02, 0.1, 0.18, t);
       const fall = window4(0.05, 0.18, 0.6, 0.8, t);

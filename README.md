@@ -41,12 +41,17 @@ ibis.update(dt);             // moves ibis.object to the character's position an
 ibis.act('happy');           // happy, headShake, threat, startle, stumble, shake, glare, flinch, peck, squawk, flap
 ibis.prod(worldPoint);       // a poke: the reaction gets stronger with each prod
 ibis.character.turnTo(heading);
-ibis.character.events;       // this frame: step, land, jump, shakeOff, ... (for sound)
+ibis.character.events;       // this frame: step, land, jump, flap, call, shakeOff, ...
 
 // Dust puffs, footprints and comic anger lines, for all ibises:
 const fx = new IbisEffects(asset);   // from './ibis/effects.js'
 scene.add(fx.object);
 fx.update(dt, [ibis], camera);       // after ibis.update(dt)
+
+// Sound: steps, wing beats, landings, honks, hiss, bill clacks:
+const sound = new IbisSound();       // from './ibis/sound.js'
+sound.load('/sfx/honk.m4a');
+sound.update([ibis], camera);        // after ibis.update(dt)
 ```
 
 - The renderer must have a stencil buffer: `new THREE.WebGLRenderer({ stencil: true })`. The outline uses it.
@@ -70,6 +75,7 @@ fx.update(dt, [ibis], camera);       // after ibis.update(dt)
 - `ACTIONS` and `FACES` in `actions.js` are data. Add a move there.
 - Feet on the ground stay fixed in the world, so they never slide. Turns pivot on the foot that carries the weight.
 - `IbisEffects` (`src/ibis/effects.js`) adds dust when the bird runs, skids, lands or falls, footprints that fade away (dusty, wet or muddy, from `ibis.mud` and `ibis.wet`), and comic anger lines round the head in angry actions.
+- `IbisSound` (`src/ibis/sound.js`) plays sounds from the same events. The honk is a recording of about 6 KB (`public/sfx/honk.m4a`). The steps, wing beats, landings, hiss, clacks and bin slam are made with Web Audio, with no files.
 
 ### Rig (`src/ibis/rig.js`)
 

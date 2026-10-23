@@ -2,12 +2,13 @@
 // t (fixed time), yaw and pitch (fixed camera, as in sdf.html), scale, count (ibises in a grid), bench
 // (frames to time), mud and wet (0 to 1), root (1: with t, place the bird where the move took it),
 // props (0: no ball and bin in free play), physics (1: show the colliders), env (0 or 1: the street and
-// the sky; on in free play, off in the fixed views, so they still match sdf.html).
+// the sky; on in free play, off in the fixed views, so they still match sdf.html), sound (0: no sound).
 // Free play: WASD or the arrow keys walk, Shift runs, Space jumps (hold to flutter). A tap on the ground
 // walks there; a tap on the bird prods it. The bird can push the football and the wheelie bin.
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { IbisEffects } from './ibis/effects.js';
+import { IbisSound } from './ibis/sound.js';
 import { Ibis, loadIbis } from './ibis/Ibis.js';
 import { Character } from './ibis/motion/character.js';
 import { ARENA, MOVES, playScript, startMove } from './moves.js';
@@ -118,6 +119,9 @@ const ibises = Array.from({ length: count }, (_, i) => {
 const bird = ibises[0];
 const fx = new IbisEffects(asset);
 scene.add(fx.object);
+// Sound only where the frame loop runs: not in the fixed views or the bench.
+const sound = fixedTime === null && !params.has('bench') && params.get('sound') !== '0' ? new IbisSound() : null;
+sound?.load('/sfx/honk.m4a');
 bird.character.controller.bounds = play ? PLAY : { x: [-ARENA - 0.5, ARENA + 0.5], z: [-ARENA - 0.5, ARENA + 0.5] };
 
 // Props in free play: the bird pushes them, kicks and pecks the ball, and runs the bin over.
@@ -134,7 +138,7 @@ if (physics) {
     scene.add(physicsView.object);
   }
 }
-window.demo = { ibises, physics, props, fx, camera, controls, world, sun, grade, renderer, scene, render: draw };   // for the console
+window.demo = { ibises, physics, props, fx, sound, camera, controls, world, sun, grade, renderer, scene, render: draw };   // for the console
 if (count > 1) {
   Object.assign(sun.shadow.camera, { left: -side * 1.5, right: side * 1.5, top: side * 2.5, bottom: -side * 1.5 });
   sun.shadow.camera.updateProjectionMatrix();
@@ -228,11 +232,12 @@ function frame() {
     physics.step(dt);
     for (const prop of props) {
       prop.update();
-      for (const e of prop.events) if (e.type === 'slam') fx.burst(e.points, e.centre);
+      for (const e of prop.events) if (e.type === 'slam') { fx.burst(e.points, e.centre); sound?.slam(e, camera); }
     }
     physicsView?.update();
   }
   fx.update(dt, ibises, camera);
+  sound?.update(ibises, camera);
   // Keep the camera above the ground: the lowest polar angle for this distance.
   const reach = camera.position.distanceTo(controls.target);
   controls.maxPolarAngle = Math.PI / 2 + Math.asin(Math.min(Math.max((controls.target.y - CAM_MIN_Y) / reach, -1), 1));
@@ -317,6 +322,16 @@ for (const [key, name] of [['mud', 'Mud'], ['wet', 'Wet']]) {
   b.onclick = () => {
     weather[key] = weather[key] > 0 ? 0 : 1;
     b.setAttribute('aria-pressed', String(weather[key] > 0));
+  };
+  weatherBar.appendChild(b);
+}
+if (sound) {
+  const b = document.createElement('button');
+  b.textContent = 'Sound';
+  b.setAttribute('aria-pressed', 'true');
+  b.onclick = () => {
+    sound.muted = !sound.muted;
+    b.setAttribute('aria-pressed', String(!sound.muted));
   };
   weatherBar.appendChild(b);
 }
