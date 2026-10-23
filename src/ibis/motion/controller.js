@@ -5,8 +5,8 @@ import { Vector2, Vector3 } from 'three';
 import { approach, clamp, mix, wrapAngle } from './spring.js';
 
 export const MOVE = {
-  slow: 0.85, fast: 2.1,    // top speeds, units per second
-  accel: 7, decel: 10,      // units per second squared
+  slow: 1.25, fast: 3.0,    // top speeds, units per second
+  accel: 10, decel: 14,     // units per second squared
   airControl: 0.4,          // part of accel and turn rate in the air
   turnRate: [6.5, 8],       // radians per second: on the spot (each step carries part of the turn), walking
   turnGain: 14,             // turn speed per radian of heading error: the turn eases out as it ends

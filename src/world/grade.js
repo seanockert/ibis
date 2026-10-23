@@ -11,9 +11,9 @@ import { Color, HalfFloatType, ShaderMaterial, Vector2, WebGLRenderTarget } from
 import { FullScreenQuad } from 'three/examples/jsm/postprocessing/Pass.js';
 
 export const GRADE = {
-  shade: new Color(0.56, 0.52, 0.74),   // sRGB. Dark parts lift toward this
-  lift: 0.10,                           // how far the darkest parts lift
-  warm: new Color(1.04, 1.0, 0.94),     // sRGB gain on the light parts, but not on blue (the sky)
+  shade: new Color(0.50, 0.50, 0.78),   // sRGB. Dark parts lift toward this cool lavender
+  lift: 0.12,                           // how far the darkest parts lift
+  warm: new Color(1.06, 1.01, 0.91),    // sRGB gain on the light parts, but not on blue (the sky)
   saturation: 1.05,
   vignette: { strength: 0.22, colour: new Color(0.55, 0.38, 0.30) },   // sRGB, warm brown
 };

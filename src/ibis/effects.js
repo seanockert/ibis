@@ -15,7 +15,7 @@ import {
   Matrix4, Mesh, MeshBasicMaterial, Quaternion, ShaderMaterial, Vector3,
 } from 'three';
 import { Spring, clamp, hash, smoothstep } from './motion/spring.js';
-import { NOISE } from './materials.js';
+import { lightUniforms, NOISE, TOON, TOON_VERTEX } from './materials.js';
 import { toeDir, toeLength } from './rig.js';
 
 const MAX_PUFFS = 96;
@@ -30,19 +30,21 @@ const MUD_DUST_LINE = new Color().setRGB(0.33, 0.24, 0.18, 'srgb');
 const DUST_TIME = 0.6;   // all puffs: life times this, drift and drag faster to match, so they go as far
 const INK = new Color().setRGB(0.15, 0.16, 0.22, 'srgb');
 
-const RUN_DUST_SPEED = 1.4;   // steps make dust above this speed
-const SKID_DECEL = -6;        // a speed change per second below this, at a run, is a skid
-const SKID_SPEED = 1.2;
+const RUN_DUST_SPEED = 1.9;   // steps make dust above this speed
+const SKID_DECEL = -8.5;      // a speed change per second below this, at a run, is a skid
+const SKID_SPEED = 1.7;
 const SKID_EVERY = 0.05;      // seconds between skid puffs
 
-// Footprints. The colour and strength come from the feet: dusty, wet or muddy. A ground material can
-// replace printStyle() later, with a style for each surface.
+// Footprints. The colour and strength come from the surface (surface(), set by the world: pressed grass,
+// dust on the footpath and the road) and the feet: wet makes it darker, mud brown. Each print has a lit and
+// a shade colour, as the ground has, and takes the sun's shadow.
 const MAX_PRINTS = 64;        // for each foot
 const PRINT_HOLD = 2.5;       // seconds at full strength
 const PRINT_FADE = 3.5;       // seconds to fade away
 const PRINT_DUST = [new Color().setRGB(0.80, 0.76, 0.70, 'srgb'), 0.45];
 const PRINT_WET = [new Color().setRGB(0.62, 0.60, 0.63, 'srgb'), 0.6];
 const PRINT_MUD = [new Color().setRGB(0.42, 0.31, 0.22, 'srgb'), 0.85];
+const PRINT_MUD_SHADE = new Color().setRGB(0.30, 0.25, 0.27, 'srgb');
 
 // Anger lines: angles (radians, 0 is to the right of the head on screen) round the top of the head.
 const ANGER_ANGLES = [0.65, 1.35, 2.05];
@@ -131,17 +133,26 @@ function printGeometry(side) {
 function printMaterial() {
   return new ShaderMaterial({
     transparent: true, depthWrite: true, depthFunc: LessDepth, side: DoubleSide,
+    lights: true, uniforms: lightUniforms(),
     vertexShader: /* glsl */`
+      ${TOON_VERTEX}
       attribute vec4 aPrint;
+      attribute vec3 aShade;
       varying vec4 vPrint;
+      varying vec3 vShade;
       void main() {
         vPrint = aPrint;
-        gl_Position = projectionMatrix * modelViewMatrix * instanceMatrix * vec4(position, 1.0);
+        vShade = aShade;
+        vec4 world = modelMatrix * instanceMatrix * vec4(position, 1.0);
+        gl_Position = projectionMatrix * viewMatrix * world;
+        toonShadowCoord(world, vec3(0, 1, 0));
       }`,
     fragmentShader: /* glsl */`
+      ${TOON}
       varying vec4 vPrint;
+      varying vec3 vShade;
       void main() {
-        gl_FragColor = vPrint;
+        gl_FragColor = vec4(mix(vShade, vPrint.rgb, sunShadow()), vPrint.a);
         #include <colorspace_fragment>
       }`,
   });
@@ -180,14 +191,19 @@ export class IbisEffects {
     this.prints = [1, -1].map(side => {
       const geometry = printGeometry(side);
       const color = new InstancedBufferAttribute(new Float32Array(MAX_PRINTS * 4), 4);
+      const shade = new InstancedBufferAttribute(new Float32Array(MAX_PRINTS * 3), 3);
       geometry.setAttribute('aPrint', color);
+      geometry.setAttribute('aShade', shade);
       const mesh = new InstancedMesh(geometry, printMaterial(), MAX_PRINTS);
       mesh.count = 0;
+      mesh.receiveShadow = true;
       mesh.frustumCulled = false;
       mesh.renderOrder = -0.5;   // after the ground, before the birds
       this.object.add(mesh);
-      return { mesh, color, list: [] };   // list: { matrix, rgb, alpha, age }
+      return { mesh, color, shade, list: [] };   // list: { matrix, rgb, shade, alpha, age }
     });
+    // (x, z) => { lit, shade, alpha, wet: [lit, shade] } for a print on the surface there, or null for dust.
+    this.surface = null;
     this.time = 0;
   }
 
@@ -247,9 +263,10 @@ export class IbisEffects {
         p.mesh.setMatrixAt(i, f.matrix);
         const k = 1 - smoothstep(PRINT_HOLD, PRINT_HOLD + PRINT_FADE, f.age);
         p.color.setXYZW(i, f.rgb.r, f.rgb.g, f.rgb.b, f.alpha * k);
+        p.shade.setXYZ(i, f.shade.r, f.shade.g, f.shade.b);
       });
       p.mesh.count = p.list.length;
-      p.mesh.instanceMatrix.needsUpdate = p.color.needsUpdate = true;
+      p.mesh.instanceMatrix.needsUpdate = p.color.needsUpdate = p.shade.needsUpdate = true;
     }
   }
 
@@ -296,11 +313,15 @@ export class IbisEffects {
     } else this.skidClock.set(ibis, clock);
   }
 
-  // Colour and strength of a print from the state of the feet. Mud wins over wet, wet over dust.
-  printStyle(ibis) {
-    const rgb = PRINT_DUST[0].clone().lerp(PRINT_WET[0], ibis.wet).lerp(PRINT_MUD[0], ibis.mud);
-    const alpha = Math.max(PRINT_DUST[1] + (PRINT_WET[1] - PRINT_DUST[1]) * ibis.wet, PRINT_MUD[1] * ibis.mud);
-    return { rgb, alpha };
+  // Colour and strength of a print from the surface at (x, z) and the state of the feet. Mud wins over
+  // wet, wet over dry. With no surface: dust, the same in sun and shade.
+  printStyle(ibis, x, z) {
+    const dry = this.surface?.(x, z) ?? { lit: PRINT_DUST[0], shade: PRINT_DUST[0], alpha: PRINT_DUST[1] };
+    const [wetLit, wetShade] = dry.wet ?? [PRINT_WET[0], PRINT_WET[0]];
+    const rgb = dry.lit.clone().lerp(wetLit, ibis.wet).lerp(PRINT_MUD[0], ibis.mud);
+    const shade = dry.shade.clone().lerp(wetShade, ibis.wet).lerp(PRINT_MUD_SHADE, ibis.mud);
+    const alpha = Math.max(dry.alpha + (PRINT_WET[1] - dry.alpha) * ibis.wet, PRINT_MUD[1] * ibis.mud);
+    return { rgb, shade, alpha };
   }
 
   // A print where the foot is, turned as the foot is (body heading, foot turn and toe splay).
@@ -313,7 +334,7 @@ export class IbisEffects {
     const p = this.prints[side > 0 ? 0 : 1];
     if (p.list.length >= MAX_PRINTS) p.list.shift();
     const matrix = new Matrix4().makeRotationY(yaw).setPosition(at).scale(new Vector3().setScalar(ibis.object.scale.x));
-    p.list.push({ matrix, ...this.printStyle(ibis), age: 0 });
+    p.list.push({ matrix, ...this.printStyle(ibis, at.x, at.z), age: 0 });
   }
 
   // Bars in an arc over the head, turned to the camera. They pop in with an overshoot and quiver.

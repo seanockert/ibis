@@ -17,7 +17,8 @@ import { Ball, Bin } from './world/props.js';
 import { Grade } from './world/grade.js';
 import { Backdrop } from './world/backdrop.js';
 import { Sky } from './world/sky.js';
-import { inPlay, PLAY, Street } from './world/street.js';
+import { inPlay, PLAY, printOn, Street } from './world/street.js';
+import { Tufts } from './world/tufts.js';
 
 const FOCAL = 3.2;   // the SDF view's lens: vertical half-angle atan(1 / FOCAL)
 const CAM_DIST = 6.2;        // close camera, as in the SDF view: screenshots and the grid
@@ -88,7 +89,7 @@ scene.add(sun, sun.target);
 
 // Ground: plain background colour, with the shade colour where the shadow falls. It draws first and
 // writes no depth, so it can't cover the outline round the feet.
-const world = env ? [new Sky(asset.sun), new Street(), new Backdrop()] : [];
+const world = env ? [new Sky(asset.sun), new Street(), new Tufts(), new Backdrop()] : [];
 for (const part of world) scene.add(part.object);
 // With the street: bloom and the warm colour grade on the whole frame.
 const grade = env ? new Grade(renderer, scene, camera) : null;
@@ -118,6 +119,7 @@ const ibises = Array.from({ length: count }, (_, i) => {
 });
 const bird = ibises[0];
 const fx = new IbisEffects(asset);
+if (env) fx.surface = printOn;   // footprints take the colour of the strip: pressed grass, dust
 scene.add(fx.object);
 // Sound only where the frame loop runs: not in the fixed views or the bench.
 const sound = fixedTime === null && !params.has('bench') && params.get('sound') !== '0' ? new IbisSound() : null;
@@ -245,7 +247,7 @@ function frame() {
     follow(dt);
     shadowTo(controls.target);
   }
-  for (const part of world) part.update?.(camera);
+  for (const part of world) part.update?.(camera, dt, ibises);
   draw();
 }
 
@@ -361,7 +363,7 @@ if (params.has('bench')) {
     controls.update();
     fx.update(0, ibises, camera);
   }
-  for (const part of world) part.update?.(camera);
+  for (const part of world) part.update?.(camera, 0, ibises);
   draw();
   document.title = 'DONE';
 } else {

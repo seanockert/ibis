@@ -13,7 +13,7 @@ import { Spring, TAU, clamp, damp, hash, mix, smoothstep, window4, wrapAngle } f
 
 // Waddle. Pairs are [slow, fast]; the gait blends between them by speed.
 export const GAIT = {
-  cadence: [1.45, 2.6],   // foot cycles per second: short legs, quick steps
+  cadence: [1.75, 3.1],   // foot cycles per second: short legs, quick steps
   duty: [0.62, 0.5],      // part of the cycle that a foot is on the ground
   lift: [0.11, 0.09],     // foot lift in the swing
   width: [0.25, 0.27],    // foot distance from the middle. Slow is the idle stance

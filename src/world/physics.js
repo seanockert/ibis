@@ -54,8 +54,8 @@ export const BIRD = {
   solid: { radius: 0.45, halfHeight: 0.3, at: [0, 0.8, 0] },
   head: { radius: 0.24, at: [0, 1.37, 0.53] },
   mass: 3, strength: 150,      // kg, and the largest push from the solid in N
-  shove: 60,                   // forehead push in N for each unit of speed into the prop. Tips the bin at a run
-  bump: 14,                    // impulse in N s for each unit of speed when the forehead first touches,
+  shove: 41,                   // forehead push in N for each unit of speed into the prop. Tips the bin at a run
+  bump: 10,                    // impulse in N s for each unit of speed when the forehead first touches,
   bounce: 1.8,                 // up to this many times the bird's speed where it hits (1 + restitution)
   // Shove rays: start, length, side offsets at head height, and the height of one more at the beak tip.
   look: { at: [0, 1.4, 0.2], ahead: 2.0, across: 0.22, low: 0.95 },
