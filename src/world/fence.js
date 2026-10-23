@@ -39,14 +39,9 @@ export class Fence {
   constructor(asset, physics = null) {
     const runs = fenceRuns();
     const [pw, ph] = FENCE.post, [railTop, rh, rd] = FENCE.rail;
-    // Posts at the ends of each run and spaced along it. Corners are shared.
-    const posts = new Map(), rails = [];
+    const rails = [];
     for (const [a, b] of runs) {
-      const len = a.distanceTo(b), n = Math.max(1, Math.round(len / FENCE.spacing));
-      for (let i = 0; i <= n; i++) {
-        const p = a.clone().lerp(b, i / n);
-        posts.set(`${p.x.toFixed(2)},${p.z.toFixed(2)}`, p);
-      }
+      const n = postCount(a, b);
       for (let i = 0; i < n; i++) rails.push([a.clone().lerp(b, i / n), a.clone().lerp(b, (i + 1) / n)]);
       // The wall: a thin box along the run, as high as the posts.
       if (physics) {
@@ -65,7 +60,7 @@ export class Fence {
     };
     const postGeometry = new RoundedBoxGeometry(pw, ph, pw, 2, 0.06).translate(0, ph / 2, 0);
     const q = new Quaternion(), up = new Vector3(0, 1, 0);
-    const postMeshes = instanced(postGeometry, [...posts.values()], p => new Matrix4().setPosition(p));
+    const postMeshes = instanced(postGeometry, fencePosts(), p => new Matrix4().setPosition(p));
     // Rails: a unit long box, stretched to the gap between two posts.
     const railGeometry = new RoundedBoxGeometry(1, rh, rd, 2, 0.05).translate(0, railTop - rh / 2, 0);
     const railMeshes = instanced(railGeometry, rails, ([a, b]) => {
@@ -78,6 +73,22 @@ export class Fence {
     this.object = postMeshes[0];
     this.object.add(postMeshes[1], ...railMeshes, this.wire);
   }
+}
+
+const postCount = (a, b) => Math.max(1, Math.round(a.distanceTo(b) / FENCE.spacing));
+
+// Post places: at the ends of each run and spaced along it. Corners are shared. The tufts (tufts.js) grow
+// round them.
+export function fencePosts() {
+  const posts = new Map();
+  for (const [a, b] of fenceRuns()) {
+    const n = postCount(a, b);
+    for (let i = 0; i <= n; i++) {
+      const p = a.clone().lerp(b, i / n);
+      posts.set(`${p.x.toFixed(2)},${p.z.toFixed(2)}`, p);
+    }
+  }
+  return [...posts.values()];
 }
 
 // Straight runs [a, b] on the ground: the near and far sides, along the yard edges.

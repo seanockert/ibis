@@ -12,7 +12,7 @@
 // The honk is a recording (public/sfx/honk.m4a: 0.375 s, AAC 32 kbps, about 6 KB), played at a
 // different pitch each time. All other sounds are filtered noise and tones made here, with no files:
 // steps (with a squelch when wet or muddy), scuffs, wing beats, landings, thumps, the threat hiss, bill
-// clacks, puddle splashes and the bin and box slams. Each sound pans and fades with its place in the camera's view.
+// clacks, the bill's snap on a prop it picks up, puddle splashes and the bin and box slams. Each sound pans and fades with its place in the camera's view.
 // Browsers start audio only after a user input, so a key or tap starts it. Until then, and while
 // muted, the context is suspended: no sound plays or queues, and the audio thread does no work.
 import { Vector3 } from 'three';
@@ -36,12 +36,19 @@ export const SOUND = {
     call: 0.9,          // the honk
     hiss: 0.35,         // the threat hiss
     clack: 1,           // the bill snaps shut
+    pick: 0.8,          // the bill takes hold of a prop (a peck picks it up)
     slam: { bin: 1, box: 1, cereal: 1, glass: 0.45 },   // props that fall or hit. glass: the stubbies
     squash: 0.8,        // a cereal box crushed flat
-    splash: 0.9,        // a foot or a jump in the puddle
+    splash: 0.6,        // a foot or a jump in the puddle
   },
   runSpeed: 1.4,        // steps are louder above this speed
   honkPitch: 0.06,      // the honk's pitch changes by up to this part each time
+};
+
+// Puddle slosh: lumps of low noise, each [start (s), filter from (Hz), filter to (Hz), gain].
+const SLOSH = {
+  step: [[0, 320, 750, 0.5], [0.07, 650, 280, 0.4], [0.15, 350, 520, 0.22]],
+  land: [[0, 400, 900, 0.6], [0.06, 800, 300, 0.5], [0.14, 380, 650, 0.4], [0.23, 550, 260, 0.25]],
 };
 const L = SOUND.levels;
 
@@ -96,6 +103,7 @@ export class IbisSound {
         if (e.type === 'call') this.call(place, e.pitch ?? 1, e.gain ?? 1);
         if (e.type === 'hiss') this.hiss(place, e.length ?? 1);
         if (e.type === 'clack') this.clack(place, e.amount ?? 1);
+        if (e.type === 'pick') this.pick(place, e.hold);
       }
     }
   }
@@ -144,34 +152,40 @@ export class IbisSound {
     this.burst(v, { length: 0.2, gain: 0.3, filter: ['lowpass', 1200, 400, 0.7] });
   }
 
-  // Puddle splash: a low slosh, a plop, and drops that fall back. Louder and longer for a jump.
+  // Puddle splash: a slosh of soft lumps of low noise, each with a slow filter sweep (water that moves
+  // round the foot), then a low squelch. A jump has more lumps and a few dull drops. No tones and no
+  // fast attacks: they made a step sound sharp.
   splash(e, camera) {
     if (this.ctx.state !== 'running') return;
     this.camera = camera;
-    const s = e.strength, v = this.voice(this.at.copy(e.at), L.splash * (0.35 + 0.65 * s));
+    const s = e.strength, v = this.voice(this.at.copy(e.at), L.splash * (e.land ? 0.5 + 0.5 * s : 0.25 + 0.3 * s));
     if (!v) return;
-    const length = e.land ? 0.35 : 0.18;
-    this.burst(v, { length, gain: 0.8, attack: 0.008, filter: ['lowpass', 1600 * this.vary(0.2), 300, 0.8] });
-    this.burst(v, { length: 0.08, gain: 0.6, filter: ['bandpass', 650 * this.vary(0.2), 280, 3] });
-    this.tone(v, { length: 0.07, gain: 0.3, f0: 420 * this.vary(0.15), f1: 170 });
-    const drops = Math.round((e.land ? 4 : 1) + 3 * s);
-    for (let i = 0; i < drops; i++) {
-      this.burst(v, { at: 0.04 + length * this.rand(), length: 0.03, gain: 0.25, filter: ['bandpass', 2400 * this.vary(0.35), 1500, 4] });
+    const lumps = e.land ? SLOSH.land : SLOSH.step;
+    for (const [at, f0, f1, gain] of lumps) {
+      this.burst(v, { at: at * this.vary(0.2), length: 0.16, gain, attack: 0.045, filter: ['lowpass', f0 * this.vary(0.15), f1, 1.4] });
+    }
+    // Squelch: the foot pulls out of the mud.
+    const at = lumps[lumps.length - 1][0] + 0.05;
+    this.burst(v, { at, length: 0.14, gain: 0.35, attack: 0.05, filter: ['bandpass', 220 * this.vary(0.15), 450, 2.5] });
+    if (!e.land) return;
+    for (let i = 0; i < 2 + 2 * s; i++) {
+      this.burst(v, { at: 0.1 + 0.3 * this.rand(), length: 0.05, gain: 0.08, attack: 0.015, filter: ['lowpass', 900 * this.vary(0.3), 500, 1] });
     }
   }
 
   // ---- the sounds ----
 
-  // A soft tap of the toes. A scuff scrapes. Wet or muddy feet squelch.
+  // A soft pat of a padded foot: low, muffled noise with a slow attack and a dull body. No high click.
+  // A scuff scrapes. Wet or muddy feet squelch.
   step(place, speed, scuff, ibis, level) {
     const run = clamp((speed - SOUND.runSpeed) / 2, 0, 1);
     const v = this.voice(place, level * (0.25 + 0.25 * run));
     if (!v) return;
-    this.burst(v, { length: 0.05, gain: 1, attack: 0.002, filter: ['bandpass', 1800 * this.vary(0.2), 1200, 1.2] });
-    this.tone(v, { length: 0.04, gain: 0.5, f0: 190 * this.vary(0.15), f1: 90 });
+    this.burst(v, { length: 0.07, gain: 1, attack: 0.008, filter: ['lowpass', 600 * this.vary(0.2), 220, 0.7] });
+    this.tone(v, { length: 0.06, gain: 0.45, f0: 120 * this.vary(0.15), f1: 60 });
     if (scuff) this.burst(v, { length: 0.16, gain: L.scuff, attack: 0.01, filter: ['lowpass', 3500, 700, 0.7] });
     const wet = Math.max(ibis.wet, ibis.mud);
-    if (wet > 0.1) this.burst(v, { at: 0.01, length: 0.09, gain: L.squelch * wet, attack: 0.01, filter: ['bandpass', 500, 2200 * this.vary(0.2), 5] });
+    if (wet > 0.1) this.burst(v, { at: 0.01, length: 0.09, gain: L.squelch * wet, attack: 0.02, filter: ['bandpass', 400, 1100 * this.vary(0.2), 3] });
   }
 
   // A wing beat: a soft whoosh of feathers with a low push of air. A higher, faster beat is louder.
@@ -232,6 +246,16 @@ export class IbisSound {
     if (!v) return;
     this.burst(v, { length: 0.025, gain: 1, attack: 0.001, filter: ['bandpass', 2600 * this.vary(0.15), 2600, 3] });
     this.tone(v, { length: 0.02, gain: 0.4, f0: 900, f1: 600, type: 'triangle' });
+  }
+
+  // The bill takes hold of a prop: a soft, muffled snap, lower than a clack. A stubby (hold 'round')
+  // adds a faint tick of glass.
+  pick(place, hold) {
+    const v = this.voice(place, L.pick * 0.4);
+    if (!v) return;
+    this.burst(v, { length: 0.045, gain: 1, attack: 0.003, filter: ['bandpass', 1500 * this.vary(0.15), 700, 2] });
+    this.tone(v, { length: 0.05, gain: 0.35, f0: 320 * this.vary(0.1), f1: 160 });
+    if (hold === 'round') this.tone(v, { at: 0.005, length: 0.06, gain: 0.06, f0: 3200 * this.vary(0.1), f1: 3150 });
   }
 
   // ---- parts ----

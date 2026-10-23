@@ -269,9 +269,11 @@ function frame() {
       ibis[key] = Math.min(Math.max(weather[key], ibis[key] - step), ibis[key] + step);
     }
     ibis.update(dt);
-    // A body shake throws off half the water.
+    // A body shake throws off half the water and half the mud, as drops that fly off.
     if (ibis.character.events.some(e => e.type === 'shakeOff')) {
+      fx.shakeOff(ibis);
       weather.wet = ibis.wet = Math.max(ibis.wet - 0.5, 0);
+      weather.mud = ibis.mud = Math.max(ibis.mud - 0.5, 0);
       wetButton.setAttribute('aria-pressed', String(weather.wet > 0));
     }
   });
@@ -303,7 +305,8 @@ function frame() {
     follow(dt);
     shadowTo(controls.target);
   }
-  for (const part of world) part.update?.(camera, dt, ibises);
+  const solids = props.flatMap(prop => prop.solids?.() ?? []);   // the tufts hide under the props
+  for (const part of world) part.update?.(camera, dt, ibises, solids);
   draw();
 }
 
@@ -383,8 +386,10 @@ const DIAMOND = [   // grid cell, move
   ['3 / 2', 'Jump'],
 ];
 // Not in the free play row: the joystick and the diamond do them, or the bird does them itself (Shake
-// head in the prod chain, Stumble when it runs into the bin or is prodded at a run).
-const PAD = ['Idle', 'Walk', 'Run', 'Jump', 'Peck', 'Squawk', 'Threat', 'Turn', 'Prod', 'Shake head', 'Stumble'];
+// head in the prod chain, Startle at the end of it, Happy from Squawk, Stumble when it runs into the bin or
+// is prodded at a run).
+const PAD = ['Idle', 'Walk', 'Run', 'Jump', 'Peck', 'Squawk', 'Threat', 'Turn', 'Prod', 'Shake head', 'Stumble',
+  'Happy', 'Startle'];
 
 // Jump: on while a pointer holds it.
 function hold(b, set) {

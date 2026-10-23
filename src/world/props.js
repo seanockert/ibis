@@ -48,6 +48,9 @@ export class Ball {
   events = [];
 
   update() { place(this.object, this.physics.body(this.id)); }
+
+  // The solids, for the grass tufts (tufts.js): the body, the half size and round (an ellipsoid).
+  solids() { return [{ body: this.physics.body(this.id), half: FOOTY.radii, round: true }]; }
 }
 
 // Wheelie bin: an upright box on two back wheels, about one and a half times the bird's height, with
@@ -87,6 +90,7 @@ export class Bin {
     const group = physics.newGroup();
     this.physics = physics;
     this.half = tub.map(v => v / 2);
+    this.lidHalf = lid.map(v => v / 2);
     this.events = [];
     this.slam = new Slam('bin', this.half, BIN.slam);
     this.id = physics.addHollowBox(tub, {
@@ -135,6 +139,10 @@ export class Bin {
     this.physics.hingeTo(this.hinge, -Math.min(BIN.flap.tilt * tilt + BIN.flap.spin * spin, BIN.lid.open));
     this.events = this.slam.update(tub);
   }
+
+  solids() {
+    return [{ body: this.physics.body(this.id), half: this.half }, { body: this.physics.body(this.lidId), half: this.lidHalf }];
+  }
 }
 
 // Cardboard boxes: 60 to 70% of the bird's height, light, so a walk slides one and a run knocks it over.
@@ -159,7 +167,9 @@ export class Box {
     const quaternion = [0, Math.sin(heading / 2), 0, Math.cos(heading / 2)];
     const group = physics.newGroup();
     this.physics = physics;
-    this.slam = new Slam('box', tub.map(v => v / 2), CARTON.slam);
+    this.half = tub.map(v => v / 2);
+    this.flapHalf = flap.map(v => v / 2);
+    this.slam = new Slam('box', this.half, CARTON.slam);
     this.events = [];
     this.id = physics.addHollowBox(tub, { position: world([0, tub[1] / 2, 0]), quaternion, mass: CARTON.mass, friction: CARTON.friction, group, wall: CARTON.wall });
     // A flap on each long side, hinged on the top edge, from the edge to the middle. The axis turns
@@ -196,6 +206,10 @@ export class Box {
     }
     this.events = this.slam.update(tub);
   }
+
+  solids() {
+    return [{ body: this.physics.body(this.id), half: this.half }, ...this.flaps.map(f => ({ body: this.physics.body(f.id), half: this.flapHalf }))];
+  }
 }
 
 // Cereal boxes: small, flat and tall (about 40% of the bird's height), and light: a light prop, as the
@@ -205,6 +219,7 @@ export class Box {
 // on.
 export const CEREAL = {
   mass: 0.3, friction: 0.5,
+  bite: 0.1,   // a peck holds the box by its side edge, this far in the bill (grab in physics.js)
   slam: { spin: 3.0, keep: 0.5, tilt: 1.0, fast: 0.6, strong: 4, low: 0.2 },
   // thick: crushed size, units. bulge: the other sides grow this much. reach: a foot this near the top
   // counts as on it. toes: a point this far ahead of the ankle counts too. width: the toes spread this
@@ -222,12 +237,13 @@ export class Cereal {
     const [w, h, d] = size, P = CEREAL.prints[print], t = 0.004;
     this.physics = physics;
     this.size = size;
+    this.half = size.map(v => v / 2);   // of the body: the sheet after squash()
     this.squashed = false;
     this.slam = new Slam('cereal', size.map(v => v / 2), CEREAL.slam);
     this.events = [];
     this.id = physics.addBox(size, {
       position: [x, h / 2, z], quaternion: [0, Math.sin(heading / 2), 0, Math.cos(heading / 2)],
-      mass: CEREAL.mass, friction: CEREAL.friction, light: true,
+      mass: CEREAL.mass, friction: CEREAL.friction, light: true, grab: { hold: 'flat', edge: w / 2 - CEREAL.bite },
     });
     this.object = new Group();
     this.print = new Group();   // the mesh: squash() scales it
@@ -250,9 +266,12 @@ export class Cereal {
   update(ibises = []) {
     const body = this.physics.body(this.id);
     place(this.object, body);
+    if (this.physics.held(this.id)) { this.slam.peak.spin = 0; this.events = []; return; }   // in a bill
     this.events = this.squashed ? [] : this.slam.update(body);
     if (!this.squashed && ibises.some(ibis => this.under(ibis, body))) this.squash(body);
   }
+
+  solids() { return [{ body: this.physics.body(this.id), half: this.half }]; }
 
   // The side of the box that faces up: its axis (0 x, 1 y, 2 z), its world direction, out of the top.
   up(body) {
@@ -298,6 +317,7 @@ export class Cereal {
     this.physics.remove(this.id);
     this.id = this.physics.addBox(size, { position: centre.toArray(), quaternion: flat.toArray(), mass: CEREAL.mass, friction: CEREAL.friction });
     this.print.scale.set(C.bulge, C.bulge, C.thick / d);
+    this.half = size.map(v => v / 2);
     this.squashed = true;
     place(this.object, this.physics.body(this.id));
     // Puffs from the four corners of the sheet.

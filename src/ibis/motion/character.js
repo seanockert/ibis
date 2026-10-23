@@ -34,14 +34,15 @@ export class Character {
   get pose() { return this.animator.pose; }
   get action() { return this.animator.action; }
 
-  act(name, options) { this.animator.play(name, options); }
+  // A peck with a prop in the bill drops it.
+  act(name, options) { this.animator.play(name === 'peck' && this.controller.carry !== null ? 'drop' : name, options); }
   stop() { this.animator.stop(); }
   lookAt(heading, seconds = 1.5) { this.animator.lookAt(heading, seconds); }
   turnTo(heading) { this.controller.turnTo(heading); }
 
   // A prod (a click or a tap) at a point in character space. Each prod soon after the last one annoys
   // the bird more: it looks away, then glares, then shakes its head, then shakes itself, then turns and
-  // threatens. A prod at a run trips it.
+  // startles. A prod at a run trips it.
   prod(point) {
     const a = this.animator;
     a.prod(point);
@@ -53,7 +54,7 @@ export class Character {
     else if (this.prods === 2) { this.act('glare'); a.lookAt(toward, 1.2); }
     else if (this.prods === 3) this.act('headShake');
     else if (this.prods === 4) this.act('shake');
-    else { this.prods = 0; this.turnTo(toward); this.act('threat'); }
+    else { this.prods = 0; this.turnTo(toward); this.act('startle'); }
   }
 
   // The bird runs into something heavy (src/world/physics.js). At a full run it sometimes trips over it.

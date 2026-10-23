@@ -35,12 +35,17 @@
 // Room: actions move the head (a peck, a threat). Each sub step, rays from the chest to the posed head
 // and bill find a heavy prop in the way. The bird steps back by the overlap and the prop gets a push,
 // so the action has room and the beak stays out.
+//
+// Grab: a peck ('grab' event at the bottom of the jab) picks up the nearest grabbable prop near the
+// bill (addHull(..., { grab: true })). The next peck is a drop (Character.act): the bill opens, 'drop'. A held prop is kinematic on the
+// ghost layer (it touches nothing) and follows the bill, crosswise. On the drop it is dynamic again,
+// with the bill's speed.
 import {
   CastRayStatus, MotionType, MotorState, SpringMode, addBroadphaseLayer, addObjectLayer, box, capsule, castRay, convexHull,
   createClosestCastRayCollector, createDefaultCastRaySettings, createWorld, createWorldSettings, enableCollision, filter,
   compound, hingeConstraint, kcc, motionProperties, offsetCenterOfMass, registerConstraints, registerShapes, rigidBody, sphere, updateWorld,
 } from 'crashcat';
-import { Quaternion, Vector3 } from 'three';
+import { Matrix4, Quaternion, Vector3 } from 'three';
 import { GROUND } from '../ibis/motion/controller.js';
 import { HEAD_SCALE } from '../ibis/rig.js';
 
@@ -80,6 +85,19 @@ export const BIRD = {
   roomSpeed: 1,                // up to this speed of the prop where the head is
   foot: 0.13, footUp: 0.1,     // foot spheres: radius, height above the ankle
   peck: 0.2,                   // head sphere that follows the rig
+};
+// Grab: reach, the largest gap from the bill tip (head space, BIRD.reach) to a prop, so the aim can be
+// rough. holds: how the bill holds each kind of prop. jaw: the bill opens this far, so the gap fits the
+// prop's thickness. grip: head space, the middle of that gap (the bill curves down, so a wider jaw moves
+// it down and back). out: the direction out of the gap, between the two bills. The three go together:
+// change them together, from the bill shapes in model.glsl. round: a stubby (0.4 across). flat: a
+// cereal box (0.2 thick).
+export const GRAB = {
+  tip: [0, -0.42, 0.86], reach: 0.75,
+  holds: {
+    round: { jaw: 0.7, grip: [0, -0.51, 0.66], out: [0, -0.89, 0.45] },
+    flat: { jaw: 0.37, grip: [0, -0.46, 0.73], out: [0, -0.87, 0.48] },
+  },
 };
 const LIMB_TELEPORT = 1;       // a limb that moves farther than this in a frame jumps there: no kick
 
@@ -198,13 +216,23 @@ export class Physics {
   }
 
   // group: a bit from newGroup(). Bodies with the same group don't collide, as a bin and its lid.
-  addDynamic(shape, { position, quaternion = [0, 0, 0, 1], mass, friction = 0.6, restitution = 0, damping = 0.05, light = false, group }) {
-    return rigidBody.create(this.world, {
+  // grab: a peck can pick it up (light props only). { hold, edge }: hold, a kind in GRAB.holds; edge,
+  // the prop's middle sits this far out of the bill from the grip, so the bill holds it by an edge. A
+  // held prop lies with its y across the bill (along the head's x), its x out of the bill and its z
+  // across the gap.
+  addDynamic(shape, { position, quaternion = [0, 0, 0, 1], mass, friction = 0.6, restitution = 0, damping = 0.05, light = false, group, grab = false }) {
+    const id = rigidBody.create(this.world, {
       motionType: MotionType.DYNAMIC, objectLayer: light ? this.layers.light : this.layers.heavy, shape,
       position, quaternion, mass, friction, restitution, linearDamping: damping, angularDamping: damping,
       ...(group && { collisionGroups: group, collisionMask: ~group >>> 0 }),
     }).id;
+    if (grab && light) (this.grabbable ??= new Map()).set(id, { edge: 0, ...grab, ...GRAB.holds[grab.hold] });
+    else (this.bulky ??= new Set()).add(id);
+    return id;
   }
+
+  // True while a bird holds the body in its bill.
+  held(id) { return this.birds.some(b => b.held === id); }
 
   newGroup() {
     this.groups = (this.groups ?? 0) + 1;
@@ -229,7 +257,11 @@ export class Physics {
 
   body(id) { return rigidBody.get(this.world, id); }
 
-  remove(id) { rigidBody.remove(this.world, rigidBody.get(this.world, id)); }
+  remove(id) {
+    this.bulky?.delete(id);
+    this.grabbable?.delete(id);
+    rigidBody.remove(this.world, rigidBody.get(this.world, id));
+  }
 
   impulse(id, impulse, at) { rigidBody.addImpulseAtPosition(this.world, this.body(id), impulse, at); }
 
@@ -244,7 +276,7 @@ export class Physics {
     const limb = r => rigidBody.create(this.world, {
       motionType: MotionType.KINEMATIC, objectLayer: L.limb, shape: sphere.create({ radius: r }), position: [0, -10, 0],
     }).id;
-    const bird = { ibis, kcc: k, limbs: [limb(BIRD.foot), limb(BIRD.foot), limb(BIRD.peck)], placed: false, touching: false, under: null, inside: null };
+    const bird = { ibis, kcc: k, limbs: [limb(BIRD.foot), limb(BIRD.foot), limb(BIRD.peck)], held: null, placed: false, touching: false, under: null, inside: null };
     this.birds.push(bird);
     c.collide = (controller, dt) => this.moveBird(bird, controller, dt);
     c.controller.groundAt = (x, z, out) => this.groundAt(x, z, c.position.y + GROUND.stepUp, out);
@@ -462,10 +494,78 @@ export class Physics {
   }
 
   step(dt) {
-    for (const bird of this.birds) this.placeLimbs(bird, dt);
+    for (const bird of this.birds) {
+      const events = bird.ibis.character.events;
+      if (events.some(e => e.type === 'drop')) this.drop(bird);
+      else if (bird.held === null && events.some(e => e.type === 'grab')) this.grab(bird);
+      this.placeLimbs(bird, dt);
+    }
     const n = Math.max(1, Math.ceil(dt / STEP - 1e-6));
     for (let i = 0; i < n; i++) updateWorld(this.world, undefined, dt / n);
     for (const bird of this.birds) bird.placed = true;
+  }
+
+  // Lets go of what the bill holds: dynamic again, with the bill's speed.
+  drop(bird) {
+    const body = bird.held === null ? null : rigidBody.get(this.world, bird.held);
+    bird.held = bird.ibis.character.controller.carry = null;
+    if (!body) return;
+    rigidBody.setObjectLayer(this.world, body, this.layers.light);
+    rigidBody.setMotionType(this.world, body, MotionType.DYNAMIC, true);
+  }
+
+  // A peck: picks up the nearest grabbable prop within GRAB.reach of the bill tip. It pops into the
+  // bill at once. With none, but another prop in reach (too big: the ball, a box), the bird tries to
+  // bite it and gives up (fumble in actions.js).
+  grab(bird) {
+    const c = bird.ibis.character;
+    const tip = this.headPoint(bird, GRAB.tip);
+    const near = ids => {
+      let best = GRAB.reach, id = null;
+      for (const other of ids ?? []) {
+        if (this.held(other)) continue;
+        const box = rigidBody.get(this.world, other).aabb;
+        const d = Math.hypot(...[0, 1, 2].map(i => Math.max(box[i] - tip[i], 0, tip[i] - box[i + 3])));
+        if (d < best) { best = d; id = other; }
+      }
+      return id;
+    };
+    const id = near(this.grabbable?.keys());
+    if (id === null) {
+      if (near(this.bulky) !== null) c.act('fumble');
+      return;
+    }
+    const body = rigidBody.get(this.world, id);
+    rigidBody.setMotionType(this.world, body, MotionType.KINEMATIC, true);
+    rigidBody.setObjectLayer(this.world, body, this.layers.ghost);
+    bird.held = id;
+    c.controller.carry = this.grabbable.get(id).jaw;
+    rigidBody.setTransform(this.world, body, this.holdPoint(bird), this.gripQuaternion(bird), false);
+    c.events.push({ type: 'pick', hold: this.grabbable.get(id).hold });   // for the sound (sound.js)
+  }
+
+  // A head space point (as BIRD.reach) in world space, from the rig.
+  headPoint(bird, [hx, hy, hz]) {
+    const { rig: R, character: c } = bird.ibis, e = R.headRot.elements, s = HEAD_SCALE;
+    const x = R.head.x + s * (e[0] * hx + e[4] * hy + e[8] * hz);
+    const y = R.head.y + s * (e[1] * hx + e[5] * hy + e[9] * hz);
+    const z = R.head.z + s * (e[2] * hx + e[6] * hy + e[10] * hz);
+    const cs = Math.cos(c.heading), sn = Math.sin(c.heading);
+    return [c.position.x + x * cs + z * sn, y, c.position.z - x * sn + z * cs];
+  }
+
+  // Where the held prop's middle goes: the grip of its hold, and its edge distance out of the bill.
+  holdPoint(bird) {
+    const { grip, out, edge } = this.grabbable.get(bird.held), k = edge / HEAD_SCALE;
+    return this.headPoint(bird, grip.map((v, i) => v + k * out[i]));
+  }
+
+  // A held prop lies across the bill (hold()): its y along the head's x.
+  gripQuaternion(bird) {
+    const { rig: R, character: c } = bird.ibis;
+    return new Quaternion().setFromAxisAngle(UP, c.heading)
+      .multiply(new Quaternion().setFromRotationMatrix(R.headRot))
+      .multiply(hold(this.grabbable.get(bird.held).out)).toArray();
   }
 
   // Feet and head from the rig, in world space. moveKinematic gives them the velocity to get there in
@@ -481,6 +581,9 @@ export class Physics {
       if (!bird.placed || far) rigidBody.setPosition(this.world, body, to, false);
       else rigidBody.moveKinematic(body, to, body.quaternion, dt);
     });
+    if (bird.held === null) return;
+    const body = rigidBody.get(this.world, bird.held);
+    if (body) rigidBody.moveKinematic(body, this.holdPoint(bird), this.gripQuaternion(bird), dt);
   }
 
   // Wireframes of every collider. Loads the debug renderer only when asked.
@@ -495,6 +598,13 @@ export class Physics {
 
 // Angle between a body's up and the world's up, from its quaternion.
 function tiltAngle([qx, , qz]) { return Math.acos(Math.min(1, Math.max(-1, 1 - 2 * (qx * qx + qz * qz)))); }
+
+const UP = new Vector3(0, 1, 0);
+// A held prop in head space: x out of the bill (the hold's out), y across the bill, z across the gap.
+function hold(direction) {
+  const out = new Vector3(...direction).normalize(), across = new Vector3(1, 0, 0);
+  return new Quaternion().setFromRotationMatrix(new Matrix4().makeBasis(out, across, new Vector3().crossVectors(out, across)));
+}
 
 function yaw(a) { return [0, Math.sin(a / 2), 0, Math.cos(a / 2)]; }
 const mix = (a, b, k) => a + (b - a) * k;

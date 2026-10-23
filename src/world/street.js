@@ -21,8 +21,9 @@ export const STRIPS = [
   ['grass', 6], ['path', 3], ['grass', -3], ['kerb', -3.8], ['road', -17.8],
   ['kerb', -18.6], ['grass', -23], ['path', -26], ['grass', -Infinity],
 ];
-// The bird can go anywhere on the street between the two footpaths. Props stay 0.5 inside a fence.
-export const PLAY = { x: [-48, 48], z: [-25.5, 5.5] };   // the fence (fence.js) is just outside, at the yard edges
+// The bird can go anywhere on the street between the two footpaths, and a little onto the yard grass past
+// them, so the fence stands on grass. Props stay 0.5 inside a fence.
+export const PLAY = { x: [-48, 48], z: [-26.5, 6.5] };   // to 0.5 on the yard grass; the fence (fence.js) is just outside it
 export const ROAD = { centre: -10.8, dash: [3, 3], dashWidth: 0.22 };   // centre line: dash and gap length
 export const JOINT = 3;   // footpath joints along x
 const HAZE_FROM = [25, 220];   // distance where the ground starts to fade into the haze, and where it is all haze

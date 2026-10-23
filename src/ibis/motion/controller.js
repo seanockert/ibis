@@ -68,6 +68,7 @@ export class Controller {
     this.faceTarget = null;          // heading to turn to on the spot, or null
     this.pivot = null;               // world { x, z } of the foot that carries the weight, from the animator
     this.shove = 0;                  // 0 to 1: a heavy thing just ahead of the head (src/world/physics.js)
+    this.carry = null;               // jaw opening round what the bill holds (src/world/physics.js), or null
     this.events = [];                // this step: { type: crouch | jump | land, ... }
     this.held = false;
     this.buffer = 0;

@@ -5,7 +5,7 @@
 //   scene.add(fx.object);
 //   fx.update(dt, ibises, camera);   // every frame, after ibis.update(dt)
 //
-// Dust: behind the feet when running, on a skid, on a hard landing, and from action events with a dust
+// Dust: a line of puffs behind the bird when running, on a skid, on a hard landing, and from action events with a dust
 // field (the startle sit, the stumble). It is mud brown when the bird is muddy. Footprints: where each
 // foot lands, in the colour of the feet (dusty, wet or muddy), fading away slowly. Anger lines: sharp
 // strokes round the head while an action with anger plays (head shake, glare, threat): three short
@@ -30,7 +30,11 @@ const MUD_DUST_LINE = new Color().setRGB(0.33, 0.24, 0.18, 'srgb');
 const DUST_TIME = 0.6;   // all puffs: life times this, drift and drag faster to match, so they go as far
 const INK = new Color().setRGB(0.15, 0.16, 0.22, 'srgb');
 
-const RUN_DUST_SPEED = 1.9;   // steps make dust above this speed
+const RUN_DUST_SPEED = 1.9;   // a run makes dust above this speed
+// Run dust: one line of puffs on the ground behind the bird, as in a platform game. every: distance
+// between puffs. back: behind the root. size: of a puff, plus grow for each unit of speed above RUN_DUST_SPEED.
+// life: in DUST_TIME, as puff(). lumpy: how far from round, as puff().
+const RUN_DUST = { every: 0.2, back: 0.3, size: 0.1, grow: 0.04, life: 1.0, lumpy: 1 };
 const SKID_DECEL = -8.5;      // a speed change per second below this, at a run, is a skid
 const SKID_SPEED = 1.7;
 const SKID_EVERY = 0.05;      // seconds between skid puffs
@@ -187,6 +191,7 @@ export class IbisEffects {
     this.ink = new MeshBasicMaterial({ color: INK, side: DoubleSide, depthTest: false });
     this.anger = new Map();   // ibis -> { group, strokes, pop }
     this.skidClock = new Map();
+    this.runClock = new Map();   // ibis -> distance since the last run puff
     // Footprints: one instanced mesh for each foot, as the left and right prints are mirrored.
     this.prints = [1, -1].map(side => {
       const geometry = printGeometry(side);
@@ -213,12 +218,16 @@ export class IbisEffects {
 
   // A puff at a world point. dir is the drift direction on the ground (unit or zero). fall: gravity,
   // drag: slow down rate for each DUST_TIME. floor: the puff goes when it falls below this height.
-  puff(pos, dir, { size = 0.1, speed = 0.6, up = 0.5, life = 0.45, fall = 0.3, drag = 4, floor = -Infinity, mud = this.mudNow } = {}) {
+  // jitter: random spread of the place and the drift, 1 as made. lumpy: 0 round, 1 a random squash and
+  // stretch on each axis (up to 35%) and a random turn.
+  puff(pos, dir, { size = 0.1, speed = 0.6, up = 0.5, life = 0.45, fall = 0.3, drag = 4, floor = -Infinity, mud = this.mudNow, jitter: k = 1, lumpy = 0 } = {}) {
     if (this.puffs.length >= MAX_PUFFS) this.puffs.shift();
-    const jitter = () => this.rand() - 0.5;
+    const jitter = () => (this.rand() - 0.5) * k;
     const vel = new Vector3(dir.x * speed + jitter() * 0.4, up * (0.7 + 0.6 * this.rand()), dir.z * speed + jitter() * 0.4)
       .divideScalar(DUST_TIME);
-    this.puffs.push({ pos: pos.clone().add(new Vector3(jitter() * 0.06, 0.02, jitter() * 0.06)), vel, size: size * (0.75 + 0.5 * this.rand()), age: 0, life: life * DUST_TIME, seed: this.rand(), mud, fall, drag, floor });
+    this.puffs.push({ pos: pos.clone().add(new Vector3(jitter() * 0.06, 0.02, jitter() * 0.06)), vel, size: size * (0.75 + 0.5 * this.rand()), age: 0, life: life * DUST_TIME, seed: this.rand(), mud, fall, drag, floor,
+      shape: new Vector3(1, 0.8, 1).multiply(new Vector3(1, 1, 1).addScalar(-0.35 * lumpy).addScaledVector(new Vector3(this.rand(), this.rand(), this.rand()), 0.7 * lumpy)),
+      turn: new Quaternion().setFromAxisAngle(new Vector3(0, 1, 0), this.rand() * Math.PI * 2 * lumpy) });
   }
 
   // A small cloud: puffs in a short row back along dir, from big to small.
@@ -256,11 +265,28 @@ export class IbisEffects {
     }
   }
 
+  // A body shake: drops of water and blobs of mud fly off the body all round, and fall to the ground.
+  shakeOff(ibis) {
+    const R = ibis.rig, amount = Math.max(ibis.wet, ibis.mud);
+    if (!R || amount < 0.05) return;
+    ibis.object.updateMatrixWorld();
+    const at = R.pelvis.clone().add(new Vector3(0, 0.25, 0)).applyMatrix4(ibis.object.matrixWorld);
+    const floor = ibis.character.controller.floor, mud = ibis.mud / amount;
+    const n = Math.round(8 + 12 * amount);
+    for (let i = 0; i < n; i++) {
+      const a = (i + this.rand()) / n * Math.PI * 2, dir = new Vector3(Math.sin(a), 0, Math.cos(a));
+      this.puff(at.clone().addScaledVector(dir, 0.3), dir, {
+        size: 0.03 + 0.03 * this.rand(), speed: 1.2 + 1.2 * this.rand(), up: 0.4 + 0.6 * this.rand(),
+        life: 1.2, fall: 7, drag: 0.5, floor, mud,
+      });
+    }
+  }
+
   update(dt, ibises, camera) {
     this.time += dt;
     for (const ibis of ibises) { this.spawn(ibis, dt); this.angerLines(ibis, dt, camera); }
     this.puffs = this.puffs.filter(p => (p.age += dt) < p.life && !(p.pos.y < p.floor && p.vel.y < 0));
-    const m = new Matrix4(), q = new Quaternion(), s = new Vector3();
+    const m = new Matrix4(), s = new Vector3();
     this.puffs.forEach((p, i) => {
       p.vel.multiplyScalar(Math.exp(-p.drag / DUST_TIME * dt));
       p.vel.y -= p.fall * dt;
@@ -271,7 +297,7 @@ export class IbisEffects {
       this.fade.setX(i, smoothstep(0.35, 1, u));
       this.seeds.setX(i, p.seed);
       this.muds.setX(i, p.mud);
-      m.compose(p.pos, q, s.set(r, 0.8 * r, r));   // a little flat: dust, not balls
+      m.compose(p.pos, p.turn, s.copy(p.shape).multiplyScalar(r));   // a little flat: dust, not balls
       this.puffMesh.setMatrixAt(i, m);
       this.hullMesh.setMatrixAt(i, m);
     });
@@ -295,21 +321,13 @@ export class IbisEffects {
     if (!R) return;
     ibis.object.updateMatrixWorld();
     this.mudNow = ibis.mud;   // puffs off muddy feet are mud brown
-    // Dust starts on what the feet stand on: the ground, a step or the top of a prop (controller.floor,
-    // or the ground under one foot).
-    const ground = c.animator.ground;
+    // Dust starts on what the feet stand on: the ground, a step or the top of a prop (controller.floor).
     const world = (v, y = ctrl.floor) => v.clone().setY(y).applyMatrix4(ibis.object.matrixWorld);
     const back = new Vector3(0, 0, -1).transformDirection(ibis.object.matrixWorld).setY(0).normalize();
     const feet = () => world(R.footL).add(world(R.footR)).multiplyScalar(0.5);
     for (const e of c.events) {
       if (e.type === 'step') this.footprint(ibis, e.foot);
       if (e.type === 'land') { this.footprint(ibis, 'L'); this.footprint(ibis, 'R'); }
-      // Run: a small puff kicks up behind the heel as each foot pushes off. It stays where it was made,
-      // so the puffs trail behind the bird.
-      if (e.type === 'liftOff' && ctrl.speed > RUN_DUST_SPEED) {
-        const heel = (e.foot === 'L' ? world(R.footL, ground[0].y) : world(R.footR, ground[1].y)).addScaledVector(back, 0.14);
-        this.cloud(heel, back, { size: 0.12 + 0.05 * (ctrl.speed - RUN_DUST_SPEED), speed: 0.35, up: 0.25, life: 0.6 }, 3);
-      }
       if (e.type === 'land' && e.impact > 2.5) {
         for (let i = 0; i < 8; i++) {
           const a = i / 8 * Math.PI * 2, dir = new Vector3(Math.sin(a), 0, Math.cos(a));
@@ -327,12 +345,23 @@ export class IbisEffects {
       }
       if (e.dust === 'feet') this.cloud(feet(), back, { size: 0.12, speed: 0.4 }, 4);
     }
-    // Skid: a hard stop or reverse at speed throws dust off the feet.
+    // Run: one line of puffs from the ground behind the bird, one each RUN_DUST.every of distance. They
+    // stay where they were made and rise a little, so they trail behind the bird in a row.
+    let run = this.runClock.get(ibis) ?? 0;
+    if (ctrl.grounded && ctrl.speed > RUN_DUST_SPEED) {
+      run += ctrl.speed * dt;
+      if (run >= RUN_DUST.every) {
+        run %= RUN_DUST.every;
+        const at = world(new Vector3(0, 0, -RUN_DUST.back));
+        this.puff(at, back, { size: RUN_DUST.size + RUN_DUST.grow * (ctrl.speed - RUN_DUST_SPEED), speed: 0.1, up: 0.3, life: RUN_DUST.life, jitter: 0.2, lumpy: RUN_DUST.lumpy });
+      }
+    } else run = RUN_DUST.every;   // the first puff comes at once
+    this.runClock.set(ibis, run);
+    // Skid: a hard stop or reverse at speed throws dust forward, on the same centre line as the run dust.
     const clock = (this.skidClock.get(ibis) ?? 0) + dt;
     if (ctrl.grounded && ctrl.accel < SKID_DECEL && Math.abs(ctrl.speed) > SKID_SPEED && clock > SKID_EVERY) {
       this.skidClock.set(ibis, 0);
-      const i = this.rand() < 0.5 ? 0 : 1;
-      this.puff(world(i === 0 ? R.footL : R.footR, ground[i].y), back.clone().negate(), { size: 0.09, speed: 0.5, up: 0.3 });
+      this.puff(world(new Vector3()), back.clone().negate(), { size: 0.09, speed: 0.5, up: 0.3, jitter: 0.2, lumpy: RUN_DUST.lumpy });
     } else this.skidClock.set(ibis, clock);
   }
 

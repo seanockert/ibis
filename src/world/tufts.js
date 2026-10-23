@@ -3,14 +3,16 @@
 // flat green, and a cooler one in the sun's shadow. The wind moves them in slow waves, and they bend away from the birds.
 // One instanced draw of upright quads that turn to the camera about y. The shader cuts the blades.
 // Placed by rules: clusters where a noise is high (one big tuft and small ones round it), and runs along
-// the edges of the footpaths and kerbs. Far tufts shrink to nothing, so they don't shimmer.
+// the edges of the footpaths and kerbs, and long grass round the fence posts. Far tufts shrink to nothing, so they don't shimmer. A tuft is
+// no taller than its distance to the nearest prop, so the grass doesn't go through a box on it.
 //
 //   const tufts = new Tufts();
 //   scene.add(tufts.object);
-//   tufts.update(camera, dt, ibises);   // every frame
+//   tufts.update(camera, dt, ibises, solids);   // every frame. solids: [{ body, half, round }] from the props
 import { Color, InstancedBufferAttribute, InstancedBufferGeometry, Float32BufferAttribute, Mesh, ShaderMaterial, Vector3, Vector4 } from 'three';
 import { lightUniforms, NOISE, TOON, TOON_VERTEX } from '../ibis/materials.js';
 import { hash } from '../ibis/motion/spring.js';
+import { fencePosts } from './fence.js';
 import { inPuddle, PUDDLE } from './puddle.js';
 import { BLADES, GRASS, grassUniforms, JOINT, stripAt, STRIPS } from './street.js';
 
@@ -22,7 +24,8 @@ export const TUFTS = {
   density: 0.09,           // frequency of the density noise: clusters gather where it is high
   spread: [0.35, 0.9],     // distance of the small tufts from the big one
   joints: 0.3,             // part of the footpath joints with a small tuft
-  edgeStep: 0.7,           // spacing of the tufts along a strip edge, where the noise lets them grow
+  edgeStep: 0.7,
+  posts: { count: [4, 7], size: [0.55, 0.95], ring: [0.1, 0.45] },   // long thin grass round each fence post           // spacing of the tufts along a strip edge, where the noise lets them grow
   size: [0.18, 0.38],      // height of the big tuft, units (the bird is 2). Small ones are 0.4 to 0.75 of it
   fade: [26, 38],          // distance from the camera where tufts shrink to nothing
   wind: { dir: [0.8, 0.6], speed: 1.4, wave: 0.35, bend: 0.12 },   // wave: crests per unit; bend: of the height
@@ -30,6 +33,7 @@ export const TUFTS = {
   seed: 11,
 };
 const MAX_BIRDS = 4;
+const MAX_SOLIDS = 32;   // props' boxes: the ball, the bin and its lid, the boxes and flaps, cereal, stubbies
 const TIP = srgb(0.86, 0.90, 0.50);     // the lit side moves toward this warm light green
 
 export class Tufts {
@@ -49,13 +53,21 @@ export class Tufts {
     this.count = tufts.length;
   }
 
-  update(camera, dt = 0, birds = []) {
+  update(camera, dt = 0, birds = [], solids = []) {
     const u = this.material.uniforms;
     u.uTime.value += dt;
     u.uBirds.value.forEach((v, i) => {
       const p = birds[i]?.object.position;
       v.set(p?.x ?? 0, p?.z ?? 0, p ? 1 : 0, 0);
     });
+    // Each solid: its middle (w: 1 on), its turn, and its half size (w: 1 round).
+    for (let i = 0; i < MAX_SOLIDS; i++) {
+      const s = solids[i], at = u.uSolidAt.value[i];
+      if (!s) { at.w = 0; continue; }
+      at.set(...s.body.position, 1);
+      u.uSolidQ.value[i].fromArray(s.body.quaternion);
+      u.uSolidHalf.value[i].set(...s.half, s.round ? 1 : 0);
+    }
   }
 }
 
@@ -114,6 +126,19 @@ function place() {
       add(x + 0.03 * (r() - 0.5), far + 0.3 + (near - far - 0.6) * r(), size[0] * (0.6 + 0.5 * r()), 0.15 * r());
     }
   }
+  // Long thin grass round the foot of each fence post, where the mower can't reach. Each side of the
+  // post along the fence, and behind it in the yard. Not on the footpath.
+  const { count, size: tall, ring } = TUFTS.posts;
+  for (const post of fencePosts()) {
+    const yard = stripAt(post.z + 0.3) === 'grass' ? 1 : -1;
+    const n = count[0] + Math.floor(r() * (count[1] - count[0] + 1));
+    for (let j = 0; j < n; j++) {
+      const x = post.x + (r() < 0.5 ? -1 : 1) * (ring[0] + (ring[1] - ring[0]) * r());
+      // Half in the thin grass in front of the fence line, half behind it.
+      const z = post.z + yard * (r() < 0.5 ? -0.09 * r() : 0.3 * r());
+      if (stripAt(z) === 'grass') add(x, z, tall[0] + (tall[1] - tall[0]) * r(), 0.2 * r());
+    }
+  }
   return out;
 }
 
@@ -129,6 +154,9 @@ function tuftMaterial() {
       ...lightUniforms(), ...grassUniforms(),
       uTip: { value: TIP }, uTime: { value: 0 },
       uBirds: { value: Array.from({ length: MAX_BIRDS }, () => new Vector4()) },   // x, z, on
+      uSolidAt: { value: Array.from({ length: MAX_SOLIDS }, () => new Vector4()) },
+      uSolidQ: { value: Array.from({ length: MAX_SOLIDS }, () => new Vector4(0, 0, 0, 1)) },
+      uSolidHalf: { value: Array.from({ length: MAX_SOLIDS }, () => new Vector4()) },
     },
     vertexShader: /* glsl */`
       ${TOON_VERTEX}
@@ -138,12 +166,27 @@ function tuftMaterial() {
       attribute float aLeafy;
       uniform float uTime;
       uniform vec4 uBirds[${MAX_BIRDS}];
+      uniform vec4 uSolidAt[${MAX_SOLIDS}], uSolidQ[${MAX_SOLIDS}], uSolidHalf[${MAX_SOLIDS}];
       varying vec2 vUv, vPatch;
       varying float vSeed, vLeafy, vX, vNear;
       varying vec3 vRight;
       void main() {
         vec3 base = vec3(aTuft.x, 0.0, aTuft.y);
         float h = aTuft.z * (1.0 - smoothstep(${f(TUFTS.fade[0])}, ${f(TUFTS.fade[1])}, distance(base, cameraPosition)));
+        // Props: the tuft is no taller than the distance from its root to the nearest one (its blades
+        // spread about as wide as it is tall), so none goes into a box, and none shows under one.
+        for (int i = 0; i < ${MAX_SOLIDS}; i++) {
+          if (uSolidAt[i].w == 0.0) continue;
+          vec4 q = uSolidQ[i];
+          vec3 v = base + vec3(0.0, 0.02, 0.0) - uSolidAt[i].xyz;
+          vec3 p = v - 2.0 * cross(q.xyz, -cross(q.xyz, v) + q.w * v);   // into the solid's space: the inverse turn
+          vec3 half_ = uSolidHalf[i].xyz;
+          vec3 e = abs(p) - half_;
+          float d = uSolidHalf[i].w > 0.5
+            ? (length(p / half_) - 1.0) * min(half_.x, min(half_.y, half_.z))
+            : length(max(e, 0.0)) + min(max(e.x, max(e.y, e.z)), 0.0);
+          h = min(h, max(d * 1.2, 0.0));
+        }
         // Turn to the camera about y: the camera's right vector, flat.
         vec3 right = normalize(vec3(viewMatrix[0][0], 0.0, viewMatrix[2][0]) + 1e-5);
         // Wind: slow waves across the lawn, and a small flutter of each tuft. The birds push tufts aside.

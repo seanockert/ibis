@@ -1,6 +1,7 @@
 // Empty beer stubbies (short golden amber glass bottles, no caps) set up as bowling pins: ten in a triangle,
 // head pin toward +z. Light props, as the ball: the feet, the head and the ball knock them down, and
-// they knock each other. A bottle that falls hard clinks (Slam, kind 'glass').
+// they knock each other. A bottle that falls hard clinks (Slam, kind 'glass'). A peck picks one up in the
+// bill, and the next peck drops it (grab in physics.js).
 //
 // Four instanced draws for all the bottles: the label (opaque, a colour on each vertex: toonMaterial
 // tones), the glass inside (back faces, darker), the glass outside (front faces), and the outline.
@@ -62,7 +63,7 @@ export class Stubbies {
       Array.from({ length: 10 }, (_, k) => [pr * r * Math.cos(k * Math.PI / 5), (py - 0.5) * H, pr * r * Math.sin(k * Math.PI / 5)]).flat());
     this.bottles = spots.map(([lx, lz]) => {
       const id = physics.addHull(hull, {
-        position: [x + lx * cs + lz * sn, ground + H / 2, z - lx * sn + lz * cs], light: true,
+        position: [x + lx * cs + lz * sn, ground + H / 2, z - lx * sn + lz * cs], light: true, grab: { hold: 'round' },
         mass: STUBBY.mass, friction: STUBBY.friction, restitution: STUBBY.restitution, damping: STUBBY.damping,
       });
       return { id, slam: new Slam('glass', [r, H / 2, r], STUBBY.slam) };
@@ -97,9 +98,16 @@ export class Stubbies {
       const body = this.physics.body(b.id);
       this.matrix.compose(p.fromArray(body.position), q.fromArray(body.quaternion), one);
       for (const mesh of this.meshes) mesh.setMatrixAt(i, this.matrix);
-      this.events.push(...b.slam.update(body));
+      if (this.physics.held(b.id)) b.slam.peak.spin = 0;   // in the bill: no clink when the head stops
+      else this.events.push(...b.slam.update(body));
     });
     for (const mesh of this.meshes) mesh.instanceMatrix.needsUpdate = true;
+  }
+
+  // The solids, for the grass tufts (tufts.js): a box round each bottle.
+  solids() {
+    const half = [STUBBY.radius, STUBBY.height / 2, STUBBY.radius];
+    return this.bottles.map(b => ({ body: this.physics.body(b.id), half }));
   }
 }
 

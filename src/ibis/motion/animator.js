@@ -79,6 +79,8 @@ export class Animator {
     this.bank = new Spring(0, 2.5, 0.6);   // roll into turns
     this.squash = new Spring(0, 3.2, 0.4); // more than 0 squash, less than 0 stretch
     this.brace = new Spring(0, 7, 0.9);   // shove pose: head down, forehead forward
+    this.grip = new Spring(0, 14, 1);     // bill open round a held prop
+    this.gripJaw = 0;                     // how far: controller.carry, kept while the bill shuts after a drop
     this.slope = new Spring(0, 2, 1);     // body pitch from the slope
     this.hitPitch = new Spring(0, 2.6, 0.35);
     this.hitRoll = new Spring(0, 2.6, 0.35);
@@ -444,6 +446,10 @@ export class Animator {
     P.stretch *= 1 - 0.25 * brace;
     P.pitch += 0.2 * brace;
     P.bob -= 0.06 * brace;
+
+    // Something held in the bill keeps it open.
+    this.gripJaw = c.carry ?? this.gripJaw;
+    P.jaw = Math.max(P.jaw, this.gripJaw * clamp(this.grip.update(dt, c.carry === null ? 0 : 1), 0, 1));
 
     // Hit reactions and wing flicks.
     P.pitch += this.hitPitch.update(dt, 0);

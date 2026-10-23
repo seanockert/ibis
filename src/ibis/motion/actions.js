@@ -13,7 +13,8 @@
 //   events            optional [{ at, type, ... }]: events at action times, for effects and sound.
 //                     'thump' { amount } kicks the squash spring. dust: 'rump' or 'feet' makes a puff there.
 //                     Sound only (sound.js): 'call' { pitch, gain } a honk, 'hiss' { length }, 'clack'
-//                     { amount } the bill snaps shut, 'stamp' a foot hits the ground
+//                     { amount } the bill snaps shut, 'stamp' a foot hits the ground. 'grab' (physics.js)
+//                     picks up a prop in the bill, 'drop' lets it go
 //   anger             0 to 1: comic anger lines round the head while the action plays (effects.js)
 import { Vector3 } from 'three';
 import { clipPose } from '../rig.js';
@@ -30,6 +31,8 @@ export const CHANNELS = {
   face: ['blink', 'look', 'lid', 'lidTilt', 'lowLid', 'pupil'],
   ground: ['floorL', 'floorR', 'slopeL', 'slopeR', 'air'],   // set after the actions (Animator.ground()). No mask uses it
 };
+// The bill opens this far for the drop of a held prop (GRAB.holds in physics.js has the hold openings).
+export const GRIP = { drop: 0.95 };
 export const FACE_KEYS = ['blink', 'lid', 'lidTilt', 'lowLid', 'pupil'];
 
 const ALL = { root: 1, body: 1, legs: 1, neck: 1, jaw: 1, wings: 1, face: 1 };
@@ -88,7 +91,44 @@ function clipAction(name, length, events) {
 }
 
 export const ACTIONS = {
-  peck: clipAction('peck', 2 / 1.2),
+  // 'grab' on the way down in the first jab: physics.js picks up a prop near the bill. Early, so a
+  // fumble (a prop too big) takes over before the bill goes into the prop.
+  peck: clipAction('peck', 2 / 1.2, [{ at: 0.08, type: 'grab' }]),
+  // A peck at a prop too big for the bill (physics.js): the bill opens wide on it with the head held
+  // above it (lower, the head goes into the prop), snaps shut where it slips off, then the head comes
+  // up, a small shake, and the bird slumps.
+  fumble: {
+    length: 1.0, fadeIn: 0.04, fadeOut: 0.2, mask: ALL, moveMask: UPPER, face: 'effort',
+    events: [{ at: 0.26, type: 'clack', amount: 0.8 }],
+    apply(P, t) {
+      const down = window4(0, 0.04, 0.26, 0.4, t);
+      const push = window4(0.04, 0.14, 0.2, 0.26, t);
+      P.pitch = mix(P.pitch, 0.4, down);
+      P.bob = mix(P.bob, -0.03, down);
+      P.neck = mix(P.neck, 0.4, down);
+      P.headPitch = mix(P.headPitch, 0.75, down) - 0.12 * push;
+      P.headFwd = 0.04 * push;
+      P.headYaw = mix(P.headYaw, 0.08 * Math.sin(TAU * 6 * t) * push, down);
+      // Bill wide with a strain shake, shut where it slips off.
+      P.jaw = window4(0.02, 0.08, 0.2, 0.26, t) * (0.95 + 0.06 * Math.sin(TAU * 12 * t));
+      P.wingL = P.wingR = mix(P.wingL, 0.2, push);
+      // Give up: the head comes up, a small shake, then a slump with heavy lids.
+      const up = window4(0.3, 0.4, 0.88, 1.0, t);
+      const shake = Math.sin(TAU * 5 * (t - 0.4)) * window4(0.4, 0.44, 0.6, 0.7, t);
+      P.headYaw += 0.3 * shake * up;
+      P.headPitch = mix(P.headPitch, 0.35, up);
+      P.bob -= 0.04 * window4(0.65, 0.75, 0.9, 1.0, t);
+      P.wingL = P.wingR = mix(P.wingL, 0.12, window4(0.65, 0.72, 0.88, 1.0, t));
+      blendFace(P, 'dazed', window4(0.38, 0.5, 0.88, 1.0, t));
+      P.look.set(0, mix(-0.35, 0, up));
+    },
+  },
+  // A peck while the bill holds a prop: the bill opens wider and the prop falls out. No jab.
+  drop: {
+    length: 0.4, fadeIn: 0.02, fadeOut: 0.15, mask: { jaw: 1 }, moveMask: { jaw: 1 },
+    events: [{ at: 0.06, type: 'drop' }],
+    apply(P, t) { P.jaw = Math.max(P.jaw, GRIP.drop * window4(0, 0.06, 0.2, 0.4, t)); },
+  },
   // A honk at each jaw beat.
   squawk: clipAction('squawk', 1.5, [0.08, 0.58, 1.08].map((at, i) => ({ at, type: 'call', pitch: [1, 0.96, 0.92][i] }))),
 
@@ -258,34 +298,53 @@ export const ACTIONS = {
     },
   },
 
-  // Stumble: a toe catches, the body pitches far forward with the neck flung out and the wings
-  // windmilling, quick steps to catch the fall, then up straight and proud, with a look to each side:
-  // did anyone see?
+  // Stumble: a toe catches at a run and the bird loses its balance to the side. The body tips over to
+  // its right, the left foot comes off the ground, and the left wing shoots out and flaps to pull it
+  // back. The right foot hops out wide and catches it, a wobble past upright, then up straight and
+  // proud, with a look to each side: did anyone see?
   stumble: {
     length: 2.0, fadeIn: 0.02, fadeOut: 0.3, mask: ALL, moveMask: ALL, lock: true, cancelAfter: 1.2,
-    root: t => (t < 0.15 ? 1.7 : t < 0.7 ? 1.2 : t < 0.85 ? 0.4 : 0),
-    events: [{ at: 0.1, type: 'call', pitch: 1.1, gain: 0.6 }, { at: 0.75, type: 'thump', amount: 8, dust: 'feet' }],
+    root: t => (t < 0.1 ? 1.5 : t < 0.25 ? 0.5 : 0),
+    events: [{ at: 0.08, type: 'call', pitch: 1.1, gain: 0.6 }, { at: 0.42, type: 'thump', amount: 6, dust: 'feet' }],
     apply(P, t) {
-      const caught = window4(0, 0.02, 0.1, 0.18, t);
-      const fall = window4(0.05, 0.18, 0.6, 0.8, t);
-      const proud = window4(0.7, 0.85, 1.75, 2.0, t);
-      P.footR.set(P.footR.x, mix(P.footR.y, 0.05, caught), mix(P.footR.z, -0.25, caught));
-      P.pitch = mix(P.pitch, 0.95, fall);
-      P.reach = 0.6 * fall;
-      P.headPitch = mix(P.headPitch, 0.1, fall);
-      P.jaw = 0.25 * fall;
-      P.wingL = mix(P.wingL, 0.9 + 0.5 * Math.sin(TAU * 4 * t), fall);
-      P.wingR = mix(P.wingR, 0.9 + 0.5 * Math.sin(TAU * 4 * t + Math.PI), fall);
-      P.sweepL = 0.4 * Math.sin(TAU * 4 * t) * fall;
-      P.sweepR = -0.4 * Math.sin(TAU * 4 * t) * fall;
+      const caught = window4(0, 0.02, 0.08, 0.14, t);
+      const tip = window4(0.04, 0.3, 0.42, 0.7, t);       // over to the right (roll more than 0)
+      const hop = window4(0.18, 0.28, 0.42, 0.75, t);     // the right foot out wide
+      const air = window4(0.06, 0.2, 0.38, 0.5, t);       // the left foot up, off the ground
+      const wobble = -Math.sin(TAU * 2.4 * (t - 0.55)) * window4(0.55, 0.62, 0.95, 1.15, t);   // past upright, back
+      const wing = window4(0.06, 0.16, 0.75, 1.05, t);    // the left wing out for balance
+      const proud = window4(0.95, 1.05, 1.75, 2.0, t);
+      // The toe catches: a jolt forward.
+      P.footR.set(P.footR.x, mix(P.footR.y, 0.05, caught), mix(P.footR.z, -0.2, caught));
+      P.pitch = mix(P.pitch, 0.45, caught);
+      // Tip to the right side: the pelvis slides over the right foot, and the head stays more level.
+      const roll = 0.7 * tip + 0.16 * wobble;
+      P.roll += roll;
+      P.x -= 0.16 * tip;
+      P.pitch = mix(P.pitch, 0.3, tip);
+      P.yaw -= 0.15 * tip;
+      P.headRoll = -0.7 * roll;
+      P.headPitch = mix(P.headPitch, -0.1, tip);
+      P.stretch = mix(P.stretch, 1.1, tip);
+      P.jaw = 0.3 * tip;
+      // Feet: the right one hops out wide to catch the weight, the left one comes up.
+      P.footR.x -= 0.3 * hop;
+      P.footR.y += 0.1 * window4(0.18, 0.24, 0.3, 0.4, t);
+      P.footL.x -= 0.06 * air;
+      P.footL.y += 0.24 * air;
+      P.footL.z += 0.08 * air;
+      // Wings: the left one out wide and flapping hard, the right one a little open.
+      P.wingL = mix(P.wingL, 1.25 + 0.35 * Math.sin(TAU * 5 * t), wing);
+      P.sweepL = mix(P.sweepL, 0.25 * Math.sin(TAU * 5 * t + 0.8), wing);
+      P.wingR = mix(P.wingR, 0.35, tip);
       // Proud: chest up, head up, then a glance each way.
       P.pitch = mix(P.pitch, -0.1, proud);
       P.headPitch = mix(P.headPitch, -0.3, proud);
-      const glance = 0.5 * window4(1.05, 1.15, 1.3, 1.4, t) - 0.5 * window4(1.35, 1.45, 1.6, 1.7, t);
+      const glance = 0.5 * window4(1.15, 1.25, 1.4, 1.5, t) - 0.5 * window4(1.45, 1.55, 1.7, 1.8, t);
       P.headYaw = mix(P.headYaw, glance, proud);
       P.look.x = mix(P.look.x, 1.4 * glance, proud);
-      blendFace(P, 'wide', fall);
-      blendFace(P, 'smug', window4(0.8, 0.9, 1.0, 1.08, t) + window4(1.7, 1.8, 1.9, 2.0, t));
+      blendFace(P, 'wide', Math.max(tip, wing * (1 - proud)));
+      blendFace(P, 'smug', window4(0.95, 1.05, 1.12, 1.2, t) + window4(1.75, 1.85, 1.92, 2.0, t));
     },
   },
 
