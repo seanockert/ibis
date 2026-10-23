@@ -2,7 +2,7 @@
 // This is the only file that imports crashcat, so the engine can change without changes elsewhere.
 //
 //   const physics = new Physics();
-//   physics.addFence(radius);                  // keeps props in the play area
+//   physics.addFence({ x: [x0, x1], z: [z0, z1] });   // walls round a box: keep props in the play area
 //   physics.addBird(ibis);                     // the controller then can't walk through props
 //   const id = physics.addBox(size, { position, mass });
 //   const hinge = physics.addHinge(id, lidId, point, axis, normal, [min, max]);   // a lid or a door
@@ -115,14 +115,13 @@ export class Physics {
     this.raySettings = createDefaultCastRaySettings();
   }
 
-  // A ring of walls that only light props touch, so the bird can always reach them.
-  addFence(radius, count = 24) {
-    const half = Math.PI * radius / count + 0.05;
-    for (let i = 0; i < count; i++) {
-      const a = (i + 0.5) / count * Math.PI * 2;
+  // Four walls round a box that only light props touch, so the bird can always reach them.
+  addFence({ x: [x0, x1], z: [z0, z1] }) {
+    const t = 0.25, cx = (x0 + x1) / 2, cz = (z0 + z1) / 2, hx = (x1 - x0) / 2 + 2 * t, hz = (z1 - z0) / 2 + 2 * t;
+    for (const [x, z, w, d] of [[cx, z0 - t, hx, t], [cx, z1 + t, hx, t], [x0 - t, cz, t, hz], [x1 + t, cz, t, hz]]) {
       rigidBody.create(this.world, {
-        motionType: MotionType.STATIC, objectLayer: this.layers.fence, shape: box.create({ halfExtents: [half, 3, 0.25] }),
-        position: [Math.sin(a) * (radius + 0.25), 3, Math.cos(a) * (radius + 0.25)], quaternion: yaw(a),
+        motionType: MotionType.STATIC, objectLayer: this.layers.fence, shape: box.create({ halfExtents: [w, 3, d] }),
+        position: [x, 3, z],
       });
     }
   }

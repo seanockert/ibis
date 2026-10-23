@@ -14,7 +14,7 @@ const srgb = (r, g, b) => new Color().setRGB(r, g, b, 'srgb');
 const COLOURS = {
   footy: [srgb(0.84, 0.25, 0.22), srgb(0.58, 0.16, 0.24), srgb(0.30, 0.07, 0.12)],
   lace: [srgb(0.97, 0.95, 0.90), srgb(0.78, 0.76, 0.84)],
-  bin: [srgb(0.30, 0.52, 0.36), srgb(0.19, 0.33, 0.35), srgb(0.07, 0.15, 0.16)],
+  bin: [srgb(0.30, 0.52, 0.36), srgb(0.21, 0.40, 0.37), srgb(0.07, 0.15, 0.16)],
   lid: [srgb(0.82, 0.27, 0.22), srgb(0.56, 0.17, 0.24), srgb(0.28, 0.07, 0.11)],
   wheel: [srgb(0.25, 0.27, 0.36), srgb(0.15, 0.16, 0.24), srgb(0.07, 0.07, 0.12)],
   inside: [srgb(0.13, 0.22, 0.20), srgb(0.10, 0.16, 0.18)],   // the inner wall of the bin, in shadow

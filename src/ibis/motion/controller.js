@@ -41,7 +41,7 @@ export class Controller {
     this.vy = 0;
     this.state = 'ground';           // ground, crouch (jump wind-up) or air
     this.fluttering = false;
-    this.bounds = Infinity;          // radius about the origin that the bird can't leave
+    this.bounds = null;              // { x: [min, max], z: [min, max] }: world box the bird can't leave
     this.root = null;                // speed from an action (root motion), or null: input moves the bird
     this.locked = false;             // true: an action owns the bird and the input does nothing
     this.faceTarget = null;          // heading to turn to on the spot, or null
@@ -101,8 +101,10 @@ export class Controller {
     this.accel = (this.speed - before) / dt;
     this.position.x += Math.sin(this.heading) * this.speed * dt;
     this.position.z += Math.cos(this.heading) * this.speed * dt;
-    const r = Math.hypot(this.position.x, this.position.z);
-    if (r > this.bounds) { this.position.x *= this.bounds / r; this.position.z *= this.bounds / r; }
+    if (this.bounds) {
+      this.position.x = clamp(this.position.x, ...this.bounds.x);
+      this.position.z = clamp(this.position.z, ...this.bounds.z);
+    }
   }
 
   // Jump: a short crouch, take-off, a variable height (let go early for a hop), then a flutter while the

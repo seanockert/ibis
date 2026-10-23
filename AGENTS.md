@@ -44,6 +44,10 @@ src/ibis/rig.js     (pose -> joints -> bone matrices)
 | `src/demo.js` | Demo page and URL parameters |
 | `src/world/physics.js` | `Physics`: the crashcat world, the bird's solid, shove and room. The only file that imports crashcat |
 | `src/world/props.js` | `Ball` (AFL football) and `Bin` (wheelie bin with a hinged lid): bodies and toon meshes |
+| `src/world/street.js` | `Street`: the ground shader (grass, footpath, kerb, road strips along x), `STRIPS`, `PLAY` (the play area box) |
+| `src/world/sky.js` | `Sky`: sky dome shader (gradient, warm glow toward the sun, puff clouds, far hills and trees), `HAZE` |
+| `src/world/backdrop.js` | `Backdrop`: two rings of tree silhouettes round the street (`RINGS`), so the world ends past the yards |
+| `src/world/grade.js` | `Grade`: the scene to a multisampled target, then one colour grade pass to the canvas. `GRADE` tuning |
 | `tools/bake/bake.js` | Bake: grid, dual contouring, material split, simplify, normals, skin weights, GLB export |
 | `tools/bake/bake.glsl` | Bake kernel: which SDF each `PART_*` is |
 | `tools/pack.mjs` | Small vertex types and `EXT_meshopt_compression` |
@@ -60,7 +64,7 @@ npm run strip -- out.png "index.html?anim=8&yaw=1.3&pitch=0.1" 0 1.2 12   # film
 npm run build
 ```
 
-- URL parameters: `anim` (a move from `MOVES` in `src/moves.js`, index + 1: 1 idle, 2 walk, 3 peck, 4 squawk, 5 flap, 6 run, 7 jump, 8 happy, 9 shake head, 10 threat, 11 startle, 12 stumble, 13 shake, 14 turn, 15 prod), `t`, `yaw`, `pitch`, `ui=0` (hide the buttons). `index.html` also takes `count`, `props=0` and `physics=1`. `sdf.html` also takes `debug`.
+- URL parameters: `anim` (a move from `MOVES` in `src/moves.js`, index + 1: 1 idle, 2 walk, 3 peck, 4 squawk, 5 flap, 6 run, 7 jump, 8 happy, 9 shake head, 10 threat, 11 startle, 12 stumble, 13 shake, 14 turn, 15 prod), `t`, `yaw`, `pitch`, `ui=0` (hide the buttons). `index.html` also takes `count`, `props=0`, `physics=1` and `env` (0 or 1: the street and sky; on in free play, off in fixed views). `sdf.html` also takes `debug`.
 - `index.html` with no `t`, `yaw` or `count` is free play: a wide camera, keys, taps. With `t` or `yaw` it uses the close camera of `sdf.html`.
 - A fixed `t` runs the move's script from 0 at 60 steps per second (`playScript()`), so both pages show the same pose, and `index.html` the same effects. `sdf.html` ignores position and heading (the bird moves on the spot). On `index.html`, `root=1` places the bird where the move took it, and the camera moves with it: use it to see dust trails and turns.
 - Use the same parameters on `index.html` and `sdf.html` to compare the mesh with the SDF.
@@ -107,6 +111,7 @@ npm run build
 - `MAT_WHITE` and `MAT_WING` have the same colour but different ids, so a line splits wing from body. Use a new id when you need a line.
 - Light: `TOON` and `TOON_VERTEX` in `materials.js`, used by the ibis and the props. `toonBand()` is the N.L split (edge one pixel wide, from the screen derivative) times the stepped sun shadow. The material needs `lights: true` and `lightUniforms()`, and the mesh `receiveShadow`.
 - Highlights: `GLOSS` in `materials.js` (N.H threshold and strength for each material id, runtime only). The bare head, bill and neck (`BLACK`, but not on the wings), the jaw, the legs and the eye catchlight. Keep the head and the legs faint: strong highlights there distract. The wet highlight is separate, in `weather()`.
+- Shadow area: in the close views, 6 by 6 round the bird (2048 map). In free play, `SHADOW` in `demo.js`: 20 by 20 round the camera's focus (4096 map, about the same texel size), moved in whole texels so edges don't crawl. `sunShadow()` fades the shadow out near the edge of the area. A small area round the bird cut the bin's shadow as the bird walked away.
 - The bird and the props receive the sun's shadow (self shadow too). `sdf.html` has no self shadow, so shadowed areas differ between the pages. `sun.shadow.normalBias` in `demo.js` stops acne on the bands.
 
 ## Part groups and lines
@@ -143,8 +148,8 @@ npm run build
 - Push tuning: `BIRD.shove` (steady push for each unit of speed: a walk stays below the tip force of the bin, a run is above it) and `BIRD.bump` (one impulse when the forehead first touches: the walk rock).
 - Floor: `floorUnder()` casts rays down from `BIRD.stepUp` above each foot and toe tip (`BIRD.toes`) onto heavy props, and sets `controller.floor` to the highest hit plus `BIRD.clear`. One ray under the root lets the toes sink into a sloped top. The controller lands on it, keeps the feet on it, and falls (event `fall`, no flutter) when the bird walks off the edge. The pose lifts the bird by `position.y`. Footprints are skipped above the ground.
 - Jump: the flutter (`JUMP.flutter`, `JUMP.flutterRise`) reaches about 2.0, enough for the top of a fallen bin (1.5 to 1.7).
-- Demo bounds: in free play the bird can go to `PLAY_BOUNDS` (10) from the centre. The fence for light props is 0.5 outside it.
-- Demo camera: in free play, `follow()` moves the camera and its orbit centre together toward the bird when the bird leaves the screen dead zone (`DEAD_ZONE`) or gets farther than `LEASH` from the orbit centre. Orbit with a drag still works. Fixed views (`t`, `yaw`) do not follow.
+- Demo bounds: `controller.bounds` is a world box `{ x, z }`. In free play it is `PLAY` in `street.js`: the street from one footpath to the other, road included. The fence for light props is 0.5 outside it.
+- Demo camera: in free play, `follow()` moves the camera and its orbit centre together toward the bird when the bird leaves the screen dead zone (`DEAD_ZONE`) or gets farther than `LEASH` from the orbit centre. Orbit with a drag still works. Fixed views (`t`, `yaw`) do not follow. The orbit can't take the camera below `CAM_MIN_Y` (`maxPolarAngle` is set each frame from the distance).
 - The bin and its lid share a collision group (`newGroup()`), so they don't collide. The hinge has a soft position spring: the lid opens with the tilt and the spin of the bin (`BIN.flap`). Gravity alone keeps a lid shut in most falls.
 - Slam dust: `Bin.update()` keeps the fastest spin of a fall with its velocities (`peak`). When the spin drops below `BIN.slam.keep` of it, the bin sends a `slam` event with points on its low edges, each with the speed of the hit there (v + w x r). Only the fast points (the top end) make dust, in `IbisEffects.burst()`. A check of two frames in a row missed hits that fell in one long frame. Edges within `BIN.slam.low` of the lowest corner count, as the open lid holds the top end up a little.
 - Bird dust starts at `controller.floor`, so a landing on the bin puts its dust on the bin.
@@ -170,6 +175,7 @@ npm run build
 - The renderer needs a stencil buffer (`stencil: true`).
 - Do not give `smin()` a far value such as `1e9`. It computes `mix(b, a, h)`, and in float that loses `a`. Use about `10.0`. Example: the head part in `bake.glsl`.
 - In `bake.glsl`, Chrome on Metal gave zeros for `idx / 32` in the palette mode, so the bake wrote a black palette. It uses `idx >> 5` and `idx & 31`. After a bake, check that the game mesh has its colours.
+- `npm run bench` measures wall time. When another tab or app renders (the demo open in a browser), it can read 5 to 10 times too high, with no pattern. For costs, use GPU timer queries (`EXT_disjoint_timer_query_webgl2`) round `window.demo.render()`, and take the median. Free play at 1200x800: about 1.2 ms GPU with no environment, about 4 ms with the street, sky, backdrop, grade and the 4096 shadow map.
 - Bone count is 27 (`BONES` in `rig.js`). Byte joints allow up to 256.
 - `npm` and `npx` can be slow here. Run long installs in the background.
 
@@ -180,3 +186,17 @@ npm run build
 3. For "no visible change" claims, diff the PNGs pixel by pixel in headless Chrome (canvas `getImageData`), and count pixels that differ by more than 8 and by more than 64 of 255.
 4. Check at least: idle front (`anim=1&t=0.5`), side, back, squawk side (`anim=4&t=0.5&yaw=1.6`), and flap open (`anim=5&t=0.1`). For motion, look at a filmstrip (`npm run strip`).
 5. Run `npm run build`.
+
+## Environment
+
+- Scale: the bird is 2 units, so 1 unit is about 35 cm. Keep the street in rough proportion, a little smaller than real, as in a cartoon: footpath 3, nature strip 6, road 14, bin 3 tall.
+- Layout: strips along x (`STRIPS` in `street.js`). The road is on the -z side, so the default camera looks across the nature strip and the road. The bird starts on the nature strip.
+- The ground is one plane that follows the camera. Its shader draws the strips in world space, with the sun shadow from `TOON`. It writes no depth and draws first (`renderOrder -1`), as the old ground, so the outlines round the feet and the footprints still work.
+- The sky is a sphere that follows the camera, drawn before the ground (`renderOrder -2`), with no depth test. Clouds are circles in azimuth and elevation (`CLOUDS`, made with `hash()`). The far hills and trees are bands in the sky shader, with soft edges as a fake depth of field.
+- Far ground fades to `HAZE` (pale sage), and the sky fills below the trees with the same colour, so the ground meets the horizon band. A blue haze read as a lake.
+- Colours: picked from the concept art with a colour picker. Warm in the sun (yellow-green grass, peach footpath), cool in the shade (teal grass, lavender footpath). Tune against the concept, not by eye alone.
+- Backdrop: the horizon must be close, or the street feels empty. Two rings of upright quads along rounded boxes (`RINGS`): a near green one just past the yards, and a taller, hazier one behind it. The shader cuts a canopy line (slow crowns plus round clumps) and shades the clumps. Transparent, soft edges, no depth write. The quads stop at the highest canopy, so the empty part costs nothing.
+- Clouds: few (`CLOUDS.count` 5) and low, so the hills and the trees cover their feet. Each is a wide flat ellipse base, a dome off centre and a small bump on each side, white with a pale cool underside and a faint shade on the dome away from the sun. Keep them simple: puffy clouds of many circles looked busy. Cloud white stays a little below 1.0.
+- Grade (`grade.js`): lifts dark parts toward lavender, warms light parts (not blue ones, or the sky goes teal), adds a little saturation and a warm vignette. It runs only with `env`, so the fixed views are unchanged. About 1 ms; the sky is about 1 ms more. The three.js `EffectComposer` with `UnrealBloomPass` cost about 5 ms: do not use it for a faint glow.
+- Fixed views keep the plain background (`env=0`), so they still match `sdf.html`. `env=1` turns the street on for screenshots.
+- Plan for later phases: midground fences, letterbox, bushes and a street tree (toon meshes as in `props.js`, gobo noise for dappled shade); a backdrop of houses drawn to a half-size render target and blurred (depth of field); grass tufts; footprint and dust style for each surface.

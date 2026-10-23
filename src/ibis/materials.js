@@ -41,7 +41,12 @@ float sunShadow() {
     float s = 1.0;
 #if defined(USE_SHADOWMAP) && NUM_DIR_LIGHT_SHADOWS > 0
     DirectionalLightShadow l = directionalLightShadows[0];
-    if (receiveShadow) s = getShadow(directionalShadowMap[0], l.shadowMapSize, l.shadowIntensity, l.shadowBias, l.shadowRadius, vDirectionalShadowCoord[0]);
+    if (receiveShadow) {
+        s = getShadow(directionalShadowMap[0], l.shadowMapSize, l.shadowIntensity, l.shadowBias, l.shadowRadius, vDirectionalShadowCoord[0]);
+        // Fade out near the edge of the shadow area, so a shadow never ends in a hard line.
+        vec2 c = vDirectionalShadowCoord[0].xy / vDirectionalShadowCoord[0].w;
+        s = mix(1.0, s, smoothstep(0.0, 0.12, min(min(c.x, 1.0 - c.x), min(c.y, 1.0 - c.y))));
+    }
 #endif
     return smoothstep(0.35, 0.65, s);
 }

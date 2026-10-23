@@ -1,7 +1,8 @@
 // three.js demo of the baked ibis. URL params: anim (0 free play, 1 and up one move from src/moves.js),
 // t (fixed time), yaw and pitch (fixed camera, as in sdf.html), scale, count (ibises in a grid), bench
 // (frames to time), mud and wet (0 to 1), root (1: with t, place the bird where the move took it),
-// props (0: no ball and bin in free play), physics (1: show the colliders).
+// props (0: no ball and bin in free play), physics (1: show the colliders), env (0 or 1: the street and
+// the sky; on in free play, off in the fixed views, so they still match sdf.html).
 // Free play: WASD or the arrow keys walk, Shift runs, Space jumps (hold to flutter). A tap on the ground
 // walks there; a tap on the bird prods it. The bird can push the football and the wheelie bin.
 import * as THREE from 'three';
@@ -12,13 +13,16 @@ import { Character } from './ibis/motion/character.js';
 import { ARENA, MOVES, playScript, startMove } from './moves.js';
 import { Physics } from './world/physics.js';
 import { Ball, Bin } from './world/props.js';
+import { Grade } from './world/grade.js';
+import { Backdrop } from './world/backdrop.js';
+import { Sky } from './world/sky.js';
+import { inPlay, PLAY, Street } from './world/street.js';
 
 const FOCAL = 3.2;   // the SDF view's lens: vertical half-angle atan(1 / FOCAL)
 const CAM_DIST = 6.2;        // close camera, as in the SDF view: screenshots and the grid
 const CAM_DIST_PLAY = 12.5;  // free play: the whole walk circle is in view, then the camera follows
 const TARGET = new THREE.Vector3(0, 1, 0.3);
-const TARGET_PLAY = new THREE.Vector3(0, 0.6, 0);
-const PLAY_BOUNDS = 10;      // free play: radius the bird can't leave
+const TARGET_PLAY = new THREE.Vector3(0, 0.9, 0);
 // Free play camera: it keeps still while the bird is inside this part of the view (screen x and y,
 // -1 to 1), and eases after it when the bird goes past. FOLLOW: catch-up rate per second, at full pull.
 // LEASH: it also follows when the bird is this far from the orbit centre on the ground, so a bird
@@ -30,6 +34,9 @@ const GROUND_LIT = new THREE.Color().setRGB(0.925, 0.902, 0.855, 'srgb');
 const GROUND_SHADE = new THREE.Color().setRGB(0.80, 0.78, 0.86, 'srgb');
 const WEATHER_RATE = 0.5;   // mud and wet change per second when toggled
 const TAP_PX = 8;           // a pointer that moves less than this between down and up is a tap
+const CAM_MIN_Y = 0.3;      // the orbit can't take the camera lower than this
+// Free play sun shadow: half size of the area, map size, and the sun's distance from the area's centre.
+const SHADOW = { half: 10, map: 4096, sun: 20 };
 
 const params = new URLSearchParams(location.search);
 // ui=0 hides the buttons and the hint, for tools/strip.mjs.
@@ -40,6 +47,7 @@ const scale = Number(params.get('scale') || Math.min(window.devicePixelRatio, 1.
 const count = Number(params.get('count') || 1);
 const weather = { mud: Number(params.get('mud') || 0), wet: Number(params.get('wet') || 0) };   // targets
 const play = count === 1 && fixedTime === null && !params.has('yaw') && !params.has('bench');
+const env = params.has('env') ? params.get('env') === '1' : play;
 
 const canvas = document.getElementById('c');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, stencil: true, preserveDrawingBuffer: true });
@@ -50,9 +58,9 @@ renderer.shadowMap.type = THREE.PCFShadowMap;
 
 const scene = new THREE.Scene();
 scene.background = GROUND_LIT;
-const camera = new THREE.PerspectiveCamera(2 * Math.atan(1 / FOCAL) * 180 / Math.PI, innerWidth / innerHeight, 0.1, 100);
+const camera = new THREE.PerspectiveCamera(2 * Math.atan(1 / FOCAL) * 180 / Math.PI, innerWidth / innerHeight, 0.1, env ? 800 : 100);
 const yaw = params.has('yaw') ? Number(params.get('yaw')) : -0.8;
-const pitch = params.has('pitch') ? -0.05 + 1.15 * Number(params.get('pitch')) : play ? 0.42 : 0.22;
+const pitch = params.has('pitch') ? -0.05 + 1.15 * Number(params.get('pitch')) : play ? 0.25 : 0.22;
 const target = play ? TARGET_PLAY : TARGET;
 camera.position.set(Math.sin(yaw) * Math.cos(pitch), Math.sin(pitch), Math.cos(yaw) * Math.cos(pitch))
   .multiplyScalar(play ? CAM_DIST_PLAY : CAM_DIST).add(target);
@@ -68,10 +76,22 @@ sun.shadow.mapSize.set(2048, 2048);
 Object.assign(sun.shadow.camera, { left: -3, right: 3, top: 3, bottom: -3, near: 0.5, far: 15 });
 sun.shadow.bias = -0.0005;
 sun.shadow.normalBias = 0.02;   // no shadow acne on the toon bands
+if (play) {
+  // Free play: a wide shadow area round the camera's focus, so props away from the bird keep their
+  // shadows. The map is larger, so a texel stays about as small as in the close views.
+  sun.shadow.mapSize.set(SHADOW.map, SHADOW.map);
+  const r = SHADOW.half;
+  Object.assign(sun.shadow.camera, { left: -r, right: r, top: r, bottom: -r, near: 1, far: 2 * SHADOW.sun });
+}
 scene.add(sun, sun.target);
 
 // Ground: plain background colour, with the shade colour where the shadow falls. It draws first and
 // writes no depth, so it can't cover the outline round the feet.
+const world = env ? [new Sky(asset.sun), new Street(), new Backdrop()] : [];
+for (const part of world) scene.add(part.object);
+// With the street: bloom and the warm colour grade on the whole frame.
+const grade = env ? new Grade(renderer, scene, camera) : null;
+const draw = () => (grade ? grade.render() : renderer.render(scene, camera));
 const groundMaterial = new THREE.ShadowMaterial({ color: GROUND_SHADE, transparent: false, depthWrite: false });
 groundMaterial.onBeforeCompile = shader => {
   shader.uniforms.litColor = { value: GROUND_LIT };
@@ -83,7 +103,7 @@ const ground = new THREE.Mesh(new THREE.PlaneGeometry(60, 60), groundMaterial);
 ground.rotation.x = -Math.PI / 2;
 ground.receiveShadow = true;
 ground.renderOrder = -1;
-scene.add(ground);
+if (!env) scene.add(ground);
 
 const side = Math.ceil(Math.sqrt(count));
 const ibises = Array.from({ length: count }, (_, i) => {
@@ -98,14 +118,14 @@ const ibises = Array.from({ length: count }, (_, i) => {
 const bird = ibises[0];
 const fx = new IbisEffects(asset);
 scene.add(fx.object);
-bird.character.controller.bounds = play ? PLAY_BOUNDS : ARENA + 0.5;
+bird.character.controller.bounds = play ? PLAY : { x: [-ARENA - 0.5, ARENA + 0.5], z: [-ARENA - 0.5, ARENA + 0.5] };
 
 // Props in free play: the bird pushes them, kicks and pecks the ball, and runs the bin over.
 const physics = play && params.get('props') !== '0' ? new Physics() : null;
 const props = [];
 let physicsView = null;
 if (physics) {
-  physics.addFence(PLAY_BOUNDS + 0.5);
+  physics.addFence({ x: [PLAY.x[0] - 0.5, PLAY.x[1] + 0.5], z: [PLAY.z[0] - 0.5, PLAY.z[1] + 0.5] });
   physics.addBird(bird);
   props.push(new Ball(physics, asset, [1.4, 1.3], 0.7), new Bin(physics, asset, [-1.3, -1.1], 0.87));
   for (const prop of props) scene.add(prop.object);
@@ -114,7 +134,7 @@ if (physics) {
     scene.add(physicsView.object);
   }
 }
-window.demo = { ibises, physics, props, fx, camera, controls, render: () => renderer.render(scene, camera) };   // for the console
+window.demo = { ibises, physics, props, fx, camera, controls, world, sun, grade, renderer, scene, render: draw };   // for the console
 if (count > 1) {
   Object.assign(sun.shadow.camera, { left: -side * 1.5, right: side * 1.5, top: side * 2.5, bottom: -side * 1.5 });
   sun.shadow.camera.updateProjectionMatrix();
@@ -173,7 +193,7 @@ canvas.addEventListener('pointerup', e => {
   const d = bird.hit(ray.ray);
   if (d !== null) { bird.prod(ray.ray.at(d, new THREE.Vector3())); return; }
   const p = ray.ray.intersectPlane(groundPlane, new THREE.Vector3());
-  if (!p || p.length() > bird.character.controller.bounds) return;
+  if (!p || !inPlay(p.x, p.z)) return;
   setFree();
   goal = { x: p.x, z: p.z, fast: p.distanceTo(bird.object.position) > 2.5 };
 });
@@ -213,13 +233,28 @@ function frame() {
     physicsView?.update();
   }
   fx.update(dt, ibises, camera);
+  // Keep the camera above the ground: the lowest polar angle for this distance.
+  const reach = camera.position.distanceTo(controls.target);
+  controls.maxPolarAngle = Math.PI / 2 + Math.asin(Math.min(Math.max((controls.target.y - CAM_MIN_Y) / reach, -1), 1));
   if (play) {
     follow(dt);
-    // The shadow camera follows the bird.
-    sun.target.position.copy(bird.object.position);
-    sun.position.copy(asset.sun).multiplyScalar(6).add(bird.object.position);
+    shadowTo(controls.target);
   }
-  renderer.render(scene, camera);
+  for (const part of world) part.update?.(camera);
+  draw();
+}
+
+// Centres the sun's shadow area on a point on the ground. The centre moves in whole shadow texels
+// across the sun's view, so the shadow edges don't crawl as the camera follows the bird.
+const sunRight = new THREE.Vector3(), sunUp = new THREE.Vector3(), centre = new THREE.Vector3();
+function shadowTo(point) {
+  const texel = 2 * SHADOW.half / SHADOW.map;
+  sunRight.crossVectors(asset.sun, new THREE.Vector3(0, 1, 0)).normalize();
+  sunUp.crossVectors(sunRight, asset.sun);
+  const x = Math.round(point.dot(sunRight) / texel) * texel, y = Math.round(point.dot(sunUp) / texel) * texel;
+  centre.copy(sunRight).multiplyScalar(x).addScaledVector(sunUp, y).addScaledVector(asset.sun, point.dot(asset.sun));
+  sun.target.position.copy(centre);
+  sun.position.copy(asset.sun).multiplyScalar(SHADOW.sun).add(centre);
 }
 
 // Moves the camera and its orbit centre together toward the bird, when the bird is out of the dead
@@ -240,6 +275,7 @@ function follow(dt) {
 
 addEventListener('resize', () => {
   renderer.setSize(innerWidth, innerHeight, false);
+  grade?.setSize(innerWidth, innerHeight);
   camera.aspect = innerWidth / innerHeight;
   camera.updateProjectionMatrix();
 });
@@ -310,7 +346,8 @@ if (params.has('bench')) {
     controls.update();
     fx.update(0, ibises, camera);
   }
-  renderer.render(scene, camera);
+  for (const part of world) part.update?.(camera);
+  draw();
   document.title = 'DONE';
 } else {
   renderer.setAnimationLoop(frame);
