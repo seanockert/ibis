@@ -1,14 +1,17 @@
 // The street the bird plays in: strips of grass, footpath, kerb and road along x, drawn by one ground
-// shader in world space. The plane follows the camera, so the street has no end.
+// shader in world space. The road is lower than the rest, with a rolled kerb on each side (PROFILE: the
+// same heights for the mesh, the physics and the footprints). The mesh follows the camera along x, so
+// the street has no end.
 //
-//   const street = new Street();
+//   const street = new Street(asset.sun);
 //   scene.add(street.object);
 //   street.update(camera);   // every frame
 //
 // Scale: the bird is 2 units, so 1 unit is about 35 cm. Sizes are a little smaller than real, as in a
 // cartoon: a footpath is 3 units, the road 14 (two lanes).
-import { Color, Mesh, PlaneGeometry, ShaderMaterial } from 'three';
+import { BufferGeometry, Color, Float32BufferAttribute, Mesh, ShaderMaterial } from 'three';
 import { lightUniforms, NOISE, TOON, TOON_VERTEX } from '../ibis/materials.js';
+import { smoothstep } from '../ibis/motion/spring.js';
 import { HAZE } from './sky.js';
 
 const srgb = (r, g, b) => new Color().setRGB(r, g, b, 'srgb');
@@ -19,7 +22,7 @@ export const STRIPS = [
   ['kerb', -18.6], ['grass', -23], ['path', -26], ['grass', -Infinity],
 ];
 // The bird can go anywhere on the street between the two footpaths. Props stay 0.5 inside a fence.
-export const PLAY = { x: [-24, 24], z: [-25, 5.5] };
+export const PLAY = { x: [-48, 48], z: [-25.5, 5.5] };   // the fence (fence.js) is just outside, at the yard edges
 export const ROAD = { centre: -10.8, dash: [3, 3], dashWidth: 0.22 };   // centre line: dash and gap length
 export const JOINT = 3;   // footpath joints along x
 const HAZE_FROM = [25, 220];   // distance where the ground starts to fade into the haze, and where it is all haze
@@ -29,6 +32,17 @@ export const MARKS = { cell: 1.1, chance: 0.45, size: [0.08, 0.15] };
 // Pebbles near the strip edges: a small pale mound in some cells of a grid, more of them nearer the edge.
 // band: distance from an edge where they stop. A pebble must stay inside half a cell.
 const PEBBLES = { cell: 0.7, chance: 0.4, band: 1.0, radius: [0.05, 0.12] };
+// Kerb: the road is height lower than the rest. From the road edge: a flat gutter, then a roll up (an S
+// curve) to the top. The roll is a slope the bird walks up (less than GROUND.stepUp in controller.js).
+// segments: points along the roll. contact, lip: width of the shade at the foot of the roll and of the
+// line on its top.
+export const KERB = { height: 0.2, gutter: 0.22, roll: 0.5, segments: 8, contact: 0.1, lip: 0.035 };
+const REACH = 450;   // half size of the ground mesh
+// Height across the street: [z, y] points from the near side (+z) to the far side, straight between.
+export const PROFILE = profile();
+const FORM = 0.75;          // N.L below this: the cool form tone. Flat ground is above it
+const DEPTH_BIAS = 0.2;    // the ground writes its depth this far behind it, along the view ray
+
 // Cracks: part of the footpath slabs with a crack, a zigzag of three strokes from one side of the path.
 const CRACKS = { chance: 0.35, width: 0.035 };
 
@@ -49,16 +63,70 @@ const COLOURS = {
 };
 
 export class Street {
-  constructor() {
-    const material = groundMaterial();
-    // Draws first and writes no depth, as the old ground, so it can't cover the outline round the feet.
-    this.object = new Mesh(new PlaneGeometry(900, 900).rotateX(-Math.PI / 2), material);
+  constructor(sun) {
+    const material = groundMaterial(sun);
+    // Draws first. Its depth is DEPTH_BIAS behind it, so it can't cover the outline round the feet, but
+    // a kerb still hides what is below it on the road.
+    this.object = new Mesh(groundGeometry(), material);
     this.object.receiveShadow = true;
     this.object.renderOrder = -1;
     this.object.frustumCulled = false;
   }
 
-  update(camera) { this.object.position.set(camera.position.x, 0, camera.position.z); }
+  // The heights change only across z, so the mesh follows the camera along x only.
+  update(camera) { this.object.position.set(camera.position.x, 0, 0); }
+}
+
+// Height of the street at z.
+export function streetHeight(z) {
+  for (let i = 1; i < PROFILE.length; i++) {
+    const [z1, y1] = PROFILE[i];
+    if (z < z1) continue;
+    const [z0, y0] = PROFILE[i - 1];
+    return y1 + (y0 - y1) * (z - z1) / (z0 - z1);
+  }
+  return PROFILE[PROFILE.length - 1][1];
+}
+
+function profile() {
+  const { height, gutter, roll, segments } = KERB;
+  const out = [[REACH, 0]];
+  STRIPS.forEach(([kind, far], i) => {
+    const near = i ? STRIPS[i - 1][1] : REACH;
+    if (kind === 'road') out.push([near, -height], [far, -height]);
+    if (kind !== 'kerb') return;
+    // d: distance from the road edge. The road is on the far side or on the near side.
+    const fromFar = STRIPS[i + 1]?.[0] === 'road', width = near - far;
+    const ds = [0, gutter, ...Array.from({ length: segments }, (_, k) => gutter + roll * (k + 1) / segments), width];
+    const y = d => -height * (1 - smoothstep(gutter, gutter + roll, d));
+    const points = ds.map(d => [fromFar ? far + d : near - d, y(d)]);
+    out.push(...(fromFar ? points.reverse() : points));
+  });
+  out.push([-REACH, 0]);
+  return out.filter((p, i) => i === 0 || p[0] < out[i - 1][0]);
+}
+
+// The profile along x, from -REACH to REACH. Smooth normals across the roll. The triangles go from the
+// lowest to the highest, so a higher strip draws over the lower one it hides (the road behind a kerb,
+// from the top side) where the depth bias is too small to sort them.
+function groundGeometry() {
+  const position = [], normal = [], quads = [];
+  PROFILE.forEach(([z, y], i) => {
+    const [za, ya] = PROFILE[Math.max(i - 1, 0)], [zb, yb] = PROFILE[Math.min(i + 1, PROFILE.length - 1)];
+    const n = [0, za - zb, yb - ya], len = Math.hypot(n[1], n[2]);
+    position.push(-REACH, y, z, REACH, y, z);
+    normal.push(0, n[1] / len, n[2] / len, 0, n[1] / len, n[2] / len);
+    if (i) quads.push([i, y + PROFILE[i - 1][1]]);
+  });
+  const index = quads.sort((a, b) => a[1] - b[1]).flatMap(([i]) => {
+    const a = 2 * (i - 1), b = 2 * i;
+    return [a, a + 1, b, a + 1, b + 1, b];
+  });
+  const g = new BufferGeometry();
+  g.setAttribute('position', new Float32BufferAttribute(position, 3));
+  g.setAttribute('normal', new Float32BufferAttribute(normal, 3));
+  g.setIndex(index);
+  return g;
 }
 
 // Footprint on each strip: lit, shade, strength for a dry foot, and lit, shade for a wet one. Dry: on grass
@@ -149,8 +217,8 @@ float tuft(vec2 p, float s, float leafy, out float across) {
 // Is a world point in the play area?
 export const inPlay = (x, z) => x >= PLAY.x[0] && x <= PLAY.x[1] && z >= PLAY.z[0] && z <= PLAY.z[1];
 
-function groundMaterial() {
-  const uniforms = { ...lightUniforms(), ...grassUniforms(), uHaze: { value: HAZE } };
+function groundMaterial(sun) {
+  const uniforms = { ...lightUniforms(), ...grassUniforms(), uHaze: { value: HAZE }, uSun: { value: sun } };
   const other = Object.keys(COLOURS).filter(n => !GRASS_TONES.includes(n));
   for (const name of other) {
     const [lit, shade] = COLOURS[name];
@@ -164,16 +232,16 @@ function groundMaterial() {
     col = mix(col, ${kind}, smoothstep(-w, w, ${f(STRIPS[i][1])} - z));`).join('');
   return new ShaderMaterial({
     lights: true,
-    depthWrite: false,
     uniforms,
     vertexShader: /* glsl */`
       ${TOON_VERTEX}
-      varying vec3 vWorld;
+      varying vec3 vWorld, vNormal;
       void main() {
         vec4 world = modelMatrix * vec4(position, 1.0);
         vWorld = world.xyz;
+        vNormal = normal;
         gl_Position = projectionMatrix * viewMatrix * world;
-        toonShadowCoord(world, vec3(0, 1, 0));
+        toonShadowCoord(world, normal);
       }`,
     fragmentShader: /* glsl */`
       ${TOON}
@@ -182,8 +250,9 @@ function groundMaterial() {
       ${GRASS}
       ${BLADES}
       ${other.map(n => `uniform vec3 u_${n}Lit, u_${n}Shade;`).join('\n')}
-      uniform vec3 uHaze;
-      varying vec3 vWorld;
+      uniform vec3 uHaze, uSun;
+      uniform mat4 projectionMatrix;
+      varying vec3 vWorld, vNormal;
       // 1 on a line of width (units) at u = 0, a pixel of blur at any distance.
       float line(float u, float width) {
         float w = max(fwidth(u), 1e-5);
@@ -205,6 +274,11 @@ function groundMaterial() {
         vec2 f = vec2(dot(p.xz, u.side), dot(p.xz, u.away) * u.stretch);
         u.px = max(max(fwidth(f.x), fwidth(f.y)), 1e-5);
         return u;
+      }
+      // Distance across a kerb from its road edge, or -1 off the kerbs.
+      float kerbFromRoad(float z) {
+        ${STRIPS.map(([kind, far], i) => kind !== 'kerb' ? '' : `if (z < ${f(STRIPS[i - 1][1])} && z > ${f(far)}) return ${STRIPS[i + 1]?.[0] === 'road' ? `z - ${f(far)}` : `${f(STRIPS[i - 1][1])} - z`};`).filter(Boolean).join('\n        ')}
+        return -1.0;
       }
       float edgeDistance(float z) {
         float edge = 1e3;
@@ -273,7 +347,8 @@ function groundMaterial() {
       }
       void main() {
         vec3 p = vWorld;
-        float z = p.z, w = max(fwidth(z), 1e-4), lit = sunShadow();
+        vec3 n = normalize(vNormal);
+        float z = p.z, w = max(fwidth(z), 1e-4), lit = toonBand(n, uSun);
         // Grass: sunny and lush patches on the base green, and painted marks near the camera.
         float near = 1.0 - smoothstep(20.0, 45.0, distance(p, cameraPosition));
         // Only near a grass strip: the patches and the marks are most of the cost of the ground. The margin
@@ -304,6 +379,14 @@ function groundMaterial() {
         float e = 0.0;
         ${STRIPS.slice(0, -1).map(([, z]) => `e = max(e, line(z - ${f(z)}, 0.04));`).join('\n        ')}
         col = mix(col, ${tone('joint')}, e);
+        // Kerb: a cool contact shade in the gutter at the foot of the roll, and a dark line on the lip, so
+        // the drop reads from the top side too, where the roll is out of view.
+        float kd = kerbFromRoad(z);
+        col = mix(col, col * vec3(0.78, 0.80, 0.95), line(kd - ${f(KERB.gutter - KERB.contact / 2)}, ${f(KERB.contact)}));
+        col = mix(col, ${tone('joint')} * 0.7, line(kd - ${f(KERB.gutter + KERB.roll)}, ${f(KERB.lip)}));
+        // Form: a slope that turns from the sun (the roll of a kerb that faces it away) gets a cool tone.
+        float ndl = dot(n, uSun), fw = 0.5 * max(fwidth(ndl), 1e-5);
+        col *= mix(vec3(0.84, 0.85, 0.97), vec3(1.0), smoothstep(${f(FORM)} - fw, ${f(FORM)} + fw, ndl));
         // Cracks on the footpath slabs, pebbles near the strip edges. Only near the camera: far away they
         // are too small to read.
         float px = max(fwidth(p.x), fwidth(p.z));
@@ -317,6 +400,10 @@ function groundMaterial() {
         col = mix(col, uHaze, smoothstep(${f(HAZE_FROM[0])}, ${f(HAZE_FROM[1])}, distance(p, cameraPosition)));
         gl_FragColor = vec4(col, 1.0);
         #include <colorspace_fragment>
+        // Depth a little behind the ground along the view ray. For each pixel: the triangles are too
+        // large to move their corners. The ground draws first, so it loses no early depth test.
+        vec4 clip = projectionMatrix * viewMatrix * vec4(p + normalize(p - cameraPosition) * ${f(DEPTH_BIAS)}, 1.0);
+        gl_FragDepth = 0.5 + 0.5 * clip.z / clip.w;
       }`,
   });
 }

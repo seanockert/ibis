@@ -1,5 +1,5 @@
 // Renders frames of a move into one grid image, to check timing.
-// Usage: npm run strip -- OUT.png "index.html?anim=8&yaw=1.4&pitch=0.1" T0 T1 N [CELL] [COLUMNS]
+// Usage: npm run strip -- OUT.png "index.html?anim=7&yaw=1.4&pitch=0.1" T0 T1 N [CELL] [COLUMNS]
 // Takes N frames from time T0 to T1 (seconds), each CELL pixels square (default 300).
 import { openBrowser } from './browser.mjs';
 

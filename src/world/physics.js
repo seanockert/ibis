@@ -1,7 +1,7 @@
 // Physics for the scene: props that roll, rock and fall over, and the ibis as a solid that pushes them.
 // This is the only file that imports crashcat, so the engine can change without changes elsewhere.
 //
-//   const physics = new Physics();
+//   const physics = new Physics({ ground });   // ground: [z, y] heights across the street, or flat
 //   physics.addFence({ x: [x0, x1], z: [z0, z1] });   // walls round a box: keep props in the play area
 //   physics.addBird(ibis);                     // the controller then can't walk through props
 //   const id = physics.addBox(size, { position, mass });
@@ -24,7 +24,8 @@
 // forehead along its heading, harder with speed: a walk rocks the bin, a run tips it. A prop that rocks
 // back toward the bird pushes it back, so the head and beak don't go into it.
 //
-// Ground: terrain (static steps, ramps: addTerrain) and the tops of heavy props (a fallen bin). Rays
+// Ground: the street (the road is lower, with a kerb), terrain (static steps, ramps: addTerrain) and the
+// tops of heavy props (a fallen bin). Rays
 // down from stepUp above each foot and toe tip give the ground under each foot (controller.feet) and
 // the highest (controller.floor), so no toe sinks into a sloped top, and the bird lands on it, walks
 // on it and falls off its edge. controller.groundAt() gives the animator the ground where a foot will
@@ -37,13 +38,13 @@
 import {
   CastRayStatus, MotionType, MotorState, SpringMode, addBroadphaseLayer, addObjectLayer, box, capsule, castRay, convexHull,
   createClosestCastRayCollector, createDefaultCastRaySettings, createWorld, createWorldSettings, enableCollision, filter,
-  hingeConstraint, kcc, motionProperties, offsetCenterOfMass, registerConstraints, registerShapes, rigidBody, sphere, updateWorld,
+  compound, hingeConstraint, kcc, motionProperties, offsetCenterOfMass, registerConstraints, registerShapes, rigidBody, sphere, updateWorld,
 } from 'crashcat';
-import { Vector3 } from 'three';
+import { Quaternion, Vector3 } from 'three';
 import { GROUND } from '../ibis/motion/controller.js';
 import { HEAD_SCALE } from '../ibis/rig.js';
 
-registerShapes([sphere.def, box.def, capsule.def, convexHull.def, offsetCenterOfMass.def]);
+registerShapes([sphere.def, box.def, capsule.def, convexHull.def, offsetCenterOfMass.def, compound.def]);
 registerConstraints([hingeConstraint.def]);
 
 const STEP = 1 / 120;   // longest sub step, seconds, as in Character
@@ -62,6 +63,7 @@ export const BIRD = {
   shove: 41,                   // forehead push in N for each unit of speed into the prop. Tips the bin at a run
   bump: 10,                    // impulse in N s for each unit of speed when the forehead first touches,
   bounce: 1.8,                 // up to this many times the bird's speed where it hits (1 + restitution)
+  pushAt: [0.9, 0.6],         // part of a prop's height the bump and the steady push go up to at most
   // Shove rays: start, length, side offsets at head height, and the height of one more at the beak tip.
   look: { at: [0, 1.4, 0.2], ahead: 2.0, across: 0.22, low: 0.95 },
   braceFrom: 0.6,              // the head goes down over this distance before the head sphere touches,
@@ -72,6 +74,7 @@ export const BIRD = {
   reach: [[[0, 0, 0], 0.22], [[0, -0.11, 0.53], 0.06], [[0, -0.24, 0.71], 0.04], [[0, -0.42, 0.86], 0.02]],
   clear: 0.02,                 // feet stand this far above a prop's top, as the mesh is not exact
   teleport: 0.5,               // a root move longer than this in one sub step jumps, with no sweep
+  upright: 0.35,               // a hollow prop tipped less than this (radians) can hold the bird inside
   backSpeed: 8,                // fastest step back for room, units per second
   room: 600,                   // push on the prop in N for each unit of overlap,
   roomSpeed: 1,                // up to this speed of the prop where the head is
@@ -80,8 +83,12 @@ export const BIRD = {
 };
 const LIMB_TELEPORT = 1;       // a limb that moves farther than this in a frame jumps there: no kick
 
+const GROUND_HALF = 100;   // half size of the ground, x and z: past the play area (PLAY in street.js)
+const GROUND_DEPTH = 1;   // the ground solids go this far down
+
 export class Physics {
-  constructor() {
+  // ground: [z, y] points from +z to -z (PROFILE in street.js), straight between. Without it: flat at 0.
+  constructor({ ground = null } = {}) {
     const s = createWorldSettings();
     s.gravity = [0, -GRAVITY, 0];
     const still = addBroadphaseLayer(s), moving = addBroadphaseLayer(s);
@@ -100,10 +107,7 @@ export class Physics {
     }
     this.world = createWorld(s);
     this.gravity = s.gravity;
-    rigidBody.create(this.world, {
-      motionType: MotionType.STATIC, objectLayer: L.fixed, shape: box.create({ halfExtents: [50, 0.5, 50] }),
-      position: [0, -0.5, 0], friction: GROUND_FRICTION,
-    });
+    this.addGround(ground ?? [[GROUND_HALF, 0], [-GROUND_HALF, 0]]);
     // The bird collides with props only: the controller keeps it on the ground and inside its bounds.
     // Set the object layers directly: disableObjectLayer() also turns off the broadphase layer, which
     // the limbs share with the props.
@@ -115,9 +119,9 @@ export class Physics {
     this.birds = [];
     this.heavyFilter = filter.create(this.world.settings.layers);
     for (const layer of [L.fixed, L.fence, L.terrain, L.light, L.limb, L.ghost]) this.heavyFilter.enabledObjectLayers[layer] = 0;
-    // Ground rays: terrain and heavy props. A miss is the ground plane, y = 0.
+    // Ground rays: the ground, terrain and heavy props.
     this.groundFilter = filter.create(this.world.settings.layers);
-    for (const layer of [L.fixed, L.fence, L.light, L.limb, L.ghost]) this.groundFilter.enabledObjectLayers[layer] = 0;
+    for (const layer of [L.fence, L.light, L.limb, L.ghost]) this.groundFilter.enabledObjectLayers[layer] = 0;
     this.ray = createClosestCastRayCollector();
     this.raySettings = createDefaultCastRaySettings();
     this.groundSettings = { ...createDefaultCastRaySettings(), treatConvexAsSolid: false };
@@ -136,6 +140,20 @@ export class Physics {
     }
   }
 
+  // The ground: one static solid for each straight part of the profile, down to GROUND_DEPTH below 0.
+  addGround(profile) {
+    const clip = ([z, y]) => [Math.min(Math.max(z, -GROUND_HALF), GROUND_HALF), y];
+    for (let i = 1; i < profile.length; i++) {
+      const [z0, y0] = clip(profile[i - 1]), [z1, y1] = clip(profile[i]);
+      if (z0 <= z1) continue;
+      const points = [-GROUND_HALF, GROUND_HALF].flatMap(x => [x, y0, z0, x, y1, z1, x, -GROUND_DEPTH, z0, x, -GROUND_DEPTH, z1]);
+      rigidBody.create(this.world, {
+        motionType: MotionType.STATIC, objectLayer: this.layers.fixed, friction: GROUND_FRICTION,
+        shape: convexHull.create({ positions: points, convexRadius: 0 }), position: [0, 0, 0],
+      });
+    }
+  }
+
   // Static ground the bird walks on: a convex hull round points (flat array [x, y, z, ...], world).
   addTerrain(points, { friction = GROUND_FRICTION } = {}) {
     return rigidBody.create(this.world, {
@@ -144,11 +162,34 @@ export class Physics {
     }).id;
   }
 
-  // A dynamic box. size: full size [x, y, z]. com: centre of mass height from the middle.
+  // A dynamic box. size: full size [x, y, z]. com: centre of mass height from the middle. The convex
+  // radius stays below half the thinnest half size: the default (0.05) is too big for a thin flap.
   addBox(size, { com = 0, ...options } = {}) {
-    let shape = box.create({ halfExtents: size.map(v => v / 2) });
+    const halfExtents = size.map(v => v / 2);
+    let shape = box.create({ halfExtents, convexRadius: Math.min(0.05, Math.min(...halfExtents) / 2) });
     if (com) shape = offsetCenterOfMass.create({ shape, offset: [0, com, 0] });
     return this.addDynamic(shape, options);
+  }
+
+  // A dynamic box with an open top: a floor and four walls in one compound body, so things can go in.
+  // size: full outside size; wall, floor: thickness. com: the centre of mass height from the middle of
+  // the box, as addBox() (not from the hollow shape's own centre).
+  addHollowBox([w, h, d], { wall, floor = wall, com = 0, ...options }) {
+    const part = (size, position) => ({
+      position, quaternion: [0, 0, 0, 1],
+      shape: box.create({ halfExtents: size.map(v => v / 2), convexRadius: Math.min(0.05, Math.min(...size) / 4) }),
+    });
+    const inner = h - floor, y = floor / 2;
+    let shape = compound.create({ children: [
+      part([w, floor, d], [0, -h / 2 + floor / 2, 0]),
+      ...[-1, 1].map(s => part([wall, inner, d], [s * (w - wall) / 2, y, 0])),
+      ...[-1, 1].map(s => part([w - 2 * wall, inner, wall], [0, y, s * (d - wall) / 2])),
+    ] });
+    shape = offsetCenterOfMass.create({ shape, offset: [-shape.centerOfMass[0], com - shape.centerOfMass[1], -shape.centerOfMass[2]] });
+    const id = this.addDynamic(shape, options);
+    // The inside, from the middle of the box: half sizes across, and the floor and the rim heights.
+    (this.hollow ??= new Map()).set(id, { half: [w / 2 - wall, d / 2 - wall], floor: -h / 2 + floor, rim: h / 2 });
+    return id;
   }
 
   // A dynamic convex hull round points: flat array [x, y, z, ...].
@@ -188,6 +229,8 @@ export class Physics {
 
   body(id) { return rigidBody.get(this.world, id); }
 
+  remove(id) { rigidBody.remove(this.world, rigidBody.get(this.world, id)); }
+
   impulse(id, impulse, at) { rigidBody.addImpulseAtPosition(this.world, this.body(id), impulse, at); }
 
   // Gives the ibis a solid body. Call before its first update after this.
@@ -201,7 +244,7 @@ export class Physics {
     const limb = r => rigidBody.create(this.world, {
       motionType: MotionType.KINEMATIC, objectLayer: L.limb, shape: sphere.create({ radius: r }), position: [0, -10, 0],
     }).id;
-    const bird = { ibis, kcc: k, limbs: [limb(BIRD.foot), limb(BIRD.foot), limb(BIRD.peck)], placed: false, touching: false };
+    const bird = { ibis, kcc: k, limbs: [limb(BIRD.foot), limb(BIRD.foot), limb(BIRD.peck)], placed: false, touching: false, under: null, inside: null };
     this.birds.push(bird);
     c.collide = (controller, dt) => this.moveBird(bird, controller, dt);
     c.controller.groundAt = (x, z, out) => this.groundAt(x, z, c.position.y + GROUND.stepUp, out);
@@ -209,7 +252,44 @@ export class Physics {
 
   // One controller sub step: sweep the solid from where it was to where the controller put it. It turns
   // with the heading without a sweep, and the next sweep pushes it back out of what the turn hit.
+  // Inside a hollow prop (an upright box with its flaps open), the bird stands on its floor: the walls
+  // round it are not a prop to push. Without this, the shove rays and the room check found the wall
+  // ahead, the bird pushed the box it stood in and followed it, and the box ran away with the bird.
+  // So while inside, the bird's sweep and rays skip that body, and the bird stays inside its walls
+  // (inner half size less the solid's radius) until it jumps out: a jump from inside keeps the walls
+  // skipped until the feet are over the rim, or the solid hit the wall and tipped the box, and the
+  // rising rim caught the bird and put it back in.
   moveBird(bird, c, dt) {
+    const inside = bird.inside = c.grounded ? this.insideOf(bird, c) : bird.inside && this.stillIn(bird.inside, c);
+    const skip = inside ? body => body.id !== inside.id : undefined;
+    this.birdFilter.bodyFilter = this.heavyFilter.bodyFilter = skip;
+    this.moveBirdIn(bird, c, dt, inside);
+    this.birdFilter.bodyFilter = this.heavyFilter.bodyFilter = undefined;
+  }
+
+  // The hollow prop the bird stands inside, as { id, body, info }, or null.
+  insideOf(bird, c) {
+    const id = bird.under, info = id !== null && this.hollow?.get(id);
+    if (!info) return null;
+    const body = rigidBody.get(this.world, id);
+    if (!body || tiltAngle(body.quaternion) > BIRD.upright) return null;
+    const local = this.toLocal(body, c.position);
+    if (local.y > info.rim || Math.abs(local.x) > info.half[0] || Math.abs(local.z) > info.half[1]) return null;
+    return { id, body, info };
+  }
+
+  // In the air after a jump from inside: still inside until the feet are over the rim.
+  stillIn(inside, c) {
+    const body = rigidBody.get(this.world, inside.id);
+    if (!body || c.position.y > body.position[1] + inside.info.rim + BIRD.clear) return null;
+    return { ...inside, body };
+  }
+
+  toLocal(body, p) {
+    return new Vector3(p.x, p.y, p.z).sub(new Vector3().fromArray(body.position)).applyQuaternion(new Quaternion().fromArray(body.quaternion).invert());
+  }
+
+  moveBirdIn(bird, c, dt, inside) {
     const k = bird.kcc;
     k.position[1] = c.position.y;
     kcc.setQuaternion(this.world, k, yaw(c.heading));
@@ -224,6 +304,21 @@ export class Physics {
     kcc.update(this.world, k, dt, this.gravity, this.birdUpdate, undefined, this.birdFilter);
     c.position.x = k.position[0];
     c.position.z = k.position[2];
+    if (inside) {
+      // Keep the solid inside the walls, and nothing to push.
+      const { body, info } = inside, r = BIRD.solid.radius, local = this.toLocal(body, c.position);
+      local.x = Math.min(Math.max(local.x, -Math.max(info.half[0] - r, 0)), Math.max(info.half[0] - r, 0));
+      local.z = Math.min(Math.max(local.z, -Math.max(info.half[1] - r, 0)), Math.max(info.half[1] - r, 0));
+      local.applyQuaternion(new Quaternion().fromArray(body.quaternion)).add(new Vector3().fromArray(body.position));
+      c.position.x = local.x;
+      c.position.z = local.z;
+      kcc.setPosition(this.world, k, [c.position.x, c.position.y, c.position.z]);
+      this.feetGround(bird, c);
+      c.shove = 0;
+      bird.touching = false;
+      if (!c.grounded) c.shove = 0;
+      return;
+    }
     this.feetGround(bird, c);
     // Whatever stops the bird (the forehead, or the bill in an action or at a run) takes the push. In
     // the air the bird has nothing to push from: no brace and no push, so it can land on a prop.
@@ -243,9 +338,15 @@ export class Physics {
     if (!contact || c.speed <= 0) return;
     const { id, dir } = contact;
     // At forehead height, whatever touched: a low push (the bill at a run) slides the bin, not tips it.
-    const at = [contact.at[0], c.position.y + BIRD.head.at[1], contact.at[2]];
-    if (bump) this.pushUpTo(id, at, dir, c.speed * BIRD.bounce, BIRD.bump * c.speed);
-    this.pushUpTo(id, at, dir, c.speed, BIRD.shove * c.speed * dt);
+    // On a short prop (a box), the bump goes no higher than BIRD.pushAt[0] of its height and the steady
+    // push no higher than pushAt[1], so a walk slides it and a run knocks it over.
+    const box = rigidBody.get(this.world, id).aabb, forehead = c.position.y + BIRD.head.at[1];
+    const at = k => [contact.at[0], Math.min(forehead, mix(box[1], box[4], k)), contact.at[2]];
+    if (bump) {
+      this.pushUpTo(id, at(BIRD.pushAt[0]), dir, c.speed * BIRD.bounce, BIRD.bump * c.speed);
+      bird.ibis.character.knock();
+    }
+    this.pushUpTo(id, at(BIRD.pushAt[1]), dir, c.speed, BIRD.shove * c.speed * dt);
   }
 
   // An impulse along dir at a world point, at most most (N s). It stops where the point moves along
@@ -294,9 +395,9 @@ export class Physics {
   }
 
   // Ground under a world point, from a ray down from top: out.y the height, out.n the normal (a
-  // Vector3). A miss is the ground plane.
+  // Vector3). A prop top gets BIRD.clear. A miss (off the ground) is y = 0.
   groundAt(x, z, top, out) {
-    const length = top + 0.05;
+    const length = top + GROUND_DEPTH;
     this.ray.reset();
     castRay(this.world, this.ray, this.groundSettings, [x, top, z], [0, -1, 0], length, this.groundFilter);
     if (this.ray.hit.status !== CastRayStatus.COLLIDING) {
@@ -304,11 +405,12 @@ export class Physics {
       out.n.set(0, 1, 0);
       return out;
     }
-    const y = top - this.ray.hit.fraction * length, hit = this.hit;
+    const y = top - this.ray.hit.fraction * length, hit = this.hit, body = rigidBody.get(this.world, this.ray.hit.bodyIdB);
     hit[0] = x; hit[1] = y; hit[2] = z;
-    rigidBody.getSurfaceNormal(hit, rigidBody.get(this.world, this.ray.hit.bodyIdB), hit, this.ray.hit.subShapeId);
-    out.y = y + BIRD.clear;
+    rigidBody.getSurfaceNormal(hit, body, hit, this.ray.hit.subShapeId);
+    out.y = y + (body.motionType === MotionType.DYNAMIC ? BIRD.clear : 0);
     out.n.fromArray(hit);
+    out.body = body.motionType === MotionType.DYNAMIC ? body.id : null;
     return out;
   }
 
@@ -317,16 +419,20 @@ export class Physics {
   feetGround(bird, c) {
     const R = bird.ibis.rig, sn = Math.sin(c.heading), cs = Math.cos(c.heading), top = c.position.y + GROUND.stepUp;
     const probe = this.probe;
+    let under = null, high = -Infinity;
     [R.footL, R.footR].forEach((foot, i) => {
       const out = c.feet[i];
       out.y = -Infinity;
       for (const ahead of [0, GROUND.toes]) {
         const x = foot.x, z = foot.z + ahead;
+        probe.body = null;
         this.groundAt(c.position.x + x * cs + z * sn, c.position.z - x * sn + z * cs, top, probe);
         if (probe.y > out.y) { out.y = probe.y; out.n.copy(probe.n); }
+        if (probe.y > high) { high = probe.y; under = probe.body ?? null; }
       }
     });
     c.floor = Math.max(c.feet[0].y, c.feet[1].y);
+    bird.under = under;   // the prop the feet stand on, or null
   }
 
   // Finds a heavy prop ahead of the head, sets controller.shove, and moves the bird back if the prop
@@ -387,7 +493,11 @@ export class Physics {
   }
 }
 
+// Angle between a body's up and the world's up, from its quaternion.
+function tiltAngle([qx, , qz]) { return Math.acos(Math.min(1, Math.max(-1, 1 - 2 * (qx * qx + qz * qz)))); }
+
 function yaw(a) { return [0, Math.sin(a / 2), 0, Math.cos(a / 2)]; }
+const mix = (a, b, k) => a + (b - a) * k;
 const add = (a, b) => [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
 const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
 const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];

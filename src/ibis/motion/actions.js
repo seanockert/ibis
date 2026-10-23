@@ -91,7 +91,6 @@ export const ACTIONS = {
   peck: clipAction('peck', 2 / 1.2),
   // A honk at each jaw beat.
   squawk: clipAction('squawk', 1.5, [0.08, 0.58, 1.08].map((at, i) => ({ at, type: 'call', pitch: [1, 0.96, 0.92][i] }))),
-  flap: clipAction('flap', 2 / 0.75),
 
   // Two quick hops with happy eyes, a head tilt to one side then the other, a honk at each top, and
   // the wings fluttering. It ends chest out and head up.

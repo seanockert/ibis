@@ -133,8 +133,9 @@ export class Animator {
     // First step, and a landing: the feet take the ground under them now.
     if (!this.placed || c.events.some(e => e.type === 'land')) {
       this.ground.forEach((g, i) => {
-        g.y = c.feet[i].y;
-        g.n.copy(c.feet[i].n);
+        const over = this.over(c, i);
+        g.y = over ? c.position.y : c.feet[i].y;
+        g.n.copy(over ? UP : c.feet[i].n);
         for (const w of [this.plants[i], this.swingFrom[i]]) if (w) { w.y = g.y; w.n.copy(g.n); }
       });
       this.placed = true;
@@ -459,6 +460,9 @@ export class Animator {
     P.lid = mix(P.lid, 1, b * (1 - P.blink));
   }
 
+  // Ground out of reach below foot i (an edge under it): the foot stays level with the root.
+  over(c, i) { return c.feet[i].y < c.position.y - GROUND.stepDown; }
+
   // Foot placement, after every other layer (as a foot IK pass). Each foot goes to the ground under it
   // and lies on its slope. The pelvis drops by the lower foot, so that leg keeps its reach and the
   // other bends: on flat ground nothing changes. The body leans into a climb. In the air the feet fade
@@ -471,8 +475,7 @@ export class Animator {
     let low = 0, ahead = 0;
     this.ground.forEach((g, i) => {
       if (!this.gaitGround && c.grounded) {
-        // Ground out of reach below (an edge under the foot): the foot stays level with the root.
-        const f = c.feet[i], over = f.y < c.position.y - GROUND.stepDown;
+        const f = c.feet[i], over = this.over(c, i);
         g.y += ((over ? c.position.y : f.y) - g.y) * k;
         g.n.lerp(over ? UP : f.n, k).normalize();
       }

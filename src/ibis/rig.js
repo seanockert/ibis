@@ -108,22 +108,7 @@ function squawkClip(t) {
   return P;
 }
 
-function flapClip(t) {
-  const P = restPose();
-  const ph = t * TAU * 2.5;
-  const hop = 0.16 * Math.max(Math.sin(t * TAU * 0.75), 0);
-  P.bob = hop;
-  P.pitch = 0.05;
-  P.footL.y += hop * 0.85;
-  P.footR.y += hop * 0.85;
-  P.wingL = P.wingR = 1.15 + 0.55 * Math.sin(ph);
-  P.headPitch = -0.15;
-  P.jaw = 0.18;
-  P.look.set(0, 0.15);
-  return P;
-}
-
-const clipFns = { idle: idleClip, peck: peckClip, squawk: squawkClip, flap: flapClip };
+const clipFns = { idle: idleClip, peck: peckClip, squawk: squawkClip };
 
 export function clipPose(name, t) { return clipFns[name](t); }
 

@@ -1,4 +1,5 @@
-// Test ground for the foot placement (animator.js): steps up to a top, a ramp down, and a low kerb.
+// Test ground for the foot placement (animator.js): steps up to a top and a ramp down. The street has a
+// kerb of its own (street.js).
 // Walls higher than GROUND.stepUp (the sides of the top) stop the bird, and a drop farther than
 // GROUND.stepDown is a fall. Each piece is a prism, a profile in x and y along z: a static convex hull
 // in physics.js and a toon mesh, as the props.
@@ -17,7 +18,6 @@ export const COURSE = [
   { profile: [[4, 0], [5, 0], [5, 0.3], [4, 0.3]], z: [-1, 1.4] },
   { profile: [[5, 0], [7, 0], [7, 0.45], [5, 0.45]], z: [-1, 1.4] },
   { profile: [[7, 0], [9, 0], [7, 0.45]], z: [-1, 1.4] },            // ramp, about 13 degrees
-  { profile: [[3, 0], [9.5, 0], [9.5, 0.12], [3, 0.12]], z: [-2.6, -2.3] },   // kerb
 ];
 
 export class Terrain {

@@ -202,20 +202,23 @@ export class IbisEffects {
       this.object.add(mesh);
       return { mesh, color, shade, list: [] };   // list: { matrix, rgb, shade, alpha, age }
     });
-    // (x, z) => { lit, shade, alpha, wet: [lit, shade] } for a print on the surface there, or null for dust.
+    // (x, z) => { lit, shade, alpha, wet: [lit, shade] } for a print on the surface there, null for dust, or
+  // false for no print (in a puddle).
     this.surface = null;
+    this.height = null;   // (x, z) => height of the ground: footprints go on it. Null: flat at 0
     this.time = 0;
   }
 
   rand() { return hash(this.seed++ * 2654435761 >>> 0); }
 
-  // A puff at a world point. dir is the drift direction on the ground (unit or zero).
-  puff(pos, dir, { size = 0.1, speed = 0.6, up = 0.5, life = 0.45 } = {}) {
+  // A puff at a world point. dir is the drift direction on the ground (unit or zero). fall: gravity,
+  // drag: slow down rate for each DUST_TIME. floor: the puff goes when it falls below this height.
+  puff(pos, dir, { size = 0.1, speed = 0.6, up = 0.5, life = 0.45, fall = 0.3, drag = 4, floor = -Infinity, mud = this.mudNow } = {}) {
     if (this.puffs.length >= MAX_PUFFS) this.puffs.shift();
     const jitter = () => this.rand() - 0.5;
     const vel = new Vector3(dir.x * speed + jitter() * 0.4, up * (0.7 + 0.6 * this.rand()), dir.z * speed + jitter() * 0.4)
       .divideScalar(DUST_TIME);
-    this.puffs.push({ pos: pos.clone().add(new Vector3(jitter() * 0.06, 0.02, jitter() * 0.06)), vel, size: size * (0.75 + 0.5 * this.rand()), age: 0, life: life * DUST_TIME, seed: this.rand(), mud: this.mudNow });
+    this.puffs.push({ pos: pos.clone().add(new Vector3(jitter() * 0.06, 0.02, jitter() * 0.06)), vel, size: size * (0.75 + 0.5 * this.rand()), age: 0, life: life * DUST_TIME, seed: this.rand(), mud, fall, drag, floor });
   }
 
   // A small cloud: puffs in a short row back along dir, from big to small.
@@ -236,14 +239,31 @@ export class IbisEffects {
     }
   }
 
+  // Mud splash from a puddle: blobs of mud thrown up and out, that fall back. strength 0 to 1. land: a
+  // jump into it, a ring of blobs low and wide as well.
+  splash(at, strength, land) {
+    const n = Math.round((land ? 10 : 4) + 6 * strength);
+    for (let i = 0; i < n; i++) {
+      const a = this.rand() * Math.PI * 2, dir = new Vector3(Math.sin(a), 0, Math.cos(a));
+      this.puff(at.clone().addScaledVector(dir, 0.1), dir, {
+        size: 0.05 + 0.04 * strength * this.rand(), speed: 0.4 + 0.9 * strength * this.rand(), up: 0.5 + (land ? 1.0 : 0.6) * strength,
+        life: 1.2, fall: 7, drag: 0.5, floor: at.y, mud: 1,
+      });
+    }
+    if (land) for (let i = 0; i < 8; i++) {
+      const a = (i + this.rand() * 0.5) / 8 * Math.PI * 2, dir = new Vector3(Math.sin(a), 0, Math.cos(a));
+      this.puff(at.clone().addScaledVector(dir, 0.2), dir, { size: 0.09 + 0.04 * strength, speed: 0.9 + 0.8 * strength, up: 0.2, life: 0.4, fall: 1, drag: 3, floor: at.y, mud: 1 });
+    }
+  }
+
   update(dt, ibises, camera) {
     this.time += dt;
     for (const ibis of ibises) { this.spawn(ibis, dt); this.angerLines(ibis, dt, camera); }
-    this.puffs = this.puffs.filter(p => (p.age += dt) < p.life);
+    this.puffs = this.puffs.filter(p => (p.age += dt) < p.life && !(p.pos.y < p.floor && p.vel.y < 0));
     const m = new Matrix4(), q = new Quaternion(), s = new Vector3();
     this.puffs.forEach((p, i) => {
-      p.vel.multiplyScalar(Math.exp(-4 / DUST_TIME * dt));
-      p.vel.y -= 0.3 * dt;
+      p.vel.multiplyScalar(Math.exp(-p.drag / DUST_TIME * dt));
+      p.vel.y -= p.fall * dt;
       p.pos.addScaledVector(p.vel, dt);
       const u = p.age / p.life;
       // Starts small and keeps growing (fast, then slower) while it dissolves away.
@@ -329,9 +349,12 @@ export class IbisEffects {
 
   // A print where the foot is, turned as the foot is (body heading, foot turn and toe splay).
   footprint(ibis, foot) {
-    const R = ibis.rig, side = foot === 'L' ? 1 : -1;
-    if (ibis.character.animator.ground[side > 0 ? 0 : 1].y > 0.05) return;   // on a step or a prop: prints go on the ground only
-    const at = R['foot' + foot].clone().setY(0).applyMatrix4(ibis.object.matrixWorld).setY(0.003);
+    const R = ibis.rig, side = foot === 'L' ? 1 : -1, ground = ibis.character.animator.ground[side > 0 ? 0 : 1];
+    const at = R['foot' + foot].clone().setY(0).applyMatrix4(ibis.object.matrixWorld);
+    // Prints go on the flat parts of the street only: not on a slope, a step or a prop.
+    const street = this.height?.(at.x, at.z) ?? 0;
+    if (ground.y > street + 0.05 || ground.n.y < 0.98 || this.surface?.(at.x, at.z) === false) return;
+    at.y = street + 0.003;
     const fwd = new Vector3(0, 0, 1).transformDirection(ibis.object.matrixWorld);
     const yaw = Math.atan2(fwd.x, fwd.z) + R['footYaw' + foot] + side * R.splay + (this.rand() - 0.5) * 0.08;
     const p = this.prints[side > 0 ? 0 : 1];

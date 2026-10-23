@@ -11,13 +11,14 @@
 import { Color, InstancedBufferAttribute, InstancedBufferGeometry, Float32BufferAttribute, Mesh, ShaderMaterial, Vector3, Vector4 } from 'three';
 import { lightUniforms, NOISE, TOON, TOON_VERTEX } from '../ibis/materials.js';
 import { hash } from '../ibis/motion/spring.js';
+import { inPuddle, PUDDLE } from './puddle.js';
 import { BLADES, GRASS, grassUniforms, JOINT, stripAt, STRIPS } from './street.js';
 
 const srgb = (r, g, b) => new Color().setRGB(r, g, b, 'srgb');
 
 export const TUFTS = {
-  area: { x: [-48, 48], z: [-40, 20] },   // where the clusters go
-  tries: 900,              // cluster tries: the density noise and the strips drop most of them
+  area: { x: [-84, 84], z: [-40, 20] },   // where the clusters go: past the play area by more than the fade
+  tries: 1575,             // cluster tries: the density noise and the strips drop most of them
   density: 0.09,           // frequency of the density noise: clusters gather where it is high
   spread: [0.35, 0.9],     // distance of the small tufts from the big one
   joints: 0.3,             // part of the footpath joints with a small tuft
@@ -74,7 +75,11 @@ function place() {
   const r = () => hash(n++);
   const out = [];
   const onGrass = z => stripAt(z) === 'grass' && stripAt(z + 0.25) === 'grass' && stripAt(z - 0.25) === 'grass';
-  const add = (x, z, h, leafy) => out.push([x, z, h, r(), Math.min(Math.max(leafy, 0), 1)]);
+  // None in the puddle or on its mud bank. The seed is taken first, so the other tufts don't move.
+  const add = (x, z, h, leafy) => {
+    const tuft = [x, z, h, r(), Math.min(Math.max(leafy, 0), 1)];
+    if (!inPuddle(x, z, PUDDLE.bank + 0.1)) out.push(tuft);
+  };
   // Clusters: one big tuft and 1 to 4 small ones round it, all of one kind (leafy), where the noise is high.
   for (let i = 0; i < tries; i++) {
     const cx = area.x[0] + (area.x[1] - area.x[0]) * r(), cz = area.z[0] + (area.z[1] - area.z[0]) * r();

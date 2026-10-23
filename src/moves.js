@@ -39,7 +39,6 @@ export const MOVES = [
   { name: 'Walk', loop: true, script: circle(false) },
   action('peck', 'Peck', 0),
   action('squawk', 'Squawk', 0),
-  action('flap', 'Flap', 0),
   { name: 'Run', loop: true, script: circle(true) },
   // Hold the jump for a second: jump, then flutter. In free play the button is held like a game button.
   { name: 'Jump', hold: true, script: () => (c, t) => { c.input.jump = t % 2.4 < 1.0; } },

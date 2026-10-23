@@ -14,8 +14,8 @@ const SKY = srgb(0.78, 0.91, 0.98);   // the horizon colour in sky.js: far thing
 // box: [x min, x max, z min, z max] of the ring. height: [base, bumps] of the canopy line: big, slow
 // bumps for the crowns. clump: width of the round leaf clumps on top. haze: 0 to 1.
 export const RINGS = [
-  { box: [-78, 78, -60, 40], height: [5, 4], clump: 5, freq: 0.05, lit: srgb(0.56, 0.71, 0.60), shade: srgb(0.46, 0.62, 0.62), haze: 0.45, seed: 7 },
-  { box: [-62, 62, -42, 28], height: [2.5, 4.5], clump: 3.5, freq: 0.08, lit: srgb(0.58, 0.74, 0.44), shade: srgb(0.36, 0.56, 0.47), haze: 0.15, seed: 3 },
+  { box: [-102, 102, -60, 40], height: [5, 4], clump: 5, freq: 0.05, lit: srgb(0.56, 0.71, 0.60), shade: srgb(0.46, 0.62, 0.62), haze: 0.45, seed: 7 },
+  { box: [-86, 86, -42, 28], height: [2.5, 4.5], clump: 3.5, freq: 0.08, lit: srgb(0.58, 0.74, 0.44), shade: srgb(0.36, 0.56, 0.47), haze: 0.15, seed: 3 },
 ];
 const CORNER = 14;       // corner radius of the ring
 const STEP = 1.0;        // quad width along the ring
