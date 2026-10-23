@@ -67,6 +67,7 @@ sun.castShadow = true;
 sun.shadow.mapSize.set(2048, 2048);
 Object.assign(sun.shadow.camera, { left: -3, right: 3, top: 3, bottom: -3, near: 0.5, far: 15 });
 sun.shadow.bias = -0.0005;
+sun.shadow.normalBias = 0.02;   // no shadow acne on the toon bands
 scene.add(sun, sun.target);
 
 // Ground: plain background colour, with the shade colour where the shadow falls. It draws first and

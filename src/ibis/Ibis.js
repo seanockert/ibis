@@ -60,6 +60,7 @@ export class Ibis {
     const groups = this.body.geometry.groups;
     this.body.material = groups.map((g, i) => stencilled(body, i + 1, AlwaysStencilFunc, ReplaceStencilOp));
     this.body.castShadow = true;
+    this.body.receiveShadow = true;
     // The contours of the wings and the scarf do not draw over the torso (stencil 1): the body shader
     // draws their lines there instead.
     const contour = hullMaterial(asset.palette, asset.uniforms, body, 'contour');

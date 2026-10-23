@@ -7,6 +7,7 @@
 //   ball.events      // this update: { type: 'slam', points: [{ at, strength }], centre } when a prop lands hard
 import { BackSide, Color, CylinderGeometry, Group, Mesh, PlaneGeometry, Quaternion, ShaderMaterial, SphereGeometry, Vector3 } from 'three';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
+import { lightUniforms, TOON, TOON_VERTEX } from '../ibis/materials.js';
 
 const srgb = (r, g, b) => new Color().setRGB(r, g, b, 'srgb');
 // lit, shade, line. The shades lean cool, as in paletteSrgb() in model.glsl.
@@ -182,6 +183,7 @@ function ellipsoid(scale, w, h, [a, b, c], phi = [0, Math.PI * 2], theta = [0, M
 function toon(geometry, [lit, shade, line], shared) {
   const mesh = new Mesh(geometry, toonMaterial(lit, shade, shared));
   mesh.castShadow = true;
+  mesh.receiveShadow = true;
   if (!line) return [mesh];
   geometry.setAttribute('_outline', smoothNormals(geometry));
   return [mesh, new Mesh(geometry, outlineMaterial(line, shared))];
@@ -189,8 +191,6 @@ function toon(geometry, [lit, shade, line], shared) {
 
 // Same values as SHARED in materials.js.
 const BAND = /* glsl */`
-const float BAND_SPLIT = 0.12;
-const float BAND_SOFT = 0.015;
 const float CONTOUR_LIT = 0.01;
 const float CONTOUR_SHADE = 0.023;
 const float LINE_MIN_PX = 1.0;
@@ -198,19 +198,22 @@ const float LINE_MIN_PX = 1.0;
 
 function toonMaterial(lit, shade, shared) {
   return new ShaderMaterial({
-    uniforms: { uSun: shared.uSun, uLit: { value: lit }, uShade: { value: shade } },
+    lights: true,
+    uniforms: { ...lightUniforms(), uSun: shared.uSun, uLit: { value: lit }, uShade: { value: shade } },
     vertexShader: /* glsl */`
+      ${TOON_VERTEX}
       varying vec3 vNormal;
       void main() {
         vNormal = normalize(mat3(modelMatrix) * normal);
         gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        toonShadowCoord(modelMatrix * vec4(position, 1.0), vNormal);
       }`,
     fragmentShader: /* glsl */`
-      ${BAND}
+      ${TOON}
       uniform vec3 uSun, uLit, uShade;
       varying vec3 vNormal;
       void main() {
-        float band = smoothstep(BAND_SPLIT - BAND_SOFT, BAND_SPLIT + BAND_SOFT, dot(normalize(vNormal), uSun));
+        float band = toonBand(normalize(vNormal), uSun);
         gl_FragColor = vec4(mix(uShade, uLit, band), 1.0);
         #include <colorspace_fragment>
       }`,

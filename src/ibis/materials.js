@@ -1,7 +1,7 @@
 // Toon materials for the ibis mesh: the body, the outline hull and the material lines.
 // Line widths are in character units, set to match the SDF view at its default camera, with a floor in
 // pixels so far away lines don't vanish.
-import { BackSide, Color, Matrix4, Quaternion, ShaderMaterial, Vector2, Vector3, Vector4 } from 'three';
+import { BackSide, Color, Matrix4, Quaternion, ShaderMaterial, UniformsLib, UniformsUtils, Vector2, Vector3, Vector4 } from 'three';
 import { MAT } from './materialIds.js';
 import { BIND_RIG, HEAD_SCALE, rigUniforms } from './rig.js';
 import library from '../sdf/library.glsl?raw';
@@ -10,14 +10,55 @@ import model from '../sdf/model.glsl?raw';
 const SHARED = /* glsl */`
 uniform vec3 uSun;            // toward the sun, world space
 uniform float uViewHeight;    // viewport height in pixels
-const float BAND_SPLIT = 0.12;     // N.L threshold between the lit and the shadow band
-const float BAND_SOFT = 0.015;     // softness of the band edge
 const float LINE_INNER = 0.01;     // material lines
 const float CONTOUR_LIT = 0.01;    // outline on the lit side
 const float CONTOUR_SHADE = 0.023; // outline on the shadow side
 const float LINE_MIN_PX = 1.0;
 
 `;
+
+// Toon light for the ibis and the props: two bands split by the sun, and the sun's shadow map. The
+// material needs lights: true and lightUniforms(), and the mesh needs receiveShadow.
+// Vertex shader: TOON_VERTEX, then toonShadowCoord() in main(). Fragment shader: TOON, then toonBand().
+export const TOON_VERTEX = /* glsl */`
+#include <shadowmap_pars_vertex>
+void toonShadowCoord(vec4 worldPosition, vec3 worldNormal) {
+#if defined(USE_SHADOWMAP) && NUM_DIR_LIGHT_SHADOWS > 0
+    vDirectionalShadowCoord[0] = directionalShadowMatrix[0] * (worldPosition + vec4(worldNormal * directionalLightShadows[0].shadowNormalBias, 0.0));
+#endif
+}
+`;
+export const TOON = /* glsl */`
+const float BAND_SPLIT = 0.12;   // N.L threshold between the lit and the shadow band
+#ifndef PI2
+#define PI2 6.28318530718
+#endif
+uniform bool receiveShadow;
+#include <packing>
+#include <shadowmap_pars_fragment>
+// 0 in the sun's shadow, 1 in the sun. Stepped, so the shadow gets a hard edge as the band does.
+float sunShadow() {
+    float s = 1.0;
+#if defined(USE_SHADOWMAP) && NUM_DIR_LIGHT_SHADOWS > 0
+    DirectionalLightShadow l = directionalLightShadows[0];
+    if (receiveShadow) s = getShadow(directionalShadowMap[0], l.shadowMapSize, l.shadowIntensity, l.shadowBias, l.shadowRadius, vDirectionalShadowCoord[0]);
+#endif
+    return smoothstep(0.35, 0.65, s);
+}
+// 0 shade to 1 lit. n: unit normal, world. The band edge is one pixel wide at any distance.
+float toonBand(vec3 n, vec3 sun) {
+    float ndl = dot(n, sun);
+    float w = 0.5 * max(length(vec2(dFdx(ndl), dFdy(ndl))), 1e-5);
+    return smoothstep(BAND_SPLIT - w, BAND_SPLIT + w, ndl) * sunShadow();
+}
+// 1 on the highlight: where N.H is above size. n, v: unit normal and view direction, world.
+float toonGloss(vec3 n, vec3 v, vec3 sun, float size) {
+    float ndh = dot(n, normalize(sun + v));
+    float w = 0.5 * max(length(vec2(dFdx(ndh), dFdy(ndh))), 1e-5);
+    return smoothstep(size - w, size + w, ndh);
+}
+`;
+export const lightUniforms = () => UniformsUtils.clone(UniformsLib.lights);
 
 // Smooth value noise, 0 to 1. Also used by effects.js.
 export const NOISE = /* glsl */`
@@ -82,6 +123,12 @@ const int GROUP_TORSO = 0;
 const int GROUP_JAW = 1;
 const int GROUP_WINGS = 2;
 const int GROUP_SCARF = 4;`;
+
+// Highlight for each material: the N.H threshold (larger is smaller) and how far it goes toward white.
+// Other materials are matte. Runtime only, so no bake. BLACK is the bare head, bill and neck (the wing
+// tips are BLACK too, but the shader keeps them matte); BEAK is the jaw.
+const GLOSS = { [MAT.BLACK]: [0.98, 0.12], [MAT.BEAK]: [0.98, 0.12], [MAT.LEG]: [0.985, 0.1], [MAT.EYE]: [0.985, 0.8] };
+const glossArray = () => Array.from({ length: MAT.LID + 1 }, (_, id) => new Vector2(...(GLOSS[id] || [0, 0])));
 
 function paletteArrays(palette) {
   const lit = [], shade = [], line = [];
@@ -150,9 +197,10 @@ export function bodyMaterial(palette, shared) {
   const rig = Object.fromEntries(Object.entries(rigUniforms(BIND_RIG)).map(([k, v]) => [k, { value: v }]));
   return new ShaderMaterial({
     name: 'ibis-body',
+    lights: true,
     uniforms: {
-      ...shared, ...rig, uHeadInv: { value: headInv },
-      uLit: { value: lit }, uShade: { value: shade }, uLine: { value: line }, uLook: { value: new Vector2() }, uBlink: { value: 0 }, uExpr: { value: new Vector4(0, 0, 0, 1) },
+      ...lightUniforms(), ...shared, ...rig, uHeadInv: { value: headInv },
+      uLit: { value: lit }, uShade: { value: shade }, uLine: { value: line }, uGloss: { value: glossArray() }, uLook: { value: new Vector2() }, uBlink: { value: 0 }, uExpr: { value: new Vector4(0, 0, 0, 1) },
       uMud: { value: 0 }, uWet: { value: 0 }, uMudLit: { value: MUD_LIT }, uMudShade: { value: MUD_SHADE },
     },
     vertexShader: /* glsl */`
@@ -161,6 +209,7 @@ export function bodyMaterial(palette, shared) {
       ${SHARED}
       ${PROJECT}
       ${EYE_SPACE}
+      ${TOON_VERTEX}
       attribute float _mat;
       attribute float _group;
       attribute float _edge;   // eyes: distance to the skull
@@ -189,17 +238,20 @@ export function bodyMaterial(palette, shared) {
         vEdge = _edge;
         gl_Position = projectionMatrix * modelViewMatrix * vec4(transformed, 1.0);
         vPixels = pixelsPerUnit(gl_Position.w);
+        toonShadowCoord(modelMatrix * vec4(transformed, 1.0), worldNormal);
       }`,
     fragmentShader: /* glsl */`
       ${library}
       ${model}
       ${ids}
       ${SHARED}
+      ${TOON}
       ${NOISE}
       ${WEATHER}
       ${EYE}
       ${PUPIL}
       uniform vec3 uLit[${MAT.LID + 1}], uShade[${MAT.LID + 1}], uLine[${MAT.LID + 1}];
+      uniform vec2 uGloss[${MAT.LID + 1}];
       // A part that lies over the torso: the distance to its solid stand-in and its material at p.
       // PART_SCARF is the scarf as baked, without the head carve.
       const int PART_SCARF = 0, PART_WINGS = 1;
@@ -289,11 +341,13 @@ export function bodyMaterial(palette, shared) {
             if (d < 0.35) overLine(PART_WINGS, 0.6, edge, edgeCol);
           }
         }
-        float band = smoothstep(BAND_SPLIT - BAND_SOFT, BAND_SPLIT + BAND_SOFT, dot(normalize(vNormal), uSun));
+        vec3 n = normalize(vNormal), v = normalize(mat3(vRotX, vRotY, vRotZ) * vToCamera);
+        float band = toonBand(n, uSun);
         vec3 col = mix(shade, lit, band);
-        if (id != ID_EYE && id != ID_LID) {
-          col = weather(col, vBind, band, normalize(vNormal), normalize(mat3(vRotX, vRotY, vRotZ) * vToCamera));
-        }
+        // Highlight, in the lit band only. Not on the wings.
+        vec2 gloss = int(vGroup + 0.5) == GROUP_WINGS ? vec2(0.0) : uGloss[id];
+        col = mix(col, vec3(1.0), gloss.y * band * toonGloss(n, v, uSun, gloss.x));
+        if (id != ID_EYE && id != ID_LID) col = weather(col, vBind, band, n, v);
         col = mix(col, edgeCol, edge);
         gl_FragColor = vec4(col, 1.0);
         #include <colorspace_fragment>

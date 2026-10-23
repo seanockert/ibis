@@ -105,6 +105,9 @@ npm run build
   4. Keep ids below 32 (`weldByMaterial` key) and below 256 (`pack.mjs` byte type).
 - The bake writes the palette into the GLB (`mesh.userData.palette`). A colour change needs a bake.
 - `MAT_WHITE` and `MAT_WING` have the same colour but different ids, so a line splits wing from body. Use a new id when you need a line.
+- Light: `TOON` and `TOON_VERTEX` in `materials.js`, used by the ibis and the props. `toonBand()` is the N.L split (edge one pixel wide, from the screen derivative) times the stepped sun shadow. The material needs `lights: true` and `lightUniforms()`, and the mesh `receiveShadow`.
+- Highlights: `GLOSS` in `materials.js` (N.H threshold and strength for each material id, runtime only). The bare head, bill and neck (`BLACK`, but not on the wings), the jaw, the legs and the eye catchlight. Keep the head and the legs faint: strong highlights there distract. The wet highlight is separate, in `weather()`.
+- The bird and the props receive the sun's shadow (self shadow too). `sdf.html` has no self shadow, so shadowed areas differ between the pages. `sun.shadow.normalBias` in `demo.js` stops acne on the bands.
 
 ## Part groups and lines
 
