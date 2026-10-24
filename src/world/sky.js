@@ -5,18 +5,18 @@
 //   const sky = new Sky(asset.sun);
 //   scene.add(sky.object);
 //   sky.update(camera);   // every frame
-import { BackSide, Color, Mesh, ShaderMaterial, SphereGeometry, Vector4 } from 'three';
+import { BackSide, LessEqualDepth, Mesh, ShaderMaterial, SphereGeometry, Vector4 } from 'three';
 import { hash } from '../ibis/motion/spring.js';
 import { NOISE } from '../ibis/materials.js';
+import { srgb } from './util.js';
 
-const srgb = (r, g, b) => new Color().setRGB(r, g, b, 'srgb');
 // Picked from the concept art. Far things go light and blue, toward the sky: air, not fog.
-const COLOURS = {
+export const COLOURS = {
   top: srgb(0.24, 0.58, 0.93),
   horizon: srgb(0.78, 0.91, 0.98),
   warm: srgb(1.0, 0.92, 0.78),          // the horizon toward the sun
   sun: srgb(1.0, 0.98, 0.90),
-  cloud: srgb(0.96, 0.97, 1.0),       // just below the bloom threshold, so clouds don't glow
+  cloud: srgb(0.96, 0.97, 1.0),       // a little below white
   cloudShade: srgb(0.78, 0.85, 0.97),
   hills: srgb(0.66, 0.79, 0.87),
   farTrees: srgb(0.58, 0.74, 0.77),
@@ -36,12 +36,13 @@ export class Sky {
       else uniforms[`u_${name}`] = { value };
     }
     const material = new ShaderMaterial({
-      side: BackSide, depthWrite: false, depthTest: false, uniforms,
+      side: BackSide, depthWrite: false, depthFunc: LessEqualDepth, uniforms,
       vertexShader: /* glsl */`
         varying vec3 vDir;
         void main() {
           vDir = position;
           gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+          gl_Position.z = gl_Position.w;   // on the far plane
         }`,
       fragmentShader: /* glsl */`
         ${NOISE}
@@ -100,7 +101,10 @@ export class Sky {
         }`,
     });
     this.object = new Mesh(new SphereGeometry(500, 32, 16), material);
-    this.object.renderOrder = -2;
+    // After the opaque scene (the birds' outlines are 1), on the far plane: the depth test skips the
+    // pixels the ground and the props cover, so the costly shader runs only where the sky shows. Before
+    // the anger lines (3), which write no depth.
+    this.object.renderOrder = 2;
     this.object.frustumCulled = false;
   }
 

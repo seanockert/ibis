@@ -1,9 +1,10 @@
 // Toon materials for the ibis mesh: the body, the outline hull and the material lines.
 // Line widths are in character units, set to match the SDF view at its default camera, with a floor in
 // pixels so far away lines don't vanish.
-import { BackSide, Color, Matrix4, Quaternion, ShaderMaterial, UniformsLib, UniformsUtils, Vector2, Vector3, Vector4 } from 'three';
+import { BackSide, Color, Matrix4, Quaternion, ShaderMaterial, UniformsLib, UniformsUtils, Vector2, Vector3 } from 'three';
 import { MAT } from './materialIds.js';
 import { BIND_RIG, HEAD_SCALE, rigUniforms } from './rig.js';
+import eye from '../sdf/eye.glsl?raw';
 import library from '../sdf/library.glsl?raw';
 import model from '../sdf/model.glsl?raw';
 
@@ -30,7 +31,7 @@ void toonShadowCoord(vec4 worldPosition, vec3 worldNormal) {
 `;
 export const TOON = /* glsl */`
 const float BAND_SPLIT = 0.12;   // N.L threshold between the lit and the shadow band
-#ifndef PI2
+#ifndef PI2   // shadowmap_pars_fragment uses it; a ShaderMaterial has no <common>
 #define PI2 6.28318530718
 #endif
 uniform bool receiveShadow;
@@ -91,35 +92,20 @@ vec2 ndcPerPixel() { return 2.0 / (uViewHeight * vec2(projectionMatrix[1][1] / p
 // Eye space of a vertex from its bind position: the same frame as eyeSpace() in model.glsl, with the
 // side (sign of x) in w. Eyes and lids move with the head only, so the bind position is enough.
 const EYE_SPACE = /* glsl */`
+${eye}
 uniform mat4 uHeadInv;   // bind pose: character space to head space
 vec4 eyeSpace(vec3 p) {
     vec3 h = (uHeadInv * vec4(p, 1.0)).xyz;
-    return vec4(abs(h.x) - 0.095, h.y - 0.04, h.z, sign(h.x));
+    return vec4(vec3(abs(h.x), h.y, h.z) - EYE_C, sign(h.x));
 }
 `;
 const headInv = new Matrix4().compose(BIND_RIG.head, new Quaternion().setFromRotationMatrix(BIND_RIG.headRot), new Vector3().setScalar(HEAD_SCALE)).invert();
 
-const EYE = /* glsl */`
-uniform vec2 uLook;    // pupil offset
-uniform float uBlink;  // 1 = happy closed eyes
-uniform vec4 uExpr;    // top lid (less than 0 wide open), lid tilt (more than 0 angry), lower lid, pupil size
-// Lid: positive where the lid shows. Same as lidCover() in model.glsl.
-float lidCut(vec4 eye) {
-    float top = mix(mix(0.115, -0.13, uExpr.x), -0.13, uBlink) - 0.6 * uExpr.y * eye.z;
-    float cut = eye.y - top;
-    if (uExpr.z > 0.0) cut = max(cut, mix(-0.2, 0.1, uExpr.z) - eye.y);
-    return cut;
-}
-// Lid: negative on the happy crease at blink 1.
-float crease(vec4 eye) { return abs(eye.y - (0.01 - 5.0 * eye.z * eye.z)) - 0.012; }
-`;
-
-// Eye: positive inside the pupil. Big pupils look forward along the bill. Needs model.glsl.
-const PUPIL = /* glsl */`
-float pupil(vec4 eye) {
-    vec3 lookDir = normalize(vec3(0.55 + uLook.x * eye.w * 0.4, 0.12 + uLook.y * 0.4, 0.83));
-    return dot(normalize(eye.xyz / EYE_R), lookDir) - (1.0 - 0.14 * uExpr.w * uExpr.w);
-}
+// The lid for a fragment shader without model.glsl (the hull): the same uniforms, from Ibis.setPose().
+const LID = /* glsl */`
+${eye}
+uniform float gBlink;
+uniform vec4 gExpr;
 `;
 
 // Material and part group ids as ints. model.glsl has the MAT_* names as floats.
@@ -205,7 +191,7 @@ export function bodyMaterial(palette, shared) {
     lights: true,
     uniforms: {
       ...lightUniforms(), ...shared, ...rig, uHeadInv: { value: headInv },
-      uLit: { value: lit }, uShade: { value: shade }, uLine: { value: line }, uGloss: { value: glossArray() }, uLook: { value: new Vector2() }, uBlink: { value: 0 }, uExpr: { value: new Vector4(0, 0, 0, 1) },
+      uLit: { value: lit }, uShade: { value: shade }, uLine: { value: line }, uGloss: { value: glossArray() },
       uMud: { value: 0 }, uWet: { value: 0 }, uMudLit: { value: MUD_LIT }, uMudShade: { value: MUD_SHADE },
     },
     vertexShader: /* glsl */`
@@ -247,14 +233,13 @@ export function bodyMaterial(palette, shared) {
       }`,
     fragmentShader: /* glsl */`
       ${library}
+      ${eye}
       ${model}
       ${ids}
       ${SHARED}
       ${TOON}
       ${NOISE}
       ${WEATHER}
-      ${EYE}
-      ${PUPIL}
       uniform vec3 uLit[${MAT.LID + 1}], uShade[${MAT.LID + 1}], uLine[${MAT.LID + 1}];
       uniform vec2 uGloss[${MAT.LID + 1}];
       // A part that lies over the torso: the distance to its solid stand-in and its material at p.
@@ -287,6 +272,7 @@ export function bodyMaterial(palette, shared) {
       // the part's solid stand-in. Steps are short near the part, so the miss is accurate. Where the
       // part stands well off the torso (CONTOUR_RISE in the SDF view), the line widens to the contour
       // width, wider on the shadow side.
+      const float RISE_FROM = 0.035, RISE_FULL = 0.07;   // rise to the contour width
       void overLine(int part, float far, inout float edge, inout vec3 edgeCol) {
         // rise: the most the ray clears the torso and the part between here and the miss.
         float t = 0.0, miss = 1e9, rise = 0.0, clear = 0.0;
@@ -294,27 +280,36 @@ export function bodyMaterial(palette, shared) {
         for (int i = 0; i < 48; i++) {
           vec3 x = vPos + vToCamera * t;
           vec3 q = bodySpace(x);
-          float d = over(x, part).x;
-          clear = max(clear, min(min(body(q), tail(q)), d));
+          // The scarf needs the body distance at each step; the rise needs it only until it is full.
+          bool rising = clear < RISE_FULL;
+          float b = part == PART_SCARF || rising ? body(q) : 0.0, d;
+          if (part == PART_WINGS) d = over(x, part).x;
+          else scarfUncarved(q, b, d);
+          if (rising) clear = max(clear, min(min(b, tail(q)), d));
           if (d < miss) { miss = d; at = x; rise = clear; }
+          // In the scarf's solid the miss is below 0: the line is full at any width.
+          if (part == PART_SCARF && d < 0.0) break;
           t += max(d, 0.004);
           if (t > far) break;
         }
         float px = 1.0 / vPixels;   // one pixel in character units
         if (miss > CONTOUR_SHADE + px) return;
-        // A wide normal sample, so sharp edges don't make the width jump.
-        const float E = 0.03;
-        vec3 g = vec3(over(at + vec3(E, 0, 0), part).x - over(at - vec3(E, 0, 0), part).x,
-                      over(at + vec3(0, E, 0), part).x - over(at - vec3(0, E, 0), part).x,
-                      over(at + vec3(0, 0, E), part).x - over(at - vec3(0, 0, E), part).x);
-        vec3 n = normalize(mat3(vRotX, vRotY, vRotZ) * g);
-        float contour = mix(CONTOUR_SHADE, CONTOUR_LIT, smoothstep(-0.3, 0.6, dot(n, uSun)));
-        float w = max(mix(LINE_INNER, contour, smoothstep(0.035, 0.07, rise)), px);
-        // The wing line tapers away where the wing grows out of the body.
-        if (part == PART_WINGS) w *= wingSeam(at);
-        // Mesh error can put the torso just inside a wing, where the march starts with miss < 0. Without
-        // abs, that gives a line where wingSeam removes it.
-        float e = 1.0 - smoothstep(w - px, w, part == PART_WINGS ? abs(miss) : miss);
+        float e = 1.0;
+        if (part == PART_WINGS || miss >= 0.0) {
+          // A wide normal sample, so sharp edges don't make the width jump.
+          const float E = 0.03;
+          vec3 g = vec3(over(at + vec3(E, 0, 0), part).x - over(at - vec3(E, 0, 0), part).x,
+                        over(at + vec3(0, E, 0), part).x - over(at - vec3(0, E, 0), part).x,
+                        over(at + vec3(0, 0, E), part).x - over(at - vec3(0, 0, E), part).x);
+          vec3 n = normalize(mat3(vRotX, vRotY, vRotZ) * g);
+          float contour = mix(CONTOUR_SHADE, CONTOUR_LIT, smoothstep(-0.3, 0.6, dot(n, uSun)));
+          float w = max(mix(LINE_INNER, contour, smoothstep(RISE_FROM, RISE_FULL, rise)), px);
+          // The wing line tapers away where the wing grows out of the body.
+          if (part == PART_WINGS) w *= wingSeam(at);
+          // Mesh error can put the torso just inside a wing, where the march starts with miss < 0.
+          // Without abs, that gives a line where wingSeam removes it.
+          e = 1.0 - smoothstep(w - px, w, part == PART_WINGS ? abs(miss) : miss);
+        }
         if (e > edge) { edge = e; edgeCol = uLine[int(over(at, part).y + 0.5)]; }
       }
       void main() {
@@ -324,16 +319,16 @@ export function bodyMaterial(palette, shared) {
         vec3 edgeCol = uLine[id];
         float halfPx = 0.5 * max(LINE_INNER * vPixels, LINE_MIN_PX);
         if (id == ID_EYE) {
-          float k = pupil(vEye);
+          float k = pupilIn(vEye.xyz, vEye.w, gLook, gExpr);
           if (k > 0.0) { lit = uLit[ID_PUPIL]; shade = uShade[ID_PUPIL]; }
           edge = max(lineMask(k, halfPx), lineMask(vEdge, halfPx));
           edgeCol = uLine[ID_PUPIL];
         } else if (id == ID_LID) {
-          float cut = lidCut(vEye);
+          float cut = lidCover(vEye.xyz, gExpr, gBlink);
           if (cut < 0.0) discard;
           // Only where the eye shows below the lid, as in the SDF view.
           edge = lineMask(cut, halfPx * 2.0) * step(0.04, vEye.x);
-          if (uBlink > 0.9 && crease(vEye) < 0.0 && vEye.x > 0.04) { lit = uLit[ID_PUPIL]; shade = uShade[ID_PUPIL]; }
+          if (gBlink > 0.9 && lidCrease(vEye.xyz) < 0.0 && vEye.x > 0.04) { lit = uLit[ID_PUPIL]; shade = uShade[ID_PUPIL]; }
         } else {
           int group = int(vGroup + 0.5);
           float d = group == GROUP_TORSO ? min(wingL(vPos).x, wingR(vPos).x)
@@ -373,7 +368,7 @@ export function hullMaterial(palette, shared, body, kind) {
     name: 'ibis-hull-' + kind,
     side: BackSide,
     defines: { CONTOUR: kind === 'contour' ? 1 : 0 },
-    uniforms: { ...shared, uHeadInv: { value: headInv }, uLine: { value: line }, uLook: body.uniforms.uLook, uBlink: body.uniforms.uBlink, uExpr: body.uniforms.uExpr },
+    uniforms: { ...shared, uHeadInv: { value: headInv }, uLine: { value: line }, gBlink: body.uniforms.gBlink, gExpr: body.uniforms.gExpr },
     vertexShader: /* glsl */`
       #include <common>
       #include <skinning_pars_vertex>
@@ -423,13 +418,13 @@ export function hullMaterial(palette, shared, body, kind) {
     fragmentShader: /* glsl */`
       ${ids}
       ${SHARED}
-      ${EYE}
+      ${LID}
       uniform vec3 uLine[${MAT.LID + 1}];
       varying float vMat;
       varying vec4 vEye;
       void main() {
         int id = int(vMat + 0.5);
-        if (id == ID_LID && lidCut(vEye) < 0.0) discard;
+        if (id == ID_LID && lidCover(vEye.xyz, gExpr, gBlink) < 0.0) discard;
         gl_FragColor = vec4(uLine[id], 1.0);
         #include <colorspace_fragment>
       }`,

@@ -14,14 +14,14 @@
 //   scene.add(pins.object);
 //   pins.update();   // every frame, after physics.step(dt)
 import {
-  AlwaysStencilFunc, BackSide, Color, Float32BufferAttribute, FrontSide, InstancedMesh, LatheGeometry, Matrix4, NotEqualStencilFunc,
+  AlwaysStencilFunc, BackSide, FrontSide, InstancedMesh, LatheGeometry, Matrix4, NotEqualStencilFunc,
   Quaternion, ReplaceStencilOp, ShaderMaterial, Vector2, Vector3,
 } from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { lightUniforms, TOON, TOON_VERTEX } from '../ibis/materials.js';
-import { MODEL, outlineMaterial, Slam, smoothNormals, toonMaterial } from './props.js';
+import { MODEL, outlineMaterial, Rest, Slam, smoothNormals, tone, toonMaterial } from './props.js';
+import { srgb, f } from './util.js';
 
-const srgb = (r, g, b) => new Color().setRGB(r, g, b, 'srgb');
 // lit, shade (line for the glass). The shades lean cool, as the other props.
 // Golden amber glass and a plain yellow label and neck collar, after a classic Australian stubby.
 const COLOURS = {
@@ -45,6 +45,7 @@ export const STUBBY = {
 // the thickness of the glass).
 const PROFILE = [[0, 0], [0.9, 0], [1, 0.03], [1, 0.58], [0.96, 0.63], [0.86, 0.68], [0.7, 0.72], [0.54, 0.76], [0.45, 0.8], [0.42, 0.85], [0.42, 0.92], [0.46, 0.94], [0.46, 0.96], [0.37, 0.96], [0.35, 0.91]];
 const HULL = PROFILE.slice(0, 13);   // the solid: the mouth closed
+const MATRIX = new Matrix4(), P = new Vector3(), Q = new Quaternion(), ONE = new Vector3(1, 1, 1);   // scratch
 // Label bands: [from, to] (units of the height), colour, and how far out of the glass (no flicker).
 const BANDS = [[[0.16, 0.48], 'label', 1.015], [[0.79, 0.89], 'label', 1.03]];   // body, neck
 
@@ -66,7 +67,7 @@ export class Stubbies {
         position: [x + lx * cs + lz * sn, ground + H / 2, z - lx * sn + lz * cs], light: true, grab: { hold: 'round' },
         mass: STUBBY.mass, friction: STUBBY.friction, restitution: STUBBY.restitution, damping: STUBBY.damping,
       });
-      return { id, slam: new Slam('glass', [r, H / 2, r], STUBBY.slam) };
+      return { id, slam: new Slam('glass', [r, H / 2, r], STUBBY.slam), rest: new Rest(physics, [id]) };
     });
 
     const glass = lathe(PROFILE, 0, 1, 1);
@@ -83,39 +84,39 @@ export class Stubbies {
     }));
     // Transparent: inside, then outside, then the outline.
     [inside, outside, line].forEach((mesh, i) => { mesh.renderOrder = 2 + i; });
-    this.meshes = [label, inside, outside, line];
-    for (const mesh of this.meshes) mesh.frustumCulled = false;   // the bottles spread out as they fall
+    // One matrix for each bottle, in one buffer for all four draws.
+    for (const mesh of [inside, outside, line]) mesh.instanceMatrix = label.instanceMatrix;
+    for (const mesh of [label, inside, outside, line]) mesh.frustumCulled = false;   // the bottles spread out as they fall
     this.object = label;
     label.add(inside, outside, line);
-    this.matrix = new Matrix4();
+    this.half = [r, H / 2, r];
     this.update();
   }
 
+  // Bottles at rest do no work.
   update() {
     this.events = [];
-    const q = new Quaternion(), p = new Vector3(), one = new Vector3(1, 1, 1);
+    let moved = false;
     this.bottles.forEach((b, i) => {
+      if (b.rest.still()) return;
       const body = this.physics.body(b.id);
-      this.matrix.compose(p.fromArray(body.position), q.fromArray(body.quaternion), one);
-      for (const mesh of this.meshes) mesh.setMatrixAt(i, this.matrix);
+      MATRIX.compose(P.fromArray(body.position), Q.fromArray(body.quaternion), ONE);
+      this.object.setMatrixAt(i, MATRIX);
+      moved = true;
       if (this.physics.held(b.id)) b.slam.peak.spin = 0;   // in the bill: no clink when the head stops
       else this.events.push(...b.slam.update(body));
     });
-    for (const mesh of this.meshes) mesh.instanceMatrix.needsUpdate = true;
+    if (moved) this.object.instanceMatrix.needsUpdate = true;
   }
 
   // The solids, for the grass tufts (tufts.js): a box round each bottle.
-  solids() {
-    const half = [STUBBY.radius, STUBBY.height / 2, STUBBY.radius];
-    return this.bottles.map(b => ({ body: this.physics.body(b.id), half }));
-  }
+  solids() { return this.bottles.map(b => ({ body: this.physics.body(b.id), half: this.half })); }
 }
 
 // See-through toon glass. side: BackSide for the inside (darker), FrontSide for the outside. Both write
 // GLASS.stencil where they draw, for the outline.
 function glassMaterial(shared, side) {
   const [lit, shade] = COLOURS.glass;
-  const f = v => v.toFixed(3);
   return new ShaderMaterial({
     lights: true, transparent: true, depthWrite: false, side,
     stencilWrite: true, stencilRef: GLASS.stencil, stencilFunc: AlwaysStencilFunc, stencilZPass: ReplaceStencilOp,
@@ -171,12 +172,4 @@ function lathe(profile, a, b, grow) {
     ? profile.map(([pr, py]) => new Vector2(pr * r * grow, (py - 0.5) * H))
     : Array.from({ length: 6 }, (_, k) => { const y = a + (b - a) * k / 5; return new Vector2(at(y) * r * grow, (y - 0.5) * H); });
   return new LatheGeometry(points, 24);
-}
-
-// Lit and shade colours on every vertex, for one draw of many colours.
-function tone(geometry, [lit, shade]) {
-  const count = geometry.attributes.position.count;
-  geometry.setAttribute('aLit', new Float32BufferAttribute(Array.from({ length: count }, () => [lit.r, lit.g, lit.b]).flat(), 3));
-  geometry.setAttribute('aShade', new Float32BufferAttribute(Array.from({ length: count }, () => [shade.r, shade.g, shade.b]).flat(), 3));
-  return geometry;
 }

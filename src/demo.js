@@ -81,7 +81,8 @@ const play = count === 1 && fixedTime === null && !params.has('yaw') && !params.
 const env = params.has('env') ? params.get('env') === '1' : play;
 
 const canvas = document.getElementById('c');
-const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, stencil: true, preserveDrawingBuffer: true });
+// With the street, Grade draws into its own multisampled target: the canvas gets only a full-screen quad.
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: !env, stencil: true });
 renderer.setPixelRatio(scale);
 renderer.setSize(innerWidth, innerHeight, false);
 renderer.shadowMap.enabled = true;
@@ -116,28 +117,16 @@ if (play) {
 }
 scene.add(sun, sun.target);
 
-// Ground: plain background colour, with the shade colour where the shadow falls. It draws first and
-// writes no depth, so it can't cover the outline round the feet.
+// With the street: the sky, the ground, the tufts and the trees.
 const world = env ? [new Sky(asset.sun), new Street(asset.sun), new Tufts(), new Backdrop()] : [];
 for (const part of world) scene.add(part.object);
 // A muddy puddle on the nature strip: steps and jumps in it splash mud on the bird.
 const puddle = env ? new Puddle(asset.sun) : null;
 if (puddle) scene.add(puddle.object);
-// With the street: bloom and the warm colour grade on the whole frame.
+// With the street: the warm colour grade on the whole frame.
 const grade = env ? new Grade(renderer, scene, camera) : null;
 const draw = () => (grade ? grade.render() : renderer.render(scene, camera));
-const groundMaterial = new THREE.ShadowMaterial({ color: GROUND_SHADE, transparent: false, depthWrite: false });
-groundMaterial.onBeforeCompile = shader => {
-  shader.uniforms.litColor = { value: GROUND_LIT };
-  shader.fragmentShader = shader.fragmentShader
-    .replace('void main() {', 'uniform vec3 litColor;\nvoid main() {')
-    .replace('gl_FragColor = vec4( color, opacity * ( 1.0 - getShadowMask() ) );', 'gl_FragColor = vec4( mix( color, litColor, getShadowMask() ), 1.0 );');
-};
-const ground = new THREE.Mesh(new THREE.PlaneGeometry(60, 60), groundMaterial);
-ground.rotation.x = -Math.PI / 2;
-ground.receiveShadow = true;
-ground.renderOrder = -1;
-if (!env) scene.add(ground);
+if (!env) scene.add(plainGround());
 
 const side = Math.ceil(Math.sqrt(count));
 const ibises = Array.from({ length: count }, (_, i) => {
@@ -504,4 +493,21 @@ if (params.has('bench')) {
   document.title = 'DONE';
 } else {
   renderer.setAnimationLoop(frame);
+}
+
+// Ground with no street: plain background colour, with the shade colour where the shadow falls. It
+// draws first and writes no depth, so it can't cover the outline round the feet.
+function plainGround() {
+  const material = new THREE.ShadowMaterial({ color: GROUND_SHADE, transparent: false, depthWrite: false });
+  material.onBeforeCompile = shader => {
+    shader.uniforms.litColor = { value: GROUND_LIT };
+    shader.fragmentShader = shader.fragmentShader
+      .replace('void main() {', 'uniform vec3 litColor;\nvoid main() {')
+      .replace('gl_FragColor = vec4( color, opacity * ( 1.0 - getShadowMask() ) );', 'gl_FragColor = vec4( mix( color, litColor, getShadowMask() ), 1.0 );');
+  };
+  const ground = new THREE.Mesh(new THREE.PlaneGeometry(60, 60), material);
+  ground.rotation.x = -Math.PI / 2;
+  ground.receiveShadow = true;
+  ground.renderOrder = -1;
+  return ground;
 }

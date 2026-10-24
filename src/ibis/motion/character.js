@@ -36,8 +36,6 @@ export class Character {
 
   // A peck with a prop in the bill drops it.
   act(name, options) { this.animator.play(name === 'peck' && this.controller.carry !== null ? 'drop' : name, options); }
-  stop() { this.animator.stop(); }
-  lookAt(heading, seconds = 1.5) { this.animator.lookAt(heading, seconds); }
   turnTo(heading) { this.controller.turnTo(heading); }
 
   // A prod (a click or a tap) at a point in character space. Each prod soon after the last one annoys

@@ -9,11 +9,11 @@
 //
 // The shape is a wobbly ellipse (shape() here and in the shader): water inside, a bank of wet mud
 // round it. Splashes make rings on the water.
-import { Color, Mesh, PlaneGeometry, ShaderMaterial, Vector3, Vector4 } from 'three';
+import { Mesh, PlaneGeometry, ShaderMaterial, Vector3, Vector4 } from 'three';
 import { lightUniforms, NOISE, TOON, TOON_VERTEX } from '../ibis/materials.js';
 import { clamp } from '../ibis/motion/spring.js';
+import { srgb, f } from './util.js';
 
-const srgb = (r, g, b) => new Color().setRGB(r, g, b, 'srgb');
 
 // at: centre [x, z]; radius: half sizes of the water [x, z] before the turn; heading: turn about y.
 // bank: outer edge of the wet mud, part of the water radius.
@@ -105,7 +105,6 @@ export class Puddle {
 }
 
 function puddleMaterial(sun) {
-  const f = v => v.toFixed(3);
   const { at, radius, heading, bank } = PUDDLE;
   const uniforms = {
     ...lightUniforms(), uSun: { value: sun }, uTime: { value: 0 },

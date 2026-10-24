@@ -26,14 +26,12 @@ export function hash(n) {
 export class Spring {
   constructor(value = 0, freq = 4, zeta = 1) {
     this.value = value;
-    this.target = value;
     this.velocity = 0;
     this.freq = freq;
     this.zeta = zeta;
   }
 
-  update(dt, target = this.target) {
-    this.target = target;
+  update(dt, target) {
     const w = TAU * this.freq, f = 1 + 2 * dt * this.zeta * w, hoo = dt * w * w, hhoo = dt * hoo, inv = 1 / (f + hhoo);
     const x = (f * this.value + dt * this.velocity + hhoo * target) * inv;
     this.velocity = (this.velocity + hoo * (target - this.value)) * inv;

@@ -7,7 +7,7 @@
 //   const grade = new Grade(renderer, scene, camera);
 //   grade.render();            // in place of renderer.render(scene, camera)
 //   grade.setSize(w, h);       // on resize
-import { Color, HalfFloatType, ShaderMaterial, Vector2, WebGLRenderTarget } from 'three';
+import { Color, ShaderMaterial, SRGBColorSpace, Vector2, WebGLRenderTarget } from 'three';
 import { FullScreenQuad } from 'three/examples/jsm/postprocessing/Pass.js';
 
 export const GRADE = {
@@ -56,15 +56,16 @@ function gradeMaterial() {
 export class Grade {
   constructor(renderer, scene, camera) {
     Object.assign(this, { renderer, scene, camera });
-    const size = renderer.getDrawingBufferSize(new Vector2());
-    // Multisampled, as the canvas, and with a stencil buffer: the ibis outlines need it.
-    this.target = new WebGLRenderTarget(size.x, size.y, { type: HalfFloatType, samples: 4, stencilBuffer: true });
+    // Multisampled, with a stencil buffer: the ibis outlines need it. 8-bit sRGB: the hardware encodes on
+    // write and decodes on read, so the shaders still see linear colour, with even steps in the dark.
+    this.target = new WebGLRenderTarget(1, 1, { colorSpace: SRGBColorSpace, samples: 4, stencilBuffer: true });
     this.quad = new FullScreenQuad(gradeMaterial());
     this.quad.material.uniforms.tScene.value = this.target.texture;
-    this.setSize(size.x / renderer.getPixelRatio(), size.y / renderer.getPixelRatio());
+    const size = renderer.getSize(new Vector2());
+    this.setSize(size.x, size.y);
   }
 
-  setSize(w, h) {
+  setSize(w, h) {   // CSS pixels, as renderer.setSize()
     const ratio = this.renderer.getPixelRatio();
     this.target.setSize(Math.round(w * ratio), Math.round(h * ratio));
     this.quad.material.uniforms.uAspect.value = w / h;

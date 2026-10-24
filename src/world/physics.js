@@ -348,7 +348,6 @@ export class Physics {
       this.feetGround(bird, c);
       c.shove = 0;
       bird.touching = false;
-      if (!c.grounded) c.shove = 0;
       return;
     }
     this.feetGround(bird, c);
@@ -597,7 +596,7 @@ export class Physics {
 }
 
 // Angle between a body's up and the world's up, from its quaternion.
-function tiltAngle([qx, , qz]) { return Math.acos(Math.min(1, Math.max(-1, 1 - 2 * (qx * qx + qz * qz)))); }
+export function tiltAngle([qx, , qz]) { return Math.acos(Math.min(1, Math.max(-1, 1 - 2 * (qx * qx + qz * qz)))); }
 
 const UP = new Vector3(0, 1, 0);
 // A held prop in head space: x out of the bill (the hold's out), y across the bill, z across the gap.
@@ -606,7 +605,8 @@ function hold(direction) {
   return new Quaternion().setFromRotationMatrix(new Matrix4().makeBasis(out, across, new Vector3().crossVectors(out, across)));
 }
 
-function yaw(a) { return [0, Math.sin(a / 2), 0, Math.cos(a / 2)]; }
+// Quaternion for a turn of a about y.
+export function yaw(a) { return [0, Math.sin(a / 2), 0, Math.cos(a / 2)]; }
 const mix = (a, b, k) => a + (b - a) * k;
 const add = (a, b) => [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
 const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];

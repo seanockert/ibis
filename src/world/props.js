@@ -5,11 +5,16 @@
 //   scene.add(ball.object);
 //   ball.update();   // every frame, after physics.step(dt)
 //   ball.events      // this update: { type: 'slam', kind, points: [{ at, strength }], centre } when a prop lands hard
+//
+// Each rigid body's mesh is two draws, whatever its parts (toonParts()). A prop whose bodies sleep does
+// no work (Rest).
 import { BackSide, BufferGeometry, CircleGeometry, Float32BufferAttribute, Color, CylinderGeometry, Group, Matrix4, Mesh, PlaneGeometry, Quaternion, ShaderMaterial, SphereGeometry, Vector3 } from 'three';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { lightUniforms, TOON, TOON_VERTEX } from '../ibis/materials.js';
+import { tiltAngle, yaw } from './physics.js';
+import { srgb } from './util.js';
 
-const srgb = (r, g, b) => new Color().setRGB(r, g, b, 'srgb');
 // lit, shade, line. The shades lean cool, as in paletteSrgb() in model.glsl.
 const COLOURS = {
   footy: [srgb(0.84, 0.25, 0.22), srgb(0.58, 0.16, 0.24), srgb(0.30, 0.07, 0.12)],
@@ -34,23 +39,72 @@ export class Ball {
     const [a, b, c] = FOOTY.radii;
     this.physics = physics;
     this.id = physics.addHull(ellipsoidPoints(FOOTY.radii), {
-      position: [x, b, z], quaternion: [0, Math.sin(heading / 2), 0, Math.cos(heading / 2)], light: true,
+      position: [x, b, z], quaternion: yaw(heading), light: true,
       mass: FOOTY.mass, friction: FOOTY.friction, restitution: FOOTY.restitution, damping: FOOTY.damping,
     });
-    this.object = new Group();
-    this.object.add(...toon(ellipsoid(1, 40, 24, FOOTY.radii), COLOURS.footy, asset.uniforms));
+    this.rest = new Rest(physics, [this.id]);
     // Laces: a thin strip of the surface along the top, a little proud of it.
     const lace = ellipsoid(1.015, 12, 2, FOOTY.radii, [-Math.PI / 2 - 0.08, 0.16], [1.0, Math.PI - 2.0]);
-    this.object.add(...toon(lace, COLOURS.lace, asset.uniforms));
+    this.object = new Group().add(...toonParts([[ellipsoid(1, 40, 24, FOOTY.radii), COLOURS.footy], [lace, COLOURS.lace]], asset.uniforms));
     this.update();
   }
 
   events = [];
 
-  update() { place(this.object, this.physics.body(this.id)); }
+  update() {
+    if (!this.rest.still()) place(this.object, this.physics.body(this.id));
+  }
 
   // The solids, for the grass tufts (tufts.js): the body, the half size and round (an ellipsoid).
   solids() { return [{ body: this.physics.body(this.id), half: FOOTY.radii, round: true }]; }
+}
+
+// A hollow prop (the bin, a box) with hinged flaps on top. Gravity alone keeps a flap shut in most
+// falls, so a soft spring on each hinge opens it: with the tilt, so it falls open as the tub goes over,
+// and with the spin, so it flaps when the tub rocks. A slam when it falls over hard.
+class Tub {
+  constructor(physics) {
+    this.physics = physics;
+    this.events = [];
+  }
+
+  // After the bodies: the tub's mesh, and the flaps (their meshes go beside it, not in it).
+  build(flaps, meshes) {
+    this.flaps = flaps;
+    this.tub = new Group().add(...meshes);
+    this.object = new Group().add(this.tub, ...flaps.map(f => f.object));
+    this.rest = new Rest(this.physics, [this.id, ...flaps.map(f => f.id)]);
+    this.update();
+  }
+
+  update() {
+    this.events = [];
+    if (this.rest.still()) return;
+    const tub = this.physics.body(this.id);
+    place(this.tub, tub);
+    const tilt = tiltAngle(tub.quaternion), spin = length(tub.motionProperties.angularVelocity);
+    for (const f of this.flaps) f.update(tilt, spin);
+    this.events = this.slam.update(tub, spin);
+  }
+
+  solids() { return [{ body: this.physics.body(this.id), half: this.half }, ...this.flaps.map(f => f.solid())]; }
+}
+
+// A lid or a flap on a hinge: it opens F.tilt for each radian of the tub's tilt, and F.spin for each
+// radian per second of its spin, up to F.open. size: of the body.
+class Flap {
+  constructor(physics, id, hinge, size, F, meshes) {
+    Object.assign(this, { physics, id, hinge, F });
+    this.half = size.map(v => v / 2);
+    this.object = new Group().add(...meshes);
+  }
+
+  update(tilt, spin) {
+    place(this.object, this.physics.body(this.id));
+    this.physics.hingeTo(this.hinge, -Math.min(this.F.tilt * tilt + this.F.spin * spin, this.F.open));
+  }
+
+  solid() { return { body: this.physics.body(this.id), half: this.half }; }
 }
 
 // Wheelie bin: an upright box on two back wheels, about one and a half times the bird's height, with
@@ -79,69 +133,43 @@ export const BIN = {
   slam: { spin: 1.5, keep: 0.5, tilt: 1.0, fast: 0.6, strong: 6, low: 0.45 },
 };
 
-export class Bin {
+export class Bin extends Tub {
   constructor(physics, asset, [x, z], heading = 0) {
+    super(physics);
     const [w, h, d] = BIN.size, L = BIN.lid;
     const tub = [w, h - L.height, d], lid = [w + L.overhang, L.height, d + 1.5 * L.overhang];
     const lidZ = L.overhang / 2;   // the lid hangs over the front more than the back
-    const cs = Math.cos(heading), sn = Math.sin(heading);
-    const world = ([lx, ly, lz]) => [x + lx * cs + lz * sn, ly, z - lx * sn + lz * cs];
-    const quaternion = [0, Math.sin(heading / 2), 0, Math.cos(heading / 2)];
+    const world = toWorld(x, z, heading), quaternion = yaw(heading), [cs, sn] = [Math.cos(heading), Math.sin(heading)];
     const group = physics.newGroup();
-    this.physics = physics;
     this.half = tub.map(v => v / 2);
-    this.lidHalf = lid.map(v => v / 2);
-    this.events = [];
     this.slam = new Slam('bin', this.half, BIN.slam);
     this.id = physics.addHollowBox(tub, {
       position: world([0, tub[1] / 2, 0]), quaternion, mass: BIN.mass, friction: BIN.friction, com: BIN.com, group, wall: BIN.wall, floor: BIN.floor,
     });
-    this.lidId = physics.addBox(lid, {
+    const lidId = physics.addBox(lid, {
       position: world([0, tub[1] + L.height / 2, lidZ]), quaternion, mass: L.mass, friction: BIN.friction, group,
     });
     // Hinge along the back edge of the lid, at its underside.
-    this.hinge = physics.addHinge(this.id, this.lidId, world([0, tub[1], lidZ - lid[2] / 2]), [cs, 0, -sn], [sn, 0, cs], [-L.open, 0], BIN.flap.spring);
+    const hinge = physics.addHinge(this.id, lidId, world([0, tub[1], lidZ - lid[2] / 2]), [cs, 0, -sn], [sn, 0, cs], [-L.open, 0], BIN.flap.spring);
+    this.lid = new Flap(physics, lidId, hinge, lid, { ...BIN.flap, open: L.open },
+      toonParts([[new RoundedBoxGeometry(...lid, 3, 0.06), COLOURS.lid]], asset.uniforms));
 
-    this.tub = new Group();
-    this.lid = new Group();
-    this.object = new Group().add(this.tub, this.lid);
-    const part = (parent, geometry, colours, x, y, z) => {
-      for (const mesh of toon(geometry, colours, asset.uniforms)) { mesh.position.set(x, y, z); parent.add(mesh); }
-    };
     // Hollow: the outside and the rim, and a darker inside under the lid.
     const [outside, inside] = openBox(tub, BIN.wall, BIN.floor);
-    part(this.tub, outside, COLOURS.bin, 0, 0, 0);
-    part(this.tub, inside, COLOURS.inside, 0, 0, 0);
-    part(this.tub, new RoundedBoxGeometry(w * 0.7, 0.1, 0.12, 2, 0.04), COLOURS.bin, 0, tub[1] / 2 - 0.12, -d / 2 - 0.06);
+    const parts = [[outside, COLOURS.bin], [inside, COLOURS.inside],
+      [new RoundedBoxGeometry(w * 0.7, 0.1, 0.12, 2, 0.04), COLOURS.bin, [0, tub[1] / 2 - 0.12, -d / 2 - 0.06]]];
     // Wheels beside the side walls at the back bottom corners, on an axle through the back, with a hub.
     const W = BIN.wheel, wheelY = -tub[1] / 2 + W.radius, wheelZ = -d / 2 + W.back;
-    const wheel = new CylinderGeometry(W.radius, W.radius, W.width, 24).rotateZ(Math.PI / 2);
-    const hub = new CylinderGeometry(W.radius * 0.45, W.radius * 0.45, 0.02, 16).rotateZ(Math.PI / 2);
     for (const s of [-1, 1]) {
       const x = s * (w / 2 + W.gap + W.width / 2);
-      part(this.tub, wheel, COLOURS.wheel, x, wheelY, wheelZ);
-      part(this.tub, hub, COLOURS.hub, x + s * (W.width / 2 + 0.005), wheelY, wheelZ);
+      parts.push([new CylinderGeometry(W.radius, W.radius, W.width, 24).rotateZ(Math.PI / 2), COLOURS.wheel, [x, wheelY, wheelZ]]);
+      parts.push([new CylinderGeometry(W.radius * 0.45, W.radius * 0.45, 0.02, 16).rotateZ(Math.PI / 2), COLOURS.hub, [x + s * (W.width / 2 + 0.005), wheelY, wheelZ]]);
     }
-    part(this.tub, new CylinderGeometry(0.04, 0.04, w + 2 * W.gap, 8).rotateZ(Math.PI / 2), COLOURS.wheel, 0, wheelY, wheelZ);
+    parts.push([new CylinderGeometry(0.04, 0.04, w + 2 * W.gap, 8).rotateZ(Math.PI / 2), COLOURS.wheel, [0, wheelY, wheelZ]]);
     // A square blue sticker on the -x side, a little skewed.
     const S = BIN.sticker;
-    part(this.tub, new PlaneGeometry(S.size, S.size).rotateZ(S.skew).rotateY(-Math.PI / 2), COLOURS.sticker, -w / 2 - 0.004, S.at[0] * tub[1] / 2, S.at[1] * d / 2);
-    part(this.lid, new RoundedBoxGeometry(...lid, 3, 0.06), COLOURS.lid, 0, 0, 0);
-    this.update();
-  }
-
-  update() {
-    const tub = this.physics.body(this.id);
-    place(this.tub, tub);
-    place(this.lid, this.physics.body(this.lidId));
-    // Tilt from the quaternion: the angle between the tub's up and the world's up.
-    const tilt = tiltOf(tub), spin = Math.hypot(...tub.motionProperties.angularVelocity);
-    this.physics.hingeTo(this.hinge, -Math.min(BIN.flap.tilt * tilt + BIN.flap.spin * spin, BIN.lid.open));
-    this.events = this.slam.update(tub);
-  }
-
-  solids() {
-    return [{ body: this.physics.body(this.id), half: this.half }, { body: this.physics.body(this.lidId), half: this.lidHalf }];
+    parts.push([new PlaneGeometry(S.size, S.size).rotateZ(S.skew).rotateY(-Math.PI / 2), COLOURS.sticker, [-w / 2 - 0.004, S.at[0] * tub[1] / 2, S.at[1] * d / 2]]);
+    this.build([this.lid], toonParts(parts, asset.uniforms));
   }
 }
 
@@ -158,57 +186,28 @@ export const CARTON = {
   slam: { spin: 2.0, keep: 0.5, tilt: 1.0, fast: 0.6, strong: 5, low: 0.3 },
 };
 
-export class Box {
+export class Box extends Tub {
   constructor(physics, asset, [x, z], size, heading = 0) {
+    super(physics);
     const [w, h, d] = size, F = CARTON.flap, t = 0.006;
     const tub = [w, h - F.thick, d], flap = [w, F.thick, d / 2 - F.gap];
-    const cs = Math.cos(heading), sn = Math.sin(heading);
-    const world = ([lx, ly, lz]) => [x + lx * cs + lz * sn, ly, z - lx * sn + lz * cs];
-    const quaternion = [0, Math.sin(heading / 2), 0, Math.cos(heading / 2)];
+    const world = toWorld(x, z, heading), quaternion = yaw(heading), [cs, sn] = [Math.cos(heading), Math.sin(heading)];
     const group = physics.newGroup();
-    this.physics = physics;
     this.half = tub.map(v => v / 2);
-    this.flapHalf = flap.map(v => v / 2);
     this.slam = new Slam('box', this.half, CARTON.slam);
-    this.events = [];
     this.id = physics.addHollowBox(tub, { position: world([0, tub[1] / 2, 0]), quaternion, mass: CARTON.mass, friction: CARTON.friction, group, wall: CARTON.wall });
     // A flap on each long side, hinged on the top edge, from the edge to the middle. The axis turns
     // with the side, so both open at less than 0.
-    this.flaps = [-1, 1].map(side => {
+    const flaps = [-1, 1].map(side => {
       const id = physics.addBox(flap, { position: world([0, tub[1] + F.thick / 2, side * (d / 4 + F.gap / 2)]), quaternion, mass: F.mass, friction: CARTON.friction, group });
       const hinge = physics.addHinge(this.id, id, world([0, tub[1], side * d / 2]), [-side * cs, 0, side * sn], [sn, 0, cs], [-F.open, 0], F.spring);
-      const object = new Group();
-      for (const mesh of toon(new RoundedBoxGeometry(...flap, 1, 0.01), COLOURS.card, asset.uniforms)) object.add(mesh);
-      return { id, hinge, object };
+      return new Flap(physics, id, hinge, flap, F, toonParts([[new RoundedBoxGeometry(...flap, 1, 0.01), COLOURS.card]], asset.uniforms));
     });
-
-    this.tub = new Group();
-    this.object = new Group().add(this.tub, ...this.flaps.map(f => f.object));
-    const part = (geometry, colours, px, py, pz) => {
-      for (const mesh of toon(geometry, colours, asset.uniforms)) { mesh.position.set(px, py, pz); this.tub.add(mesh); }
-    };
-    // Hollow, as the bin: the outside and the rim, and a darker inside under the flaps.
+    // Hollow, as the bin: the outside and the rim, and a darker inside under the flaps. A label a little
+    // proud of the card, so it doesn't flicker.
     const [outside, inside] = openBox(tub, CARTON.wall, CARTON.wall);
-    part(outside, COLOURS.card, 0, 0, 0);
-    part(inside, COLOURS.cardInside, 0, 0, 0);
-    // A label a little proud of the card, so it doesn't flicker.
-    part(new PlaneGeometry(...CARTON.label), COLOURS.label, w * 0.18, -tub[1] * 0.12, d / 2 + t);
-    this.update();
-  }
-
-  update() {
-    const tub = this.physics.body(this.id), F = CARTON.flap;
-    place(this.tub, tub);
-    const tilt = tiltOf(tub), spin = Math.hypot(...tub.motionProperties.angularVelocity);
-    for (const f of this.flaps) {
-      place(f.object, this.physics.body(f.id));
-      this.physics.hingeTo(f.hinge, -Math.min(F.tilt * tilt + F.spin * spin, F.open));
-    }
-    this.events = this.slam.update(tub);
-  }
-
-  solids() {
-    return [{ body: this.physics.body(this.id), half: this.half }, ...this.flaps.map(f => ({ body: this.physics.body(f.id), half: this.flapHalf }))];
+    this.build(flaps, toonParts([[outside, COLOURS.card], [inside, COLOURS.cardInside],
+      [new PlaneGeometry(...CARTON.label), COLOURS.label, [w * 0.18, -tub[1] * 0.12, d / 2 + t]]], asset.uniforms));
   }
 }
 
@@ -226,6 +225,7 @@ export const CEREAL = {
   // far round each point. body: the bird's solid (BIRD.solid in physics.js) over the box from above
   // counts too, as a bird that lands with the box between its feet: radius, and its bottom above the feet.
   crush: { thick: 0.07, bulge: 1.12, reach: 0.04, toes: 0.25, width: 0.06, body: { radius: 0.4, bottom: 0.3 } },
+  near: 2.5,   // a bird's root farther than this (in x and z) can't have a foot on the box
   prints: {
     sunny: { body: [srgb(0.98, 0.78, 0.26), srgb(0.72, 0.50, 0.40), srgb(0.32, 0.17, 0.10)], band: COLOURS.label, logo: COLOURS.lid, dot: COLOURS.label },
     berry: { body: [srgb(0.36, 0.58, 0.88), srgb(0.24, 0.35, 0.64), srgb(0.10, 0.13, 0.28)], band: COLOURS.label, logo: [srgb(0.98, 0.78, 0.26), srgb(0.72, 0.50, 0.40)], dot: COLOURS.lid },
@@ -239,35 +239,36 @@ export class Cereal {
     this.size = size;
     this.half = size.map(v => v / 2);   // of the body: the sheet after squash()
     this.squashed = false;
-    this.slam = new Slam('cereal', size.map(v => v / 2), CEREAL.slam);
+    this.slam = new Slam('cereal', this.half, CEREAL.slam);
     this.events = [];
     this.id = physics.addBox(size, {
-      position: [x, h / 2, z], quaternion: [0, Math.sin(heading / 2), 0, Math.cos(heading / 2)],
+      position: [x, h / 2, z], quaternion: yaw(heading),
       mass: CEREAL.mass, friction: CEREAL.friction, light: true, grab: { hold: 'flat', edge: w / 2 - CEREAL.bite },
     });
-    this.object = new Group();
-    this.print = new Group();   // the mesh: squash() scales it
-    this.object.add(this.print);
-    const part = (geometry, colours, px, py, pz) => {
-      for (const mesh of toon(geometry, colours, asset.uniforms)) { mesh.position.set(px, py, pz); this.print.add(mesh); }
-    };
-    part(new RoundedBoxGeometry(w, h, d, 2, 0.015), P.body, 0, 0, 0);
+    this.rest = new Rest(physics, [this.id]);
+    const parts = [[new RoundedBoxGeometry(w, h, d, 2, 0.015), P.body]];
     for (const side of [1, -1]) {
       const face = g => (side < 0 ? g.rotateY(Math.PI) : g);
       const z = side * (d / 2 + t);
-      part(face(new PlaneGeometry(w * 0.86, h * 0.16)), P.band, 0, h * 0.33, z);
-      part(face(new CircleGeometry(w * 0.3, 32)), P.logo, 0, -h * 0.08, z);
-      part(face(new CircleGeometry(w * 0.12, 24)), P.dot, w * 0.06, -h * 0.05, z + side * t);
+      parts.push([face(new PlaneGeometry(w * 0.86, h * 0.16)), P.band, [0, h * 0.33, z]]);
+      parts.push([face(new CircleGeometry(w * 0.3, 32)), P.logo, [0, -h * 0.08, z]]);
+      parts.push([face(new CircleGeometry(w * 0.12, 24)), P.dot, [w * 0.06, -h * 0.05, z + side * t]]);
     }
+    this.print = new Group().add(...toonParts(parts, asset.uniforms));   // the mesh: squash() scales it
+    this.object = new Group().add(this.print);
     this.update();
   }
 
-  // ibises: a foot on the top squashes the box.
+  // ibises: a foot on the top squashes the box. A box at rest still checks, as a foot can come down
+  // on it before anything wakes it.
   update(ibises = []) {
+    this.events = [];
     const body = this.physics.body(this.id);
-    place(this.object, body);
-    if (this.physics.held(this.id)) { this.slam.peak.spin = 0; this.events = []; return; }   // in a bill
-    this.events = this.squashed ? [] : this.slam.update(body);
+    if (!this.rest.still()) {
+      place(this.object, body);
+      if (this.physics.held(this.id)) { this.slam.peak.spin = 0; return; }   // in a bill
+      if (!this.squashed) this.events = this.slam.update(body);
+    }
     if (!this.squashed && ibises.some(ibis => this.under(ibis, body))) this.squash(body);
   }
 
@@ -284,9 +285,9 @@ export class Cereal {
   // Is a sole of the bird (the ankle or the toes) on the top of the box, inside its outline? Or does
   // the bird's body come down on it from above?
   under(ibis, body) {
-    const R = ibis.rig, C = CEREAL.crush;
-    if (!R) return false;
-    const { k, dir, axes } = this.up(body), centre = new Vector3().fromArray(body.position), half = this.size.map(v => v / 2);
+    const R = ibis.rig, C = CEREAL.crush, [cx, , cz] = body.position, p = ibis.character.position;
+    if (!R || Math.hypot(p.x - cx, p.z - cz) > CEREAL.near) return false;
+    const { k, dir, axes } = this.up(body), centre = new Vector3().fromArray(body.position), half = this.half;
     const top = centre.y + half[k] * dir.y + C.reach;
     const on = p => {
       const height = p.dot(dir);
@@ -295,7 +296,7 @@ export class Cereal {
     for (const foot of [R.footL, R.footR]) for (const ahead of [0, C.toes]) {
       if (on(foot.clone().setY(foot.y - 0.05).add(new Vector3(0, 0, ahead)).applyMatrix4(ibis.object.matrixWorld).sub(centre))) return true;
     }
-    const p = ibis.character.position, bottom = p.y + C.body.bottom;
+    const bottom = p.y + C.body.bottom;
     return bottom > centre.y && bottom < top && Math.hypot(p.x - centre.x, p.z - centre.z) < C.body.radius;
   }
 
@@ -316,8 +317,10 @@ export class Cereal {
     const size = [w * C.bulge, h * C.bulge, C.thick];
     this.physics.remove(this.id);
     this.id = this.physics.addBox(size, { position: centre.toArray(), quaternion: flat.toArray(), mass: CEREAL.mass, friction: CEREAL.friction });
+    this.rest = new Rest(this.physics, [this.id]);
     this.print.scale.set(C.bulge, C.bulge, C.thick / d);
     this.half = size.map(v => v / 2);
+    this.slam.half = this.half;
     this.squashed = true;
     place(this.object, this.physics.body(this.id));
     // Puffs from the four corners of the sheet.
@@ -327,10 +330,27 @@ export class Cereal {
   }
 }
 
-// Angle between a body's up and the world's up.
-export function tiltOf(body) {
-  const [qx, , qz] = body.quaternion;
-  return Math.acos(Math.min(1, Math.max(-1, 1 - 2 * (qx * qx + qz * qz))));
+const length = ([x, y, z]) => Math.hypot(x, y, z);
+// Place to world: [x, y, z] in a prop's frame at (x, 0, z), turned by heading.
+function toWorld(x, z, heading) {
+  const cs = Math.cos(heading), sn = Math.sin(heading);
+  return ([lx, ly, lz]) => [x + lx * cs + lz * sn, ly, z - lx * sn + lz * cs];
+}
+
+// A prop at rest: still() is true when every body slept at the last update too and none is in a bill
+// (a held body moves, but sleeps). Nothing moved, so there is nothing to place or check. The first
+// update after the bodies sleep still runs, so a slam sees the end of a fall.
+export class Rest {
+  constructor(physics, ids) {
+    Object.assign(this, { physics, ids, asleep: false });
+  }
+
+  still() {
+    const asleep = this.ids.every(id => this.physics.body(id).sleeping && !this.physics.held(id));
+    const still = asleep && this.asleep;
+    this.asleep = asleep;
+    return still;
+  }
 }
 
 // A slam: the body spun faster than S.spin as it fell, then lost most of it (S.keep) while tipped past
@@ -342,11 +362,11 @@ export class Slam {
     this.peak = { spin: 0, v: [0, 0, 0], w: [0, 0, 0] };
   }
 
-  update(body) {
-    const spin = Math.hypot(...body.motionProperties.angularVelocity), peak = this.peak;
+  update(body, spin = length(body.motionProperties.angularVelocity)) {
+    const peak = this.peak;
     if (spin > peak.spin) Object.assign(peak, { spin, v: [...body.motionProperties.linearVelocity], w: [...body.motionProperties.angularVelocity] });
     else if (spin < peak.spin * this.S.keep) {
-      const hit = peak.spin > this.S.spin && tiltOf(body) > this.S.tilt;
+      const hit = peak.spin > this.S.spin && tiltAngle(body.quaternion) > this.S.tilt;
       peak.spin = spin;
       if (hit) return [this.event(body)];
     }
@@ -447,14 +467,46 @@ function openBox([w, h, d], wall, floor) {
   });
 }
 
-// The toon mesh, and with a line colour, its outline.
-export function toon(geometry, [lit, shade, line], shared) {
-  const mesh = new Mesh(geometry, toonMaterial(lit, shade, shared));
+// A rigid prop's parts as two draws: one toon mesh, with the lit and shade colours on each vertex, and
+// one outline round the parts that have a line colour, with it on each vertex. All props share the two
+// materials. parts: [geometry, [lit, shade, line?], at = [0, 0, 0]]: the geometry moves to at.
+export function toonParts(parts, shared) {
+  const { body, line } = toonMaterials(shared);
+  const toned = parts.map(([geometry, colours, at = [0, 0, 0]]) => {
+    if (colours[2]) geometry.setAttribute('_outline', smoothNormals(geometry));   // before the vertices split
+    const g = (geometry.index ? geometry.toNonIndexed() : geometry).translate(...at);
+    return { g: tone(g, colours), line: !!colours[2] };
+  });
+  const merge = (list, names) => mergeGeometries(list.map(({ g }) => {
+    const out = new BufferGeometry();
+    for (const name of names) out.setAttribute(name, g.getAttribute(name));
+    return out;
+  }));
+  const mesh = new Mesh(merge(toned, ['position', 'normal', 'aLit', 'aShade']), body);
   mesh.castShadow = true;
   mesh.receiveShadow = true;
-  if (!line) return [mesh];
-  geometry.setAttribute('_outline', smoothNormals(geometry));
-  return [mesh, new Mesh(geometry, outlineMaterial(line, shared))];
+  const lined = toned.filter(t => t.line);
+  return lined.length ? [mesh, new Mesh(merge(lined, ['position', '_outline', 'aLine']), line)] : [mesh];
+}
+
+// One toon and one outline material for each set of shared uniforms, with the colours on the vertices.
+const materials = new WeakMap();
+function toonMaterials(shared) {
+  if (!materials.has(shared)) {
+    const none = new Color();
+    materials.set(shared, { body: toonMaterial(none, none, shared, { tones: true }), line: outlineMaterial(none, shared, { tones: true }) });
+  }
+  return materials.get(shared);
+}
+
+// Lit, shade and line colours on every vertex (aLit, aShade, aLine; black with no line), for one draw of
+// many colours.
+export function tone(geometry, [lit, shade, line = new Color()]) {
+  const count = geometry.attributes.position.count;
+  for (const [name, c] of [['aLit', lit], ['aShade', shade], ['aLine', line]]) {
+    geometry.setAttribute(name, new Float32BufferAttribute(Array.from({ length: count }, () => [c.r, c.g, c.b]).flat(), 3));
+  }
+  return geometry;
 }
 
 // Same values as SHARED in materials.js.
@@ -521,9 +573,11 @@ export function toonMaterial(lit, shade, shared, { tones = false } = {}) {
 }
 
 // Back faces pushed out in screen space along a smooth normal, as hullMaterial() in materials.js.
-export function outlineMaterial(line, shared) {
+// tones: the line colour comes from the vertex attribute aLine.
+export function outlineMaterial(line, shared, { tones = false } = {}) {
   return new ShaderMaterial({
     side: BackSide,
+    defines: tones ? { TONES: '' } : {},
     uniforms: { uSun: shared.uSun, uViewHeight: shared.uViewHeight, uLine: { value: line } },
     vertexShader: /* glsl */`
       ${BAND}
@@ -531,7 +585,14 @@ export function outlineMaterial(line, shared) {
       uniform vec3 uSun;
       uniform float uViewHeight;
       attribute vec3 _outline;
+      #ifdef TONES
+      attribute vec3 aLine;
+      varying vec3 vLine;
+      #endif
       void main() {
+        #ifdef TONES
+        vLine = aLine;
+        #endif
         mat4 m = model();
         vec3 worldNormal = normalize(mat3(m) * _outline);
         vec4 clip = projectionMatrix * viewMatrix * m * vec4(position, 1.0);
@@ -544,6 +605,10 @@ export function outlineMaterial(line, shared) {
       }`,
     fragmentShader: /* glsl */`
       uniform vec3 uLine;
+      #ifdef TONES
+      varying vec3 vLine;
+      #define uLine vLine
+      #endif
       void main() {
         gl_FragColor = vec4(uLine, 1.0);
         #include <colorspace_fragment>

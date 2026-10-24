@@ -9,13 +9,13 @@
 // Posts and rails are instanced (one draw each, and one for each outline). The wire is one mesh of flat
 // quads, a diamond pattern in the shader with alphaToCoverage (soft edges with the multisampled target
 // of grade.js, no sorting). Far away, where a diamond is a few pixels, the lines blend to a flat tint.
-import { Color, DoubleSide, Float32BufferAttribute, BufferGeometry, InstancedMesh, Matrix4, Mesh, Quaternion, ShaderMaterial, Vector3 } from 'three';
+import { DoubleSide, Float32BufferAttribute, BufferGeometry, InstancedMesh, Matrix4, Mesh, Quaternion, ShaderMaterial, Vector3 } from 'three';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
 import { lightUniforms, TOON, TOON_VERTEX } from '../ibis/materials.js';
 import { outlineMaterial, smoothNormals, toonMaterial } from './props.js';
 import { PLAY, streetHeight } from './street.js';
+import { srgb, f } from './util.js';
 
-const srgb = (r, g, b) => new Color().setRGB(r, g, b, 'srgb');
 
 // Sizes in units: the bird is 2 tall (about 70 cm), so 1 unit is about 35 cm. A real front fence is about
 // 1.2 m (3.4 units); this one is a little lower, as the rest of the street. The posts are higher than the
@@ -117,7 +117,6 @@ function wireGeometry(runs) {
 }
 
 function wireMaterial(sun) {
-  const f = v => v.toFixed(3);
   const { cell, width } = FENCE.wire, [lit, shade] = COLOURS.wire;
   return new ShaderMaterial({
     lights: true,

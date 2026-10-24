@@ -19,6 +19,7 @@ import { lightUniforms, NOISE, TOON, TOON_VERTEX } from './materials.js';
 import { toeDir, toeLength } from './rig.js';
 
 const MAX_PUFFS = 96;
+const MATRIX = new Matrix4(), SCALE = new Vector3();   // scratch
 // Light warm cream dust: the warm shade and line still part it from the white feathers.
 const DUST_LIT = new Color().setRGB(0.99, 0.97, 0.92, 'srgb');
 const DUST_SHADE = new Color().setRGB(0.88, 0.83, 0.76, 'srgb');
@@ -183,6 +184,7 @@ export class IbisEffects {
     geometry.setAttribute('aMud', this.muds);
     this.puffMesh = new InstancedMesh(geometry, puffMaterial(asset.sun, false), MAX_PUFFS);
     this.hullMesh = new InstancedMesh(geometry, puffMaterial(asset.sun, true), MAX_PUFFS);
+    this.hullMesh.instanceMatrix = this.puffMesh.instanceMatrix;   // one buffer for both draws
     for (const m of [this.puffMesh, this.hullMesh]) { m.count = 0; m.frustumCulled = false; }
     this.object.add(this.hullMesh, this.puffMesh);
     this.puffs = [];   // { pos, vel, size, age, life, seed }
@@ -286,7 +288,7 @@ export class IbisEffects {
     this.time += dt;
     for (const ibis of ibises) { this.spawn(ibis, dt); this.angerLines(ibis, dt, camera); }
     this.puffs = this.puffs.filter(p => (p.age += dt) < p.life && !(p.pos.y < p.floor && p.vel.y < 0));
-    const m = new Matrix4(), s = new Vector3();
+    const m = MATRIX, s = SCALE;
     this.puffs.forEach((p, i) => {
       p.vel.multiplyScalar(Math.exp(-p.drag / DUST_TIME * dt));
       p.vel.y -= p.fall * dt;
@@ -299,11 +301,14 @@ export class IbisEffects {
       this.muds.setX(i, p.mud);
       m.compose(p.pos, p.turn, s.copy(p.shape).multiplyScalar(r));   // a little flat: dust, not balls
       this.puffMesh.setMatrixAt(i, m);
-      this.hullMesh.setMatrixAt(i, m);
     });
-    for (const mesh of [this.puffMesh, this.hullMesh]) { mesh.count = this.puffs.length; mesh.instanceMatrix.needsUpdate = true; }
-    this.fade.needsUpdate = this.seeds.needsUpdate = this.muds.needsUpdate = true;
+    // Uploads only while there is something to draw, and once more to clear.
+    if (this.puffs.length || this.puffMesh.count) {
+      for (const mesh of [this.puffMesh, this.hullMesh]) mesh.count = this.puffs.length;
+      this.puffMesh.instanceMatrix.needsUpdate = this.fade.needsUpdate = this.seeds.needsUpdate = this.muds.needsUpdate = true;
+    }
     for (const p of this.prints) {
+      if (!p.list.length && !p.mesh.count) continue;
       p.list = p.list.filter(f => (f.age += dt) < PRINT_HOLD + PRINT_FADE);
       p.list.forEach((f, i) => {
         p.mesh.setMatrixAt(i, f.matrix);

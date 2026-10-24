@@ -5,11 +5,12 @@
 //
 //   const backdrop = new Backdrop();
 //   scene.add(backdrop.object);
-import { BufferGeometry, Color, Float32BufferAttribute, Group, Mesh, ShaderMaterial } from 'three';
+import { BufferGeometry, Float32BufferAttribute, Group, Mesh, ShaderMaterial } from 'three';
 import { NOISE } from '../ibis/materials.js';
+import { COLOURS as SKY_COLOURS } from './sky.js';
+import { srgb, f } from './util.js';
 
-const srgb = (r, g, b) => new Color().setRGB(r, g, b, 'srgb');
-const SKY = srgb(0.78, 0.91, 0.98);   // the horizon colour in sky.js: far things fade toward it
+const SKY = SKY_COLOURS.horizon;   // far things fade toward it
 
 // box: [x min, x max, z min, z max] of the ring. height: [base, bumps] of the canopy line: big, slow
 // bumps for the crowns. clump: width of the round leaf clumps on top. haze: 0 to 1.
@@ -68,7 +69,6 @@ function ringGeometry([x0, x1, z0, z1], top) {
 }
 
 function ringMaterial({ height: [base, bumps], clump, freq, lit, shade, haze, seed }) {
-  const f = v => v.toFixed(3);
   return new ShaderMaterial({
     transparent: true, depthWrite: false, side: 2,
     uniforms: {

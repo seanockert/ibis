@@ -46,6 +46,9 @@ const BLINK_TIME = 0.16;
 // beat this high or more gives a 'flap' event (the run flap and the walk swing are less).
 const BEAT = { turn: 0.03, min: 0.3 };
 
+// An action starts its fade out from the weight it has now.
+const fadeOut = a => Object.assign(a, { out: true, outFrom: a.weight, outT: 0 });
+
 export class Animator {
   constructor(seed = 0) {
     this.seed = seed;
@@ -105,7 +108,7 @@ export class Animator {
   }
 
   stop() {
-    for (const a of this.actions) if (!a.out) Object.assign(a, { out: true, outFrom: a.weight, outT: 0 });
+    for (const a of this.actions) if (!a.out) fadeOut(a);
   }
 
   // The action that plays now and does not fade out, or null.
@@ -386,7 +389,7 @@ export class Animator {
     const before = a.t;
     a.t += dt;
     for (const e of def.events ?? []) if (before < e.at && a.t >= e.at) this.onEvent({ ...e, action: a.name });
-    if (!a.out && a.t >= def.length - def.fadeOut) Object.assign(a, { out: true, outFrom: a.weight, outT: 0 });
+    if (!a.out && a.t >= def.length - def.fadeOut) fadeOut(a);
     if (a.out) {
       a.outT += dt;
       a.weight = a.outFrom * (1 - clamp(a.outT / def.fadeOut, 0, 1));
@@ -399,9 +402,7 @@ export class Animator {
     if (def.face) Object.assign(Q, face(def.face));
     def.apply(Q, Math.min(a.t, def.length));
     const mask = {};
-    for (const ch of new Set([...Object.keys(def.mask), ...Object.keys(def.moveMask)])) {
-      mask[ch] = mix(def.mask[ch] || 0, def.moveMask[ch] || 0, moving);
-    }
+    for (const ch of def.channels) mask[ch] = mix(def.mask[ch] || 0, def.moveMask[ch] || 0, moving);
     blendMasked(P, Q, smoothstep(0, 1, a.weight), mask);
     return true;
   }

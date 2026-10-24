@@ -4,7 +4,8 @@
 //   length            seconds, or Infinity for a loop that plays until stop()
 //   fadeIn, fadeOut   blend times, seconds. Keep fadeIn short: a game action must start at once
 //   mask              weight per channel (see CHANNELS) while the bird stands. Missing channels are 0
-//   moveMask          weight per channel while the bird walks or is in the air, so the legs keep walking
+//   moveMask          weight per channel while the bird walks or is in the air, so the legs keep walking.
+//                     Missing: the same as mask
 //   face              expression (see FACES) for the length of the action
 //   apply(P, t)       changes the pose P at action time t. P starts as a copy of the base pose
 //   root(t)           optional root motion: speed along the heading (less than 0 backward). The legs walk
@@ -33,7 +34,6 @@ export const CHANNELS = {
 };
 // The bill opens this far for the drop of a held prop (GRAB.holds in physics.js has the hold openings).
 export const GRIP = { drop: 0.95 };
-export const FACE_KEYS = ['blink', 'lid', 'lidTilt', 'lowLid', 'pupil'];
 
 const ALL = { root: 1, body: 1, legs: 1, neck: 1, jaw: 1, wings: 1, face: 1 };
 const UPPER = { body: 1, neck: 1, jaw: 1, wings: 1, face: 1 };
@@ -51,6 +51,7 @@ export const FACES = {
   dazed: { lid: 0.35, lowLid: 0.15, pupil: 0.75 },
 };
 export const face = name => ({ ...FACES.neutral, ...FACES[name] });
+export const FACE_KEYS = Object.keys(FACES.neutral);
 
 // Blends the face keys of P toward expression name, with weight w.
 function blendFace(P, name, w) {
@@ -59,8 +60,9 @@ function blendFace(P, name, w) {
 }
 
 // Blends Q into P in place, with weight w times the mask weight of each channel.
+const CHANNEL_KEYS = Object.entries(CHANNELS);
 export function blendMasked(P, Q, w, mask) {
-  for (const [channel, keys] of Object.entries(CHANNELS)) {
+  for (const [channel, keys] of CHANNEL_KEYS) {
     const k = w * (mask[channel] || 0);
     if (k <= 0) continue;
     for (const key of keys) {
@@ -125,7 +127,7 @@ export const ACTIONS = {
   },
   // A peck while the bill holds a prop: the bill opens wider and the prop falls out. No jab.
   drop: {
-    length: 0.4, fadeIn: 0.02, fadeOut: 0.15, mask: { jaw: 1 }, moveMask: { jaw: 1 },
+    length: 0.4, fadeIn: 0.02, fadeOut: 0.15, mask: { jaw: 1 },
     events: [{ at: 0.06, type: 'drop' }],
     apply(P, t) { P.jaw = Math.max(P.jaw, GRIP.drop * window4(0, 0.06, 0.2, 0.4, t)); },
   },
@@ -166,7 +168,7 @@ export const ACTIONS = {
   // Angry head shake: narrow eyes, fast shake that dies away with the beak clacking, a stamp, then a
   // "hmph": the head turns away and up with the eyes shut.
   headShake: {
-    length: 1.4, fadeIn: 0.04, fadeOut: 0.3, mask: ALL, moveMask: { neck: 1, jaw: 1, face: 1 }, face: 'angry', anger: 1,
+    length: 1.4, fadeIn: 0.04, fadeOut: 0.3, mask: ALL, moveMask: HEAD, face: 'angry', anger: 1,
     // The bill shuts at each 1/13 s while the shake dies away, then the stamp.
     events: [
       ...Array.from({ length: 9 }, (_, k) => ({ at: (k + 1) / 13, type: 'clack', amount: (1 - (k + 1) / 13 / 0.7) ** 1.5 })),
@@ -202,7 +204,7 @@ export const ACTIONS = {
   // Flinch from a prod: eyes squeezed, the head pulls into the body. The spring kicks that push the body
   // away and flick the wings are in the animator (prod()).
   flinch: {
-    length: 0.45, fadeIn: 0.02, fadeOut: 0.25, mask: HEAD, moveMask: HEAD, face: 'squint',
+    length: 0.45, fadeIn: 0.02, fadeOut: 0.25, mask: HEAD, face: 'squint',
     events: [{ at: 0.02, type: 'call', pitch: 1.35, gain: 0.35 }],
     apply(P, t) {
       const k = window4(0, 0.03, 0.2, 0.45, t);
@@ -213,7 +215,7 @@ export const ACTIONS = {
   },
   // Look hard at someone: angry eyes, head low and pushed forward.
   glare: {
-    length: 1.2, fadeIn: 0.05, fadeOut: 0.3, mask: HEAD, moveMask: HEAD, face: 'angry', anger: 0.7,
+    length: 1.2, fadeIn: 0.05, fadeOut: 0.3, mask: HEAD, face: 'angry', anger: 0.7,
     apply(P, t) {
       const k = smoothstep(0, 0.12, t);
       P.headFwd = mix(P.headFwd, 0.05, k);
@@ -254,7 +256,7 @@ export const ACTIONS = {
   // Startled: a jump of fright with wide eyes, fast steps backward with the wings flailing, a trip over
   // its own feet onto its bottom, a dazed moment with the eyes rolling, then up again, a little smug.
   startle: {
-    length: 1.75, fadeIn: 0.02, fadeOut: 0.25, mask: ALL, moveMask: ALL, lock: true, cancelAfter: 1.3,
+    length: 1.75, fadeIn: 0.02, fadeOut: 0.25, mask: ALL, lock: true, cancelAfter: 1.3,
     root: t => (t < 0.06 ? 0 : t < 0.55 ? -1.8 : t < 0.68 ? -0.6 : 0),
     events: [{ at: 0.02, type: 'call', pitch: 1.25 }, { at: 0.66, type: 'thump', amount: 14, dust: 'rump' }],
     apply(P, t) {
@@ -303,7 +305,7 @@ export const ACTIONS = {
   // back. The right foot hops out wide and catches it, a wobble past upright, then up straight and
   // proud, with a look to each side: did anyone see?
   stumble: {
-    length: 2.0, fadeIn: 0.02, fadeOut: 0.3, mask: ALL, moveMask: ALL, lock: true, cancelAfter: 1.2,
+    length: 2.0, fadeIn: 0.02, fadeOut: 0.3, mask: ALL, lock: true, cancelAfter: 1.2,
     root: t => (t < 0.1 ? 1.5 : t < 0.25 ? 0.5 : 0),
     events: [{ at: 0.08, type: 'call', pitch: 1.1, gain: 0.6 }, { at: 0.42, type: 'thump', amount: 6, dust: 'feet' }],
     apply(P, t) {
@@ -372,3 +374,9 @@ export const ACTIONS = {
     },
   },
 };
+
+// Defaults, and the channels that each action blends (in either mask).
+for (const def of Object.values(ACTIONS)) {
+  def.moveMask ??= def.mask;
+  def.channels = [...new Set([...Object.keys(def.mask), ...Object.keys(def.moveMask)])];
+}

@@ -9,14 +9,14 @@
 //   const tufts = new Tufts();
 //   scene.add(tufts.object);
 //   tufts.update(camera, dt, ibises, solids);   // every frame. solids: [{ body, half, round }] from the props
-import { Color, InstancedBufferAttribute, InstancedBufferGeometry, Float32BufferAttribute, Mesh, ShaderMaterial, Vector3, Vector4 } from 'three';
+import { InstancedBufferAttribute, InstancedBufferGeometry, Float32BufferAttribute, Mesh, ShaderMaterial, Vector3, Vector4 } from 'three';
 import { lightUniforms, NOISE, TOON, TOON_VERTEX } from '../ibis/materials.js';
 import { hash } from '../ibis/motion/spring.js';
 import { fencePosts } from './fence.js';
 import { inPuddle, PUDDLE } from './puddle.js';
 import { BLADES, GRASS, grassUniforms, JOINT, stripAt, STRIPS } from './street.js';
+import { srgb, f } from './util.js';
 
-const srgb = (r, g, b) => new Color().setRGB(r, g, b, 'srgb');
 
 export const TUFTS = {
   area: { x: [-84, 84], z: [-40, 20] },   // where the clusters go: past the play area by more than the fade
@@ -143,7 +143,6 @@ function place() {
 }
 
 function tuftMaterial() {
-  const f = v => v.toFixed(3);
   const { wind, push } = TUFTS;
   const dir = new Vector3(wind.dir[0], 0, wind.dir[1]).normalize();
   return new ShaderMaterial({
@@ -207,7 +206,7 @@ function tuftMaterial() {
         vLeafy = aLeafy;
         vRight = right;
         // The ground patches at the root, here and not for each pixel: the same for the whole tuft.
-        vNear = 1.0 - smoothstep(20.0, 45.0, distance(base, cameraPosition));
+        vNear = patchNear(base);
         grassPatches(base.xz, 0.0, vPatch.x, vPatch.y);
         gl_Position = projectionMatrix * viewMatrix * world;
         toonShadowCoord(world, vec3(0, 1, 0));

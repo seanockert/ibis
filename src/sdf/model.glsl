@@ -206,31 +206,18 @@ vec2 jaw(vec3 h) {
     return vec2(jw.x / 1.35, jw.y > 0.012 ? MAT_MOUTH : MAT_BEAK);
 }
 
-// Eyes, mirrored. Flattened so the eye reads as a big disc without bulging past the head.
-const vec3 EYE_R = vec3(0.07, 0.12, 0.12);
-vec3 eyeSpace(vec3 h) { return vec3(abs(h.x), h.y, h.z) - vec3(0.095, 0.04, 0.0); }
+// Eyes, mirrored. The shapes are in eye.glsl.
+vec3 eyeSpace(vec3 h) { return vec3(abs(h.x), h.y, h.z) - EYE_C; }
 
-// Big pupils look forward along the bill.
 vec2 eye(vec3 h) {
     vec3 e = eyeSpace(h);
-    vec3 lookDir = normalize(vec3(0.55 + gLook.x * sign(h.x) * 0.4, 0.12 + gLook.y * 0.4, 0.83));
-    return vec2(sdEllipsoid(e, EYE_R), dot(normalize(e / EYE_R), lookDir) > 1.0 - 0.14 * gExpr.w * gExpr.w ? MAT_PUPIL : MAT_EYE);
-}
-
-// Lid: positive where it covers the eye. The top lid closes with gExpr.x and the blink, and tilts down
-// toward the bill when angry. The lower lid rises with gExpr.z. Same as lidCut() in materials.js.
-float lidCover(vec3 e) {
-    float top = mix(mix(0.115, -0.13, gExpr.x), -0.13, gBlink) - 0.6 * gExpr.y * e.z;
-    float cover = e.y - top;
-    if (gExpr.z > 0.0) cover = max(cover, mix(-0.2, 0.1, gExpr.z) - e.y);
-    return cover;
+    return vec2(sdEllipsoid(e, EYE_R), pupilIn(e, sign(h.x), gLook, gExpr) > 0.0 ? MAT_PUPIL : MAT_EYE);
 }
 
 // Lid closes from the top; at blink 1 a dark crease draws a happy arc.
 vec2 lid(vec3 h) {
     vec3 e = eyeSpace(h);
-    float crease = abs(e.y - (0.01 - 5.0 * e.z * e.z)) - 0.012;
-    return vec2(max(sdEllipsoid(e, EYE_R + 0.006), -lidCover(e)), gBlink > 0.9 && crease < 0.0 && e.x > 0.04 ? MAT_PUPIL : MAT_BLACK);
+    return vec2(max(sdEllipsoid(e, EYE_R + 0.006), -lidCover(e, gExpr, gBlink)), gBlink > 0.9 && lidCrease(e) < 0.0 && e.x > 0.04 ? MAT_PUPIL : MAT_BLACK);
 }
 
 vec2 head(vec3 h, float neckD) {

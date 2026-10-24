@@ -57,21 +57,22 @@ export class Ibis {
     // stencil holds a different group.
     const body = bodyMaterial(asset.palette, asset.uniforms);
     this.uniforms = body.uniforms;
-    const groups = this.body.geometry.groups;
-    this.body.material = groups.map((g, i) => stencilled(body, i + 1, AlwaysStencilFunc, ReplaceStencilOp));
+    // Materials by part group (_group): a missing group leaves a gap, not a shift.
+    const byGroup = make => { const out = []; for (const g of this.body.geometry.groups) out[g.materialIndex] = make(g.materialIndex); return out; };
+    this.body.material = byGroup(i => stencilled(body, i + 1, AlwaysStencilFunc, ReplaceStencilOp));
     this.body.castShadow = true;
     this.body.receiveShadow = true;
     // The contours of the wings and the scarf do not draw over the torso (stencil 1): the body shader
     // draws their lines there instead.
     const contour = hullMaterial(asset.palette, asset.uniforms, body, 'contour');
-    this.contour = this.attach(this.body.geometry, groups.map((g, i) =>
+    this.contour = this.attach(this.body.geometry, byGroup(i =>
       i === WING_GROUP || i === SCARF_GROUP ? stencilled(contour, TORSO_GROUP + 1, NotEqualStencilFunc, KeepStencilOp) : contour));
     this.contour.renderOrder = 1;   // after every body has drawn its stencil
     const inner = hullMaterial(asset.palette, asset.uniforms, body, 'inner');
-    this.inner = this.attach(this.body.geometry, groups.map((g, i) => stencilled(inner, i + 1, NotEqualStencilFunc, KeepStencilOp)));
+    this.inner = this.attach(this.body.geometry, byGroup(i => stencilled(inner, i + 1, NotEqualStencilFunc, KeepStencilOp)));
     this.inner.renderOrder = 1;   // after every body has drawn its stencil
     // The wings and the scarf get their inner lines from the SDF test in the body shader instead.
-    for (const g of [WING_GROUP, SCARF_GROUP]) this.inner.material[g].visible = false;
+    for (const g of [WING_GROUP, SCARF_GROUP]) if (this.inner.material[g]) this.inner.material[g].visible = false;
     this.lines = this.attach(asset.lineGeometry, lineMaterial(asset.uniforms));
     this.meshes = [this.body, this.contour, this.inner, this.lines];
     const viewport = new Vector4();
@@ -115,9 +116,6 @@ export class Ibis {
       const b = this.bones[i];
       m.decompose(b.position, b.quaternion, b.scale);
     });
-    this.uniforms.uLook.value.copy(rig.look);
-    this.uniforms.uBlink.value = rig.blink;
-    this.uniforms.uExpr.value.copy(rig.expr);
     for (const [name, value] of Object.entries(rigUniforms(rig))) this.uniforms[name].value = value;
     for (const mesh of this.meshes) mesh.boundingSphere.center.copy(rig.pelvis).add(BOUND_OFFSET);
   }
@@ -161,7 +159,8 @@ function stencilled(material, ref, func, op) {
   return m;
 }
 
-// Sorts the triangles by part group (the _group attribute) and adds one geometry group for each.
+// Sorts the triangles by part group (the _group attribute) and adds one geometry group for each, with
+// the part group as its material index.
 function groupByPart(geometry) {
   const part = geometry.attributes._group, index = geometry.index.array;
   const tris = Array.from({ length: index.length / 3 }, (_, t) => t);
@@ -173,7 +172,7 @@ function groupByPart(geometry) {
   let start = 0;
   for (let i = 1; i <= tris.length; i++) {
     if (i === tris.length || part.getX(sorted[i * 3]) !== part.getX(sorted[start * 3])) {
-      geometry.addGroup(start * 3, (i - start) * 3, geometry.groups.length);
+      geometry.addGroup(start * 3, (i - start) * 3, part.getX(sorted[start * 3]));
       start = i;
     }
   }

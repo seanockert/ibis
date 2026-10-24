@@ -9,12 +9,12 @@
 //
 // Scale: the bird is 2 units, so 1 unit is about 35 cm. Sizes are a little smaller than real, as in a
 // cartoon: a footpath is 3 units, the road 14 (two lanes).
-import { BufferGeometry, Color, Float32BufferAttribute, Mesh, ShaderMaterial } from 'three';
+import { BufferGeometry, Float32BufferAttribute, Mesh, ShaderMaterial } from 'three';
 import { lightUniforms, NOISE, TOON, TOON_VERTEX } from '../ibis/materials.js';
 import { smoothstep } from '../ibis/motion/spring.js';
 import { HAZE } from './sky.js';
+import { srgb, f } from './util.js';
 
-const srgb = (r, g, b) => new Color().setRGB(r, g, b, 'srgb');
 
 // Strips across z, from the near side (the default camera) to the far side: [kind, far edge z].
 export const STRIPS = [
@@ -66,7 +66,7 @@ const COLOURS = {
 export class Street {
   constructor(sun) {
     const material = groundMaterial(sun);
-    // Draws first. Its depth is DEPTH_BIAS behind it, so it can't cover the outline round the feet, but
+    // Draws first (the sky draws after the opaque scene). Its depth is DEPTH_BIAS behind it, so it can't cover the outline round the feet, but
     // a kerb still hides what is below it on the road.
     this.object = new Mesh(groundGeometry(), material);
     this.object.receiveShadow = true;
@@ -158,7 +158,8 @@ export function grassUniforms() {
 // Needs NOISE. Sunny and lush patches with hard toon edges, one pixel wide, warped for a brushed shape.
 export const GRASS = /* glsl */`
 ${GRASS_TONES.map(n => `uniform vec3 u_${n}Lit, u_${n}Shade;`).join('\n')}
-// lit: 0 shade to 1 sun. near: 1 near the camera to 0 far away, where the patches are too small to read.
+// lit: 0 shade to 1 sun. near: patchNear(), 1 near the camera to 0 far away, where the patches are too
+// small to read.
 // sun, lush: 0 to 1, how much of each patch is at xz. aa: 1 for a pixel-wide edge (fragment shader only),
 // 0 for a hard step.
 void grassPatches(vec2 xz, float aa, out float sun, out float lush) {
@@ -172,6 +173,7 @@ void grassPatches(vec2 xz, float aa, out float sun, out float lush) {
   sun = smoothstep(0.61 - wa, 0.61 + wa, a);
   lush = smoothstep(0.67 - wb, 0.67 + wb, b);
 }
+float patchNear(vec3 p) { return 1.0 - smoothstep(20.0, 45.0, distance(p, cameraPosition)); }
 vec3 grassColour(float sun, float lush, float lit, float near) {
   vec3 col = mix(mix(u_grassShade, u_grassLit, lit), mix(u_grassSunShade, u_grassSunLit, lit), near * sun);
   return mix(col, mix(u_grassDarkShade, u_grassDarkLit, lit), near * lush);
@@ -226,7 +228,6 @@ function groundMaterial(sun) {
     uniforms[`u_${name}Lit`] = { value: lit };
     uniforms[`u_${name}Shade`] = { value: shade };
   }
-  const f = v => v.toFixed(3);
   const tone = name => `mix(u_${name}Shade, u_${name}Lit, lit)`;
   // One mix for each strip edge, a pixel wide, from the near side.
   const strips = STRIPS.slice(1).map(([kind], i) => `
@@ -351,7 +352,7 @@ function groundMaterial(sun) {
         vec3 n = normalize(vNormal);
         float z = p.z, w = max(fwidth(z), 1e-4), lit = toonBand(n, uSun);
         // Grass: sunny and lush patches on the base green, and painted marks near the camera.
-        float near = 1.0 - smoothstep(20.0, 45.0, distance(p, cameraPosition));
+        float near = patchNear(p);
         // Only near a grass strip: the patches and the marks are most of the cost of the ground. The margin
         // is wide, so where the branch ends the grass has no weight in the colour.
         bool onGrass = ${STRIPS.map(([kind, z], i) => kind !== 'grass' ? null : `(${z === -Infinity ? 'true' : `z > ${f(z - 0.5)}`}${i ? ` && z < ${f(STRIPS[i - 1][1] + 0.5)}` : ''})`).filter(Boolean).join(' || ')};

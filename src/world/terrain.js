@@ -6,10 +6,10 @@
 //
 //   const terrain = new Terrain(physics, asset);
 //   scene.add(terrain.object);
-import { Color, ExtrudeGeometry, Group, Shape } from 'three';
-import { toon } from './props.js';
+import { ExtrudeGeometry, Group, Shape } from 'three';
+import { toonParts } from './props.js';
+import { srgb } from './util.js';
 
-const srgb = (r, g, b) => new Color().setRGB(r, g, b, 'srgb');
 const STONE = [srgb(0.86, 0.80, 0.72), srgb(0.66, 0.62, 0.74), srgb(0.25, 0.22, 0.30)];   // lit, shade, line
 
 // profile: [x, y] corners, counter-clockwise. z: [from, to]. World units: the bird is 2 tall.
@@ -22,11 +22,10 @@ export const COURSE = [
 
 export class Terrain {
   constructor(physics, asset, pieces = COURSE) {
-    this.object = new Group();
-    for (const { profile, z: [z0, z1] } of pieces) {
+    const parts = pieces.map(({ profile, z: [z0, z1] }) => {
       physics.addTerrain(profile.flatMap(([x, y]) => [x, y, z0, x, y, z1]));
-      const geometry = new ExtrudeGeometry(new Shape(profile.map(([x, y]) => ({ x, y }))), { depth: z1 - z0, bevelEnabled: false });
-      this.object.add(...toon(geometry.translate(0, 0, z0), STONE, asset.uniforms));
-    }
+      return [new ExtrudeGeometry(new Shape(profile.map(([x, y]) => ({ x, y }))), { depth: z1 - z0, bevelEnabled: false }), STONE, [0, 0, z0]];
+    });
+    this.object = new Group().add(...toonParts(parts, asset.uniforms));
   }
 }
