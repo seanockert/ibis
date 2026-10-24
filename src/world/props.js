@@ -187,7 +187,8 @@ export const CARTON = {
 };
 
 export class Box extends Tub {
-  constructor(physics, asset, [x, z], size, heading = 0) {
+  // ground: the height of the ground under it.
+  constructor(physics, asset, [x, z], size, heading = 0, ground = 0) {
     super(physics);
     const [w, h, d] = size, F = CARTON.flap, t = 0.006;
     const tub = [w, h - F.thick, d], flap = [w, F.thick, d / 2 - F.gap];
@@ -195,12 +196,12 @@ export class Box extends Tub {
     const group = physics.newGroup();
     this.half = tub.map(v => v / 2);
     this.slam = new Slam('box', this.half, CARTON.slam);
-    this.id = physics.addHollowBox(tub, { position: world([0, tub[1] / 2, 0]), quaternion, mass: CARTON.mass, friction: CARTON.friction, group, wall: CARTON.wall });
+    this.id = physics.addHollowBox(tub, { position: world([0, ground + tub[1] / 2, 0]), quaternion, mass: CARTON.mass, friction: CARTON.friction, group, wall: CARTON.wall });
     // A flap on each long side, hinged on the top edge, from the edge to the middle. The axis turns
     // with the side, so both open at less than 0.
     const flaps = [-1, 1].map(side => {
-      const id = physics.addBox(flap, { position: world([0, tub[1] + F.thick / 2, side * (d / 4 + F.gap / 2)]), quaternion, mass: F.mass, friction: CARTON.friction, group });
-      const hinge = physics.addHinge(this.id, id, world([0, tub[1], side * d / 2]), [-side * cs, 0, side * sn], [sn, 0, cs], [-F.open, 0], F.spring);
+      const id = physics.addBox(flap, { position: world([0, ground + tub[1] + F.thick / 2, side * (d / 4 + F.gap / 2)]), quaternion, mass: F.mass, friction: CARTON.friction, group });
+      const hinge = physics.addHinge(this.id, id, world([0, ground + tub[1], side * d / 2]), [-side * cs, 0, side * sn], [sn, 0, cs], [-F.open, 0], F.spring);
       return new Flap(physics, id, hinge, flap, F, toonParts([[new RoundedBoxGeometry(...flap, 1, 0.01), COLOURS.card]], asset.uniforms));
     });
     // Hollow, as the bin: the outside and the rim, and a darker inside under the flaps. A label a little
@@ -233,7 +234,8 @@ export const CEREAL = {
 };
 
 export class Cereal {
-  constructor(physics, asset, [x, z], size, heading = 0, print = 'sunny') {
+  // ground: the height of the ground under it.
+  constructor(physics, asset, [x, z], size, heading = 0, print = 'sunny', ground = 0) {
     const [w, h, d] = size, P = CEREAL.prints[print], t = 0.004;
     this.physics = physics;
     this.size = size;
@@ -242,7 +244,7 @@ export class Cereal {
     this.slam = new Slam('cereal', this.half, CEREAL.slam);
     this.events = [];
     this.id = physics.addBox(size, {
-      position: [x, h / 2, z], quaternion: yaw(heading),
+      position: [x, ground + h / 2, z], quaternion: yaw(heading),
       mass: CEREAL.mass, friction: CEREAL.friction, light: true, grab: { hold: 'flat', edge: w / 2 - CEREAL.bite },
     });
     this.rest = new Rest(physics, [this.id]);

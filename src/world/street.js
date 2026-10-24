@@ -1,6 +1,7 @@
 // The street the bird plays in: strips of grass, footpath, kerb and road along x, drawn by one ground
-// shader in world space. The road is lower than the rest, with a rolled kerb on each side (PROFILE: the
-// same heights for the mesh, the physics and the footprints). The mesh follows the camera along x, so
+// shader in world space. The road is lower than the rest, with a rolled kerb on each side, and the
+// footpaths are a little higher than the grass (PROFILE: the same heights for the mesh, the physics and
+// the footprints). The mesh follows the camera along x, so
 // the street has no end.
 //
 //   const street = new Street(asset.sun);
@@ -38,6 +39,12 @@ const PEBBLES = { cell: 0.7, chance: 0.4, band: 1.0, radius: [0.05, 0.12] };
 // segments: points along the roll. contact, lip: width of the shade at the foot of the roll and of the
 // line on its top.
 export const KERB = { height: 0.2, gutter: 0.22, roll: 0.5, segments: 8, contact: 0.1, lip: 0.035 };
+// Footpath: the slabs stand height above the grass, with a round edge (an S curve, edge wide, in
+// segments) on each long side: real geometry, so the bird steps up and the props rest on it. The slab
+// ends at the joints have a bevel in the shader only (bevel wide, slope: its rise for each unit across),
+// and the grass has a cool contact shade (contact wide) along each path edge. A slope that faces the sun
+// gets a light lip, one that faces away the cool form tone: the cartoon read of a raised slab.
+export const PATH = { height: 0.1, edge: 0.06, segments: 4, bevel: 0.06, slope: 0.8, contact: 0.08 };
 const REACH = 450;   // half size of the ground mesh
 // Height across the street: [z, y] points from the near side (+z) to the far side, straight between.
 export const PROFILE = profile();
@@ -95,6 +102,12 @@ function profile() {
   STRIPS.forEach(([kind, far], i) => {
     const near = i ? STRIPS[i - 1][1] : REACH;
     if (kind === 'road') out.push([near, -height], [far, -height]);
+    if (kind === 'path') {
+      // d: distance in from the near edge and from the far edge.
+      const ds = Array.from({ length: PATH.segments + 1 }, (_, k) => PATH.edge * k / PATH.segments);
+      const y = d => PATH.height * smoothstep(0, PATH.edge, d);
+      out.push(...ds.map(d => [near - d, y(d)]), ...ds.reverse().map(d => [far + d, y(d)]));
+    }
     if (kind !== 'kerb') return;
     // d: distance from the road edge. The road is on the far side or on the near side.
     const fromFar = STRIPS[i + 1]?.[0] === 'road', width = near - far;
@@ -255,11 +268,13 @@ function groundMaterial(sun) {
       uniform vec3 uHaze, uSun;
       uniform mat4 projectionMatrix;
       varying vec3 vWorld, vNormal;
-      // 1 on a line of width (units) at u = 0, a pixel of blur at any distance.
-      float line(float u, float width) {
-        float w = max(fwidth(u), 1e-5);
+      // 1 on a line of width (units) at u = 0, with w (one pixel, units) of blur.
+      float line(float u, float width, float w) {
+        w = max(w, 1e-5);
         return 1.0 - smoothstep(width / 2.0 - w, width / 2.0 + w, abs(u));
       }
+      // The same, a pixel of blur at any distance. Not for a u that wraps: its fwidth jumps there.
+      float line(float u, float width) { return line(u, width, fwidth(u)); }
       float hash12(vec2 c) { return fract(sin(dot(c, vec2(127.1, 311.7))) * 43758.5453); }
       // Frame for things drawn upright to the camera on the ground (marks, pebbles): side and away (from
       // the camera) along the ground, and stretch, which scales a ground distance away from the camera to
@@ -281,6 +296,12 @@ function groundMaterial(sun) {
       float kerbFromRoad(float z) {
         ${STRIPS.map(([kind, far], i) => kind !== 'kerb' ? '' : `if (z < ${f(STRIPS[i - 1][1])} && z > ${f(far)}) return ${STRIPS[i + 1]?.[0] === 'road' ? `z - ${f(far)}` : `${f(STRIPS[i - 1][1])} - z`};`).filter(Boolean).join('\n        ')}
         return -1.0;
+      }
+      // Distance outside the nearest footpath (less than 0 on it).
+      float pathOut(float z) {
+        float d = 1e3;
+        ${STRIPS.map(([kind, far], i) => kind !== 'path' ? '' : `d = min(d, max(z - ${f(STRIPS[i - 1][1])}, ${f(far)} - z));`).filter(Boolean).join('\n        ')}
+        return d;
       }
       float edgeDistance(float z) {
         float edge = 1e3;
@@ -349,10 +370,16 @@ function groundMaterial(sun) {
       }
       void main() {
         vec3 p = vWorld;
-        vec3 n = normalize(vNormal);
-        float z = p.z, w = max(fwidth(z), 1e-4), lit = toonBand(n, uSun);
+        float z = p.z, w = max(fwidth(z), 1e-4), px = max(fwidth(p.x), fwidth(p.z));
         // Grass: sunny and lush patches on the base green, and painted marks near the camera.
         float near = patchNear(p);
+        // Footpath slabs: each slab end drops to its joint with a bevel. The bevel tilts the normal
+        // toward the joint, so the end that faces the sun lights up and the other end takes the form
+        // tone. Only near the camera: far away a bevel is less than a pixel.
+        float jx = (fract(p.x / ${f(JOINT)} + 0.5) - 0.5) * ${f(JOINT)};
+        float bevel = step(pathOut(z), 0.0) * near * (1.0 - smoothstep(${f(PATH.bevel)} - px, ${f(PATH.bevel)} + px, abs(jx)));
+        vec3 n = normalize(normalize(vNormal) - vec3(sign(jx) * ${f(PATH.slope)} * bevel, 0.0, 0.0));
+        float lit = toonBand(n, uSun);
         // Only near a grass strip: the patches and the marks are most of the cost of the ground. The margin
         // is wide, so where the branch ends the grass has no weight in the colour.
         bool onGrass = ${STRIPS.map(([kind, z], i) => kind !== 'grass' ? null : `(${z === -Infinity ? 'true' : `z > ${f(z - 0.5)}`}${i ? ` && z < ${f(STRIPS[i - 1][1] + 0.5)}` : ''})`).filter(Boolean).join(' || ')};
@@ -366,15 +393,15 @@ function groundMaterial(sun) {
           vec3 markCol = light > 0.5 ? mix(grass, mix(u_grassSunShade, u_grassSunLit, lit) * vec3(1.06, 1.06, 0.92), 0.7) : grass * vec3(0.84, 0.91, 0.88);
           grass = mix(grass, markCol, mark);
         }
-        // Footpath: concrete slabs, with joints across.
-        float jx = (fract(p.x / ${f(JOINT)} + 0.5) - 0.5) * ${f(JOINT)};
-        vec3 path = mix(${tone('path')}, ${tone('joint')}, line(jx, 0.05));
+        // Footpath: concrete slabs, with joints across. The bevel that faces the sun is a little lighter.
+        vec3 path = mix(${tone('path')}, ${tone('joint')}, line(jx, 0.05, fwidth(p.x)));
+        path *= mix(1.0, 1.07, smoothstep(0.1, 0.25, dot(n.xz, normalize(uSun.xz))));
         // Kerb: a rolled kerb.
         vec3 kerb = ${tone('kerb')};
         // Road: patches of repair, and the dashed centre line.
         vec3 road = mix(${tone('road')}, ${tone('patch')}, smoothstep(0.70, 0.74, noise3(vec3(p.xz * vec2(0.08, 0.25), 9.0))));
         float dx = mod(p.x, ${f(ROAD.dash[0] + ROAD.dash[1])}) - ${f(ROAD.dash[0] / 2)};
-        road = mix(road, ${tone('line')}, line(z - ${f(ROAD.centre)}, ${f(ROAD.dashWidth)}) * line(dx, ${f(ROAD.dash[0])}));
+        road = mix(road, ${tone('line')}, line(z - ${f(ROAD.centre)}, ${f(ROAD.dashWidth)}) * line(dx, ${f(ROAD.dash[0])}, fwidth(p.x)));
         vec3 col = grass;
         ${strips}
         // A thin line on each strip edge.
@@ -386,12 +413,13 @@ function groundMaterial(sun) {
         float kd = kerbFromRoad(z);
         col = mix(col, col * vec3(0.78, 0.80, 0.95), line(kd - ${f(KERB.gutter - KERB.contact / 2)}, ${f(KERB.contact)}));
         col = mix(col, ${tone('joint')} * 0.7, line(kd - ${f(KERB.gutter + KERB.roll)}, ${f(KERB.lip)}));
+        // Footpath: a cool contact shade on the grass at the foot of each edge.
+        col = mix(col, col * vec3(0.80, 0.84, 0.95), line(pathOut(z) - ${f(PATH.contact / 2)}, ${f(PATH.contact)}));
         // Form: a slope that turns from the sun (the roll of a kerb that faces it away) gets a cool tone.
         float ndl = dot(n, uSun), fw = 0.5 * max(fwidth(ndl), 1e-5);
         col *= mix(vec3(0.84, 0.85, 0.97), vec3(1.0), smoothstep(${f(FORM)} - fw, ${f(FORM)} + fw, ndl));
         // Cracks on the footpath slabs, pebbles near the strip edges. Only near the camera: far away they
         // are too small to read.
-        float px = max(fwidth(p.x), fwidth(p.z));
         if (near > 0.0) {
           float pathNear = ${STRIPS.map(([kind, z], i) => kind === 'path' ? `z < ${f(STRIPS[i - 1][1])} && z > ${f(z)} ? ${f(STRIPS[i - 1][1])} : ` : '').join('')}1e3;
           if (pathNear < 1e3) col = mix(col, ${tone('joint')} * 0.9, near * cracks(p, pathNear, px));

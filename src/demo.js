@@ -158,10 +158,11 @@ if (physics) {
   physics.addFence({ x: [PLAY.x[0] - 0.5, PLAY.x[1] + 0.5], z: [PLAY.z[0] - 0.5, PLAY.z[1] + 0.5] });
   physics.addBird(bird);
   props.push(new Ball(physics, asset, [1.4, 1.3], 0.7), new Bin(physics, asset, [-1.3, -1.1], 0.87));
-  for (const [at, size, heading] of BOXES) props.push(new Box(physics, asset, at, size, heading));
-  for (const [at, size, heading, print] of CEREALS) props.push(new Cereal(physics, asset, at, size, heading, print));
+  const ground = z => (env ? streetHeight(z) : 0);   // some boxes stand on the raised footpath
+  for (const [at, size, heading] of BOXES) props.push(new Box(physics, asset, at, size, heading, ground(at[1])));
+  for (const [at, size, heading, print] of CEREALS) props.push(new Cereal(physics, asset, at, size, heading, print, ground(at[1])));
   // Stubbies as bowling pins on the road (or on flat ground without the street).
-  props.push(new Stubbies(physics, asset, PINS, { ground: env ? streetHeight(PINS[1]) : 0 }));
+  props.push(new Stubbies(physics, asset, PINS, { ground: ground(PINS[1]) }));
   for (const prop of props) scene.add(prop.object);
   if (params.get('terrain') === '1') scene.add(new Terrain(physics, asset).object);
   if (params.get('physics') === '1') {

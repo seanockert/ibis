@@ -14,7 +14,7 @@ import { lightUniforms, NOISE, TOON, TOON_VERTEX } from '../ibis/materials.js';
 import { hash } from '../ibis/motion/spring.js';
 import { fencePosts } from './fence.js';
 import { inPuddle, PUDDLE } from './puddle.js';
-import { BLADES, GRASS, grassUniforms, JOINT, stripAt, STRIPS } from './street.js';
+import { BLADES, GRASS, grassUniforms, JOINT, streetHeight, stripAt, STRIPS } from './street.js';
 import { srgb, f } from './util.js';
 
 
@@ -45,6 +45,7 @@ export class Tufts {
     g.setIndex([0, 1, 2, 0, 2, 3]);
     g.setAttribute('aTuft', new InstancedBufferAttribute(new Float32Array(tufts.flatMap(t => t.slice(0, 4))), 4));
     g.setAttribute('aLeafy', new InstancedBufferAttribute(new Float32Array(tufts.map(t => t[4])), 1));
+    g.setAttribute('aGround', new InstancedBufferAttribute(new Float32Array(tufts.map(t => streetHeight(t[1]))), 1));   // the joints are on the raised footpath
     g.instanceCount = tufts.length;
     this.material = tuftMaterial();
     this.object = new Mesh(g, this.material);
@@ -162,7 +163,7 @@ function tuftMaterial() {
       ${NOISE}
       ${GRASS}
       attribute vec4 aTuft;
-      attribute float aLeafy;
+      attribute float aLeafy, aGround;
       uniform float uTime;
       uniform vec4 uBirds[${MAX_BIRDS}];
       uniform vec4 uSolidAt[${MAX_SOLIDS}], uSolidQ[${MAX_SOLIDS}], uSolidHalf[${MAX_SOLIDS}];
@@ -170,7 +171,7 @@ function tuftMaterial() {
       varying float vSeed, vLeafy, vX, vNear;
       varying vec3 vRight;
       void main() {
-        vec3 base = vec3(aTuft.x, 0.0, aTuft.y);
+        vec3 base = vec3(aTuft.x, aGround, aTuft.y);
         float h = aTuft.z * (1.0 - smoothstep(${f(TUFTS.fade[0])}, ${f(TUFTS.fade[1])}, distance(base, cameraPosition)));
         // Props: the tuft is no taller than the distance from its root to the nearest one (its blades
         // spread about as wide as it is tall), so none goes into a box, and none shows under one.
