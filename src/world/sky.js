@@ -86,16 +86,19 @@ export class Sky {
             vec3 cc = mix(u_cloud, u_cloudShade, max(under, 0.4 * away));
             col = mix(col, cc, m);
           }
-          // Horizon: hills, then far trees in the haze, then near trees with a lit top.
-          float hills = 0.035 + 0.06 * pow(ridge(az, 3.0, 1.0), 1.5);
-          float far = 0.012 + 0.016 * ridge(az, 14.0, 2.0) + 0.008 * ridge(az, 45.0, 3.0);
-          float near = 0.004 + 0.022 * pow(ridge(az, 10.0, 4.0), 2.0) + 0.009 * ridge(az, 60.0, 5.0);
-          col = mix(col, u_hills, smoothstep(SOFT, -SOFT, el - hills));
-          col = mix(col, u_farTrees, smoothstep(SOFT, -SOFT, el - far));
-          vec3 trees = mix(u_treesShade, u_trees, smoothstep(-SOFT, SOFT, el - near * 0.5 - 0.004 * ridge(az, 40.0, 6.0)));
-          col = mix(col, mix(trees, u_farTrees, 0.35), smoothstep(SOFT, -SOFT, el - near));
-          // Below the trees: the haze the ground fades into.
-          col = mix(col, u_haze, smoothstep(SOFT, -SOFT, el + 0.002));
+          // Horizon: hills, then far trees in the haze, then near trees with a lit top. The highest hill is
+          // 0.095, so above 0.1 nothing changes.
+          if (el < 0.1) {
+            float hills = 0.035 + 0.06 * pow(ridge(az, 3.0, 1.0), 1.5);
+            float far = 0.012 + 0.016 * ridge(az, 14.0, 2.0) + 0.008 * ridge(az, 45.0, 3.0);
+            float near = 0.004 + 0.022 * pow(ridge(az, 10.0, 4.0), 2.0) + 0.009 * ridge(az, 60.0, 5.0);
+            col = mix(col, u_hills, smoothstep(SOFT, -SOFT, el - hills));
+            col = mix(col, u_farTrees, smoothstep(SOFT, -SOFT, el - far));
+            vec3 trees = mix(u_treesShade, u_trees, smoothstep(-SOFT, SOFT, el - near * 0.5 - 0.004 * ridge(az, 40.0, 6.0)));
+            col = mix(col, mix(trees, u_farTrees, 0.35), smoothstep(SOFT, -SOFT, el - near));
+            // Below the trees: the haze the ground fades into.
+            col = mix(col, u_haze, smoothstep(SOFT, -SOFT, el + 0.002));
+          }
           gl_FragColor = vec4(col, 1.0);
           #include <colorspace_fragment>
         }`,

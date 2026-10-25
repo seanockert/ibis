@@ -74,7 +74,7 @@ export class Stubbies {
     const n = this.bottles.length, instanced = (geometry, material) => new InstancedMesh(geometry, material, n);
     const label = instanced(mergeGeometries(BANDS.map(([[a, b], colour, grow]) => tone(lathe(PROFILE, a, b, grow), COLOURS[colour]))),
       toonMaterial(COLOURS.label[0], COLOURS.label[1], asset.uniforms, { tones: true }));
-    label.castShadow = label.receiveShadow = true;
+    label.receiveShadow = true;   // no shadow: the glass shadow covers it
     const inside = instanced(glass, glassMaterial(asset.uniforms, BackSide));
     const outside = instanced(glass, glassMaterial(asset.uniforms, FrontSide));
     outside.castShadow = true;   // a solid shadow: it reads better than a tinted one
@@ -171,5 +171,5 @@ function lathe(profile, a, b, grow) {
   const points = a === 0 && b === 1
     ? profile.map(([pr, py]) => new Vector2(pr * r * grow, (py - 0.5) * H))
     : Array.from({ length: 6 }, (_, k) => { const y = a + (b - a) * k / 5; return new Vector2(at(y) * r * grow, (y - 0.5) * H); });
-  return new LatheGeometry(points, 24);
+  return new LatheGeometry(points, 16);
 }

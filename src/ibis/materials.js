@@ -85,6 +85,8 @@ ${NOISE}
 float stroke(vec3 p) { return 0.65 + 0.7 * noise3(p * 7.0); }
 // Pixels per character unit at clip w.
 float pixelsPerUnit(float w) { return uViewHeight * projectionMatrix[1][1] / (2.0 * w); }
+// The camera position in object space. The model matrix is a turn, a uniform scale and a move.
+vec3 cameraInObject() { mat3 r = mat3(modelMatrix); return (cameraPosition - modelMatrix[3].xyz) * r / dot(r[0], r[0]); }
 // NDC per pixel on each axis.
 vec2 ndcPerPixel() { return 2.0 / (uViewHeight * vec2(projectionMatrix[1][1] / projectionMatrix[0][0], 1.0)); }
 `;
@@ -219,7 +221,7 @@ export function bodyMaterial(palette, shared) {
         vNormal = worldNormal;
         vPos = transformed;
         vBind = position;
-        vToCamera = normalize((inverse(modelMatrix) * vec4(cameraPosition, 1.0)).xyz - transformed);
+        vToCamera = normalize(cameraInObject() - transformed);
         vRotX = normalize(modelMatrix[0].xyz);
         vRotY = normalize(modelMatrix[1].xyz);
         vRotZ = normalize(modelMatrix[2].xyz);
@@ -392,7 +394,7 @@ export function hullMaterial(palette, shared, body, kind) {
         vMat = _mat;
         vEye = eyeSpace(position);
         // Move along the view ray, in object space (character space).
-        vec3 camera = (inverse(modelMatrix) * vec4(cameraPosition, 1.0)).xyz;
+        vec3 camera = cameraInObject();
         vec3 away = normalize(transformed - camera);
       #if CONTOUR
         // Back, but not below the ground the character stands on (y = 0), so the ground can't cover

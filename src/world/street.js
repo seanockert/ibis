@@ -398,8 +398,11 @@ function groundMaterial(sun) {
         path *= mix(1.0, 1.07, smoothstep(0.1, 0.25, dot(n.xz, normalize(uSun.xz))));
         // Kerb: a rolled kerb.
         vec3 kerb = ${tone('kerb')};
-        // Road: patches of repair, and the dashed centre line.
-        vec3 road = mix(${tone('road')}, ${tone('patch')}, smoothstep(0.70, 0.74, noise3(vec3(p.xz * vec2(0.08, 0.25), 9.0))));
+        // Road: patches of repair, and the dashed centre line. The noise runs only near the road.
+        vec3 road = ${tone('road')};
+        if (${STRIPS.map(([kind, z], i) => kind !== 'road' ? null : `z < ${f(STRIPS[i - 1][1] + 0.5)} && z > ${f(z - 0.5)}`).filter(Boolean).join(' || ')}) {
+          road = mix(road, ${tone('patch')}, smoothstep(0.70, 0.74, noise3(vec3(p.xz * vec2(0.08, 0.25), 9.0))));
+        }
         float dx = mod(p.x, ${f(ROAD.dash[0] + ROAD.dash[1])}) - ${f(ROAD.dash[0] / 2)};
         road = mix(road, ${tone('line')}, line(z - ${f(ROAD.centre)}, ${f(ROAD.dashWidth)}) * line(dx, ${f(ROAD.dash[0])}, fwidth(p.x)));
         vec3 col = grass;

@@ -47,7 +47,7 @@ export class Ball {
     this.rest = new Rest(physics, [this.id]);
     // Laces: a thin strip of the surface along the top, a little proud of it.
     const lace = ellipsoid(1.015, 12, 2, FOOTY.radii, [-Math.PI / 2 - 0.08, 0.16], [1.0, Math.PI - 2.0]);
-    this.object = new Group().add(...toonParts([[ellipsoid(1, 40, 24, FOOTY.radii), COLOURS.footy], [lace, COLOURS.lace]], asset.uniforms));
+    this.object = new Group().add(...toonParts([[ellipsoid(1, 28, 16, FOOTY.radii), COLOURS.footy], [lace, COLOURS.lace]], asset.uniforms));
     this.update();
   }
 
@@ -192,7 +192,7 @@ export class Bin extends Tub {
     for (const side of [-1, 1]) {
       const x = side * (w / 2 + (W.gap + W.width / 2) * s);
       parts.push([
-        new CylinderGeometry(W.radius * s, W.radius * s, W.width * s, 24).rotateZ(Math.PI / 2),
+        new CylinderGeometry(W.radius * s, W.radius * s, W.width * s, 16).rotateZ(Math.PI / 2),
         COLOURS.wheel, [x, wheelY, wheelZ],
       ]);
       parts.push([
@@ -297,7 +297,7 @@ export class Cereal {
       const face = g => (side < 0 ? g.rotateY(Math.PI) : g);
       const z = side * (d / 2 + t);
       parts.push([face(new PlaneGeometry(w * 0.86, h * 0.16)), P.band, [0, h * 0.33, z]]);
-      parts.push([face(new CircleGeometry(w * 0.3, 32)), P.logo, [0, -h * 0.08, z]]);
+      parts.push([face(new CircleGeometry(w * 0.3, 20)), P.logo, [0, -h * 0.08, z]]);
       parts.push([face(new CircleGeometry(w * 0.12, 24)), P.dot, [w * 0.06, -h * 0.05, z + side * t]]);
     }
     this.print = new Group().add(...toonParts(parts, asset.uniforms));   // the mesh: squash() scales it

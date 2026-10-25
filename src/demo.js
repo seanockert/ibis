@@ -68,7 +68,9 @@ const CEREALS = [[[-2.4, 4.6], [0.6, 0.86, 0.2], -0.4, 'sunny', 0], [[-1.6, 3.9]
 // Head pin of the stubbies on the road, in the near lane: kick the football down off the kerb at them.
 const PINS = [1.8, -6.2];
 // Free play sun shadow: half size of the area, map size, and the sun's distance from the area's centre.
-const SHADOW = { half: 25, map: 4096, sun: 20 };
+// Touch screens (phones and tablets) get a 2048 map: a quarter of the memory, and the toon step hides
+// the softer edge.
+const SHADOW = { half: 25, map: matchMedia('(pointer: coarse)').matches ? 2048 : 4096, sun: 20 };
 
 const params = new URLSearchParams(location.search);
 // ui=0 hides the buttons and the joystick, for tools/strip.mjs.
