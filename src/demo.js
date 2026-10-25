@@ -60,10 +60,11 @@ const STICK_DEAD = 0.12;    // joystick dead zone, part of its reach
 const STICK_RUN = 0.65;     // the joystick walks up to this part of its reach, then runs
 const CAM_MIN_Y = 0.3;      // the orbit can't take the camera lower than this
 // Cardboard boxes in free play, 60 to 70% of the bird's height (2): [x, z], size [x, y, z], heading.
+const BINS = [[[-10, -1], false, false, -2.5], [[-9, -19.7], true, true, 0.2], [[10, -20], false, false, -0.3]];
 // Two on the nature strip, one on the footpath.
-const BOXES = [[[-3.6, 1.2], [1.25, 1.3, 1.1], 0.3], [[-5.6, -0.3], [1.0, 1.2, 1.0], -0.5], [[-4.2, 4.2], [1.3, 1.4, 1.05], 0.1]];
+const BOXES = [[[-3.6, 1.2], [1.25, 1.3, 1.1], 0.3, 0], [[-5.6, -0.3], [1.0, 1.2, 1.0], -0.5, 0], [[-4.2, 4.2], [1.3, 1.4, 1.05], 0.1, 0], [[7, -20], [1.3, 1.4, 1.05], 0.1, 0], [[7.1, -19.7], [1.5, 0.8, 0.8], 0.4, 1.4]];
 // Cereal boxes in free play, on the footpath: [x, z], size, heading, print (CEREAL.prints in props.js).
-const CEREALS = [[[-2.4, 4.6], [0.6, 0.86, 0.2], -0.4, 'sunny'], [[-1.6, 3.9], [0.52, 0.74, 0.18], 0.5, 'berry']];
+const CEREALS = [[[-2.4, 4.6], [0.6, 0.86, 0.2], -0.4, 'sunny', 0], [[-1.6, 3.9], [0.52, 0.74, 0.18], 0.5, 'berry', 0], [[7, -20], [0.52, 0.74, 0.18], 0.5, 'berry', 3]];
 // Head pin of the stubbies on the road, in the near lane: kick the football down off the kerb at them.
 const PINS = [1.8, -6.2];
 // Free play sun shadow: half size of the area, map size, and the sun's distance from the area's centre.
@@ -157,10 +158,11 @@ let physicsView = null;
 if (physics) {
   physics.addFence({ x: [PLAY.x[0] - 0.5, PLAY.x[1] + 0.5], z: [PLAY.z[0] - 0.5, PLAY.z[1] + 0.5] });
   physics.addBird(bird);
-  props.push(new Ball(physics, asset, [1.4, 1.3], 0.7), new Bin(physics, asset, [-1.3, -1.1], 0.87));
+  props.push(new Ball(physics, asset, [1.4, 1.3], 0.7));
   const ground = z => (env ? streetHeight(z) : 0);   // some boxes stand on the raised footpath
-  for (const [at, size, heading] of BOXES) props.push(new Box(physics, asset, at, size, heading, ground(at[1])));
-  for (const [at, size, heading, print] of CEREALS) props.push(new Cereal(physics, asset, at, size, heading, print, ground(at[1])));
+  for (const [at, small, yellow, heading] of BINS) props.push(new Bin(physics, asset, at, small, yellow, heading, ground(at[1])));
+  for (const [at, size, heading, z] of BOXES) props.push(new Box(physics, asset, at, size, heading, z));
+  for (const [at, size, heading, print, z] of CEREALS) props.push(new Cereal(physics, asset, at, size, heading, print, z ?? ground(at[1])));
   // Stubbies as bowling pins on the road (or on flat ground without the street).
   props.push(new Stubbies(physics, asset, PINS, { ground: ground(PINS[1]) }));
   for (const prop of props) scene.add(prop.object);
@@ -363,10 +365,10 @@ const stick = new THREE.Vector2();   // joystick: x right, y up, length 0 to 1 (
 const moveIndex = name => MOVES.findIndex(m => m.name === name);
 // Icons: 24 by 24 SVG, filled shapes and lines (class s) with a little bow in the edges, so they look hand drawn.
 const ICONS = {
-  Jump: '<path d="M11.8 1.6Q16.3 6 21.1 9.9Q20 11.2 18.7 12.4Q15.2 9.5 11.9 6.5Q8.6 9.3 5.5 12.4Q4.2 11.2 2.9 10.1Q7 5.5 11.8 1.6z"/><path d="M12.1 10.8Q16.8 15.1 21.4 19.5Q20 20.7 18.4 21.8Q15.5 18.6 12.2 15.9Q8.9 19 5.5 21.8Q4.1 20.8 3 19.6Q7.4 15 12.1 10.8z"/>',
-  Peck: '<path d="M-1 0.9Q1.1 0.9 3.2 0.8Q5 1.1 6.8 1.4Q8.3 1.9 9.8 2.3Q11.3 3.2 12.9 4.1Q14 5.2 15.1 6.2Q16.1 7.5 17 8.9Q17.3 10.6 17.8 12.2Q17.9 14.2 18.1 16.2Q17.4 15 16.8 13.8Q16 13 15.2 12.2Q14.3 11.7 13.3 11.1Q12.2 10.7 11.1 10.4Q9.9 10.1 8.7 9.8Q7.3 9.8 6 9.8Q4.3 10 2.7 10Q0.9 5.4 -1 0.9z"/><path d="M20.3 21.8Q20.2 22.1 20 22.3Q19.8 22.5 19.6 22.8Q19.2 22.9 18.8 23Q18.4 23.1 17.9 23.2Q17.4 23.1 17 23.1Q16.6 23 16.2 22.8Q15.8 22.6 15.4 22.4Q15.1 22.1 14.8 21.8Q14.6 21.5 14.4 21.2Q14.4 20.8 14.4 20.5Q14.6 20.3 14.7 20Q15 19.8 15.3 19.6Q15.6 19.5 16 19.3Q16.5 19.3 16.9 19.2Q17.3 19.3 17.8 19.4Q18.2 19.5 18.6 19.6Q19 19.9 19.4 20.1Q19.7 20.4 20 20.7Q20.1 21 20.3 21.3Q20.3 21.5 20.3 21.8z"/>',
-  Squawk: '<path d="M4.9 8.1Q7.9 4.6 10.6 0.9Q10.6 2.3 10.5 3.7Q13.4 2 16.4 0.4Q13.7 3.9 11 7.5Q11 6 10.8 4.4Q7.9 6.3 4.9 8.1z"/><path d="M5.1 12Q10.6 10.4 16 8.9Q15.1 10.3 14.2 11.7Q18.6 12.1 23.1 12.1Q17.5 13.3 12 14.9Q13 13.6 14.1 12.3Q9.6 12.3 5.1 12z"/><path d="M4.8 16Q9.3 17 13.8 18.3Q12.3 18.9 10.9 19.5Q13.8 21.5 16.6 23.7Q12.1 22.6 7.7 21.3Q9 20.8 10.3 20.3Q7.5 18.1 4.8 16z"/>',
-  Threat: '<path d="M8.4 1.5Q12.1 1.7 15.7 1.4Q14.9 8.4 14.2 15.4Q12.2 15.2 10.3 15.3Q9.7 8.4 8.4 1.5z"/><path d="M15 20.1Q14.9 20.5 14.8 21Q14.6 21.4 14.4 21.8Q14.1 22.2 13.8 22.6Q13.3 22.8 12.9 22.9Q12.4 23 12 23.1Q11.5 23 11 22.9Q10.7 22.7 10.3 22.5Q9.9 22.2 9.6 21.9Q9.4 21.5 9.1 21Q9.1 20.5 9 20.1Q9.1 19.6 9.2 19.2Q9.4 18.8 9.5 18.4Q9.9 18 10.2 17.6Q10.6 17.4 11 17.3Q11.5 17.2 12 17.1Q12.4 17.2 12.9 17.3Q13.3 17.5 13.8 17.7Q14.1 18 14.5 18.3Q14.7 18.7 14.8 19.2Q14.9 19.6 15 20.1z"/>',
+  Jump: '<path d="M7.7 5.1 3.4 9.4l2.3 3.2 6-4 7.4 4 1.5-3.2-9.2-7.7zM14.9 17.1H9.7l-.6 4.6h6.3z"/><path d="M14.9 15.4H9.7l.3-3.7 1.7-1.1 2.6.8z"/>',
+  Peck: '<path d="M22 18.1C21 .6 8 3.1 2.5 3.1c0 2.5-.5 8-.5 10.5 3.5-.5 6.5 3 11.5 8C13 15.1 11 15.1 8 10.1c5 .5 10 1.5 14 8"/><circle cx="17.5" cy="19.1" r="3" />',
+  Squawk: '<ellipse cx="8" cy="19" rx="5" ry="4"/><path d="M13 19.5 10.5 17V3.5l11 4-2 4-5.5-4z"/>',
+  Threat: '<path d="m8 1.7 7.7.9L14.6 15H9.7z"/><circle cx="12" cy="20" r="3.1"/>',
 };
 const icon = name => `<svg class="ico" viewBox="0 0 24 24" aria-hidden="true">${ICONS[name]}</svg>`;
 const DIAMOND = [   // grid cell, move

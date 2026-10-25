@@ -21,6 +21,8 @@ const COLOURS = {
   lace: [srgb(0.97, 0.95, 0.90), srgb(0.78, 0.76, 0.84)],
   bin: [srgb(0.30, 0.52, 0.36), srgb(0.21, 0.40, 0.37), srgb(0.07, 0.15, 0.16)],
   lid: [srgb(0.82, 0.27, 0.22), srgb(0.56, 0.17, 0.24), srgb(0.28, 0.07, 0.11)],
+  lidRed: [srgb(0.82, 0.27, 0.22), srgb(0.56, 0.17, 0.24), srgb(0.28, 0.07, 0.11)],
+  lidYellow: [srgb(0.95, 0.78, 0.20), srgb(0.72, 0.52, 0.12), srgb(0.38, 0.25, 0.06)],
   wheel: [srgb(0.25, 0.27, 0.36), srgb(0.15, 0.16, 0.24), srgb(0.07, 0.07, 0.12)],
   hub: [srgb(0.62, 0.64, 0.70), srgb(0.40, 0.42, 0.54)],
   sticker: [srgb(0.30, 0.55, 0.88), srgb(0.20, 0.36, 0.63)],
@@ -134,41 +136,83 @@ export const BIN = {
 };
 
 export class Bin extends Tub {
-  constructor(physics, asset, [x, z], heading = 0) {
+  // small: 70% scale; yellow: yellow lid instead of red.
+  // ground: the height of the ground under it.
+  constructor(physics, asset, [x, z], small = false, yellow = false, heading = 0, ground = 0) {
     super(physics);
-    const [w, h, d] = BIN.size, L = BIN.lid;
-    const tub = [w, h - L.height, d], lid = [w + L.overhang, L.height, d + 1.5 * L.overhang];
-    const lidZ = L.overhang / 2;   // the lid hangs over the front more than the back
-    const world = toWorld(x, z, heading), quaternion = yaw(heading), [cs, sn] = [Math.cos(heading), Math.sin(heading)];
+    const scale = 1.2;
+    const s = scale * (small ? 0.70 : 1);
+    const [w, h, d] = BIN.size.map(v => v * s), L = BIN.lid;
+    const tub = [w, h - L.height * s, d];
+    const lid = [w + L.overhang * s, L.height * s, d + 1.5 * L.overhang * s];
+    const scaled = v => v * s;
+    const lidZ = L.overhang * s / 2;
+    const world = toWorld(x, z, heading), quaternion = yaw(heading);
+    const [cs, sn] = [Math.cos(heading), Math.sin(heading)];
     const group = physics.newGroup();
+
     this.half = tub.map(v => v / 2);
     this.slam = new Slam('bin', this.half, BIN.slam);
     this.id = physics.addHollowBox(tub, {
-      position: world([0, tub[1] / 2, 0]), quaternion, mass: BIN.mass, friction: BIN.friction, com: BIN.com, group, wall: BIN.wall, floor: BIN.floor,
+      position: world([0, ground + tub[1] / 2, 0]),
+      quaternion, mass: BIN.mass, friction: BIN.friction,
+      com: BIN.com, group, wall: BIN.wall, floor: BIN.floor,
     });
-    const lidId = physics.addBox(lid, {
-      position: world([0, tub[1] + L.height / 2, lidZ]), quaternion, mass: L.mass, friction: BIN.friction, group,
-    });
-    // Hinge along the back edge of the lid, at its underside.
-    const hinge = physics.addHinge(this.id, lidId, world([0, tub[1], lidZ - lid[2] / 2]), [cs, 0, -sn], [sn, 0, cs], [-L.open, 0], BIN.flap.spring);
-    this.lid = new Flap(physics, lidId, hinge, lid, { ...BIN.flap, open: L.open },
-      toonParts([[new RoundedBoxGeometry(...lid, 3, 0.06), COLOURS.lid]], asset.uniforms));
 
-    // Hollow: the outside and the rim, and a darker inside under the lid.
+    const lidId = physics.addBox(lid, {
+      position: world([0, ground + tub[1] + lid[1] / 2, lidZ]),
+      quaternion, mass: L.mass, friction: BIN.friction, group,
+    });
+
+    const hinge = physics.addHinge(
+      this.id, lidId,
+      world([0, ground + tub[1], lidZ - lid[2] / 2]),
+      [cs, 0, -sn], [sn, 0, cs], [-L.open, 0], BIN.flap.spring,
+    );
+
+    this.lid = new Flap(physics, lidId, hinge, lid,
+      { ...BIN.flap, open: L.open },
+      toonParts([[
+        new RoundedBoxGeometry(...lid, 3, scaled(0.06)),
+        yellow ? COLOURS.lidYellow : COLOURS.lidRed,
+      ]], asset.uniforms));
+
     const [outside, inside] = openBox(tub, BIN.wall, BIN.floor);
-    const parts = [[outside, COLOURS.bin], [inside, COLOURS.inside],
-      [new RoundedBoxGeometry(w * 0.7, 0.1, 0.12, 2, 0.04), COLOURS.bin, [0, tub[1] / 2 - 0.12, -d / 2 - 0.06]]];
-    // Wheels beside the side walls at the back bottom corners, on an axle through the back, with a hub.
-    const W = BIN.wheel, wheelY = -tub[1] / 2 + W.radius, wheelZ = -d / 2 + W.back;
-    for (const s of [-1, 1]) {
-      const x = s * (w / 2 + W.gap + W.width / 2);
-      parts.push([new CylinderGeometry(W.radius, W.radius, W.width, 24).rotateZ(Math.PI / 2), COLOURS.wheel, [x, wheelY, wheelZ]]);
-      parts.push([new CylinderGeometry(W.radius * 0.45, W.radius * 0.45, 0.02, 16).rotateZ(Math.PI / 2), COLOURS.hub, [x + s * (W.width / 2 + 0.005), wheelY, wheelZ]]);
+    const parts = [
+      [outside, COLOURS.bin],
+      [inside, COLOURS.inside],
+      [new RoundedBoxGeometry(w * 0.7, scaled(0.1), scaled(0.12), 2, scaled(0.04)),
+        COLOURS.bin, [0, tub[1] / 2 - scaled(0.12), -d / 2 - scaled(0.06)]],
+    ];
+
+    const W = BIN.wheel;
+    const wheelY = -tub[1] / 2 + W.radius * s;
+    const wheelZ = -d / 2 + W.back * s;
+
+    for (const side of [-1, 1]) {
+      const x = side * (w / 2 + (W.gap + W.width / 2) * s);
+      parts.push([
+        new CylinderGeometry(W.radius * s, W.radius * s, W.width * s, 24).rotateZ(Math.PI / 2),
+        COLOURS.wheel, [x, wheelY, wheelZ],
+      ]);
+      parts.push([
+        new CylinderGeometry(W.radius * 0.45 * s, W.radius * 0.45 * s, 0.02 * s, 16).rotateZ(Math.PI / 2),
+        COLOURS.hub, [x + side * (W.width / 2 + 0.005) * s, wheelY, wheelZ],
+      ]);
     }
-    parts.push([new CylinderGeometry(0.04, 0.04, w + 2 * W.gap, 8).rotateZ(Math.PI / 2), COLOURS.wheel, [0, wheelY, wheelZ]]);
-    // A square blue sticker on the -x side, a little skewed.
+
+    parts.push([
+      new CylinderGeometry(0.04 * s, 0.04 * s, w + 2 * W.gap * s, 8).rotateZ(Math.PI / 2),
+      COLOURS.wheel, [0, wheelY, wheelZ],
+    ]);
+
     const S = BIN.sticker;
-    parts.push([new PlaneGeometry(S.size, S.size).rotateZ(S.skew).rotateY(-Math.PI / 2), COLOURS.sticker, [-w / 2 - 0.004, S.at[0] * tub[1] / 2, S.at[1] * d / 2]]);
+    parts.push([
+      new PlaneGeometry(S.size * s, S.size * s).rotateZ(S.skew).rotateY(-Math.PI / 2),
+      COLOURS.sticker,
+      [-w / 2 - 0.004 * s, S.at[0] * tub[1] / 2, S.at[1] * d / 2],
+    ]);
+
     this.build([this.lid], toonParts(parts, asset.uniforms));
   }
 }
