@@ -1,6 +1,6 @@
 # Improvements for later
 
-Ideas from the code review of October 2026 that are not done yet. Each has its expected gain and its risk. Measure before and after (GPU timer queries round `window.demo.render()`, see AGENTS.md), and use the regression checks in "Check a change".
+Ideas from the code review of October 2026 that are not done yet. Each has its expected gain and its risk. Measure before and after (GPU timer queries round `window.demo.render()`, see `tools.md`), and use the regression checks in "Check a change" in `tools.md`.
 
 ## Triangle count
 
