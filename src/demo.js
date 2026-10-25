@@ -68,7 +68,7 @@ const CEREALS = [[[-2.4, 4.6], [0.6, 0.86, 0.2], -0.4, 'sunny', 0], [[-1.6, 3.9]
 // Head pin of the stubbies on the road, in the near lane: kick the football down off the kerb at them.
 const PINS = [1.8, -6.2];
 // Free play sun shadow: half size of the area, map size, and the sun's distance from the area's centre.
-const SHADOW = { half: 10, map: 4096, sun: 20 };
+const SHADOW = { half: 25, map: 4096, sun: 20 };
 
 const params = new URLSearchParams(location.search);
 // ui=0 hides the buttons and the joystick, for tools/strip.mjs.
@@ -108,7 +108,7 @@ sun.castShadow = true;
 sun.shadow.mapSize.set(2048, 2048);
 Object.assign(sun.shadow.camera, { left: -3, right: 3, top: 3, bottom: -3, near: 0.5, far: 15 });
 sun.shadow.bias = -0.0005;
-sun.shadow.normalBias = 0.02;   // no shadow acne on the toon bands
+sun.shadow.normalBias = 0.01;   // no shadow acne on the toon bands
 if (play) {
   // Free play: a wide shadow area round the camera's focus, so props away from the bird keep their
   // shadows. The map is larger, so a texel stays about as small as in the close views.
