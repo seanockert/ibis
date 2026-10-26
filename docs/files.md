@@ -20,7 +20,18 @@ What each source file does.
 | `src/ibis/materialIds.js` | `MAT` ids for JS. Must match `MAT_*` in `model.glsl` |
 | `src/ibis/materials.js` | Runtime shaders: body (cel shading, eye, lids, wing and scarf lines), hull outline, border lines |
 | `src/ibis/Ibis.js` | `loadIbis()`, `Ibis` class, part groups, stencil setup, border line geometry |
-| `src/demo.js` | Demo page and URL parameters. Free play UI: joystick (bottom left: walks, runs when pushed far, `STICK_RUN`), Threat, Squawk, Peck and Jump diamond (bottom right; hold Jump to flutter; Squawk gives a squawk and a happy dance in turn), the other action (Shake) in the top bar after Wet. Other views: one button for each move |
+| `src/main.js` | Entry of `index.html`: reads the config, makes the stage and the level, runs the frame loop. Free play, or the other views (fixed time, fixed camera, grid, bench) |
+| `src/app/config.js` | `readConfig()`: the URL parameters, read once. `LITE` |
+| `src/app/stage.js` | `Stage`: renderer, scene, camera and orbit controls, sun and shadow (`SHADOW`, `shadowTo()`), grade, plain ground, `keepAbove()` (`CAM_MIN_Y`) |
+| `src/app/follow.js` | `Follow`: the free play camera follow. `CAMERA` |
+| `src/app/input.js` | `Input`: keys, joystick (walks, runs when pushed far, `STICK_RUN`), tap to walk, tap to prod |
+| `src/app/ui.js` | `Ui`: free play Threat, Squawk, Peck and Jump diamond (hold Jump to flutter), the other action (Shake) in the top bar after Wet. Other views: one button for each move |
+| `src/levels/street.js` | `STREET`: the street level as data: ground, scenery, characters, props |
+| `src/world/level.js` | `Level`: makes a level from data, steps characters, brains, puddle, physics and props, and sends events to effects and sounds. Mud and wet targets for each character |
+| `src/world/place.js` | `stack()`: the base height of each prop from the ground and the props before it, so props stack and never start inside each other |
+| `src/world/kinds.js` | `PROPS`: prop kind names in level data to classes |
+| `src/characters/species.js` | `SPECIES`: species names in level data to makers. Only the ibis |
+| `src/characters/wander.js` | `Wander`: a brain that walks a character to random points near its home. `WANDER` |
 | `src/world/physics.js` | `Physics`: the crashcat world, the bird's solid, shove and room. The only file that imports crashcat |
 | `src/world/props.js` | `Ball` (AFL football), `Bin` (wheelie bin with a hinged lid), `Box` (cardboard box with two hinged flaps, `CARTON`) and `Cereal` (`CEREAL`): bodies and toon meshes. `Tub` and `Flap` (the bin and the boxes: a hollow body with hinged flaps), `Slam` (dust and sound when a prop falls over hard), `Rest` (a prop whose bodies sleep does no work), `toonParts()` (the parts of one body as two draws) |
 | `src/world/highlight.js` | `Highlight`: a thick white outline round the prop that a peck would pick up now (`Physics.target()`, `hull(id)` on the prop). `HIGHLIGHT` |

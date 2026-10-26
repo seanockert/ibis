@@ -15,8 +15,10 @@
 // The bird: the controller still owns the root. Each controller sub step, a kinematic character
 // controller (crashcat kcc) sweeps the bird's solid (chest and head) from the old position to the new
 // one and gives back where the bird can go. It pushes what it touches, with a mass and a strength
-// limit, so a light ball moves away and a heavy bin stops the bird. Small kinematic spheres on the feet
-// and the head kick and peck light props only, so a peck can't shove the bin.
+// limit, so a light ball moves away and a heavy bin stops the bird. Each bird's solid is a body on the
+// bird layer, so the sweep of one bird stops at the solid of another, and pushes it (nudgeBirds()).
+// Small kinematic spheres on the feet and the head kick and peck light props only, so a peck can't
+// shove the bin.
 //
 // Shove: the beak is not part of the solid. Rays ahead find a heavy prop before the beak gets to it,
 // and set controller.shove (0 to 1). The animator puts the head down, so the beak points along the
@@ -86,6 +88,9 @@ export const BIRD = {
   roomSpeed: 1,                // up to this speed of the prop where the head is
   foot: 0.13, footUp: 0.1,     // foot spheres: radius, height above the ankle
   peck: 0.2,                   // head sphere that follows the rig
+  // Bird into bird: the other bird takes this part of the move into it. touch: the solids touch at
+  // this distance (two radii and the kcc padding).
+  nudge: { share: 0.6, touch: 0.93 },
 };
 // Grab: reach, the largest gap from the bill tip (head space, BIRD.reach) to a prop, so the aim can be
 // rough. holds: how the bill holds each kind of prop. jaw: the bill opens this far, so the gap fits the
@@ -113,11 +118,11 @@ export class Physics {
     const still = addBroadphaseLayer(s), moving = addBroadphaseLayer(s);
     // fixed: the ground. fence: stops light props only, so a bin can still fall over it. terrain: steps
     // and ramps; the bird walks on them. heavy: blocks the bird. light: the feet and head move it too.
-    // limb: the bird's kinematic spheres. ghost: the bird's solid, for the debug view and ray casts; it
-    // collides with nothing.
+    // limb: the bird's kinematic spheres. bird: each bird's solid; it collides with nothing, but the
+    // sweeps of the other birds stop at it. ghost: a held prop; it touches nothing.
     this.layers = {
       fixed: addObjectLayer(s, still), fence: addObjectLayer(s, still), terrain: addObjectLayer(s, still), heavy: addObjectLayer(s, moving),
-      light: addObjectLayer(s, moving), limb: addObjectLayer(s, moving), ghost: addObjectLayer(s, moving),
+      light: addObjectLayer(s, moving), limb: addObjectLayer(s, moving), bird: addObjectLayer(s, moving), ghost: addObjectLayer(s, moving),
     };
     const L = this.layers;
     const pairs = [['heavy', 'fixed'], ['heavy', 'terrain'], ['light', 'terrain'], ['heavy', 'heavy'], ['heavy', 'light'], ['light', 'fixed'], ['light', 'fence'], ['light', 'light'], ['limb', 'light']];
@@ -127,7 +132,8 @@ export class Physics {
     this.world = createWorld(s);
     this.gravity = s.gravity;
     this.addGround(ground ?? [[GROUND_HALF, 0], [-GROUND_HALF, 0]]);
-    // The bird collides with props only: the controller keeps it on the ground and inside its bounds.
+    // The bird collides with props and other birds only: the controller keeps it on the ground and inside
+    // its bounds.
     // Set the object layers directly: disableObjectLayer() also turns off the broadphase layer, which
     // the limbs share with the props.
     this.birdFilter = filter.create(this.world.settings.layers);
@@ -137,10 +143,10 @@ export class Physics {
     this.birdUpdate.walkStairsStepUp = [0, 0, 0];
     this.birds = [];
     this.heavyFilter = filter.create(this.world.settings.layers);
-    for (const layer of [L.fixed, L.fence, L.terrain, L.light, L.limb, L.ghost]) this.heavyFilter.enabledObjectLayers[layer] = 0;
+    for (const layer of [L.fixed, L.fence, L.terrain, L.light, L.limb, L.bird, L.ghost]) this.heavyFilter.enabledObjectLayers[layer] = 0;
     // Ground rays: the ground, terrain and heavy props.
     this.groundFilter = filter.create(this.world.settings.layers);
-    for (const layer of [L.fence, L.light, L.limb, L.ghost]) this.groundFilter.enabledObjectLayers[layer] = 0;
+    for (const layer of [L.fence, L.light, L.limb, L.bird, L.ghost]) this.groundFilter.enabledObjectLayers[layer] = 0;
     this.ray = createClosestCastRayCollector();
     this.raySettings = createDefaultCastRaySettings();
     this.groundSettings = { ...createDefaultCastRaySettings(), treatConvexAsSolid: false };
@@ -271,13 +277,13 @@ export class Physics {
     const L = this.layers, c = ibis.character;
     const shape = capsule.create({ radius: BIRD.solid.radius, halfHeightOfCylinder: BIRD.solid.halfHeight });
     const k = kcc.create({
-      shape, shapeOffset: BIRD.solid.at, mass: BIRD.mass, maxStrength: BIRD.strength, innerRigidBody: { shape, objectLayer: L.ghost },
+      shape, shapeOffset: BIRD.solid.at, mass: BIRD.mass, maxStrength: BIRD.strength, innerRigidBody: { shape, objectLayer: L.bird },
     }, [c.position.x, c.position.y, c.position.z], yaw(c.heading));
     kcc.add(this.world, k);
     const limb = r => rigidBody.create(this.world, {
       motionType: MotionType.KINEMATIC, objectLayer: L.limb, shape: sphere.create({ radius: r }), position: [0, -10, 0],
     }).id;
-    const bird = { ibis, kcc: k, limbs: [limb(BIRD.foot), limb(BIRD.foot), limb(BIRD.peck)], held: null, placed: false, touching: false, under: null, inside: null };
+    const bird = { ibis, kcc: k, limbs: [limb(BIRD.foot), limb(BIRD.foot), limb(BIRD.peck)], held: null, placed: false, touching: false, under: null, inside: null, nudge: [0, 0] };
     this.birds.push(bird);
     c.collide = (controller, dt) => this.moveBird(bird, controller, dt);
     c.controller.groundAt = (x, z, out) => this.groundAt(x, z, c.position.y + GROUND.stepUp, out);
@@ -293,11 +299,46 @@ export class Physics {
   // skipped until the feet are over the rim, or the solid hit the wall and tipped the box, and the
   // rising rim caught the bird and put it back in.
   moveBird(bird, c, dt) {
+    this.takeNudge(bird, c);
+    this.nudgeBirds(bird, c);
     const inside = bird.inside = c.grounded ? this.insideOf(bird, c) : bird.inside && this.stillIn(bird.inside, c);
     const skip = inside ? body => body.id !== inside.id : undefined;
     this.birdFilter.bodyFilter = this.heavyFilter.bodyFilter = skip;
     this.moveBirdIn(bird, c, dt, inside);
     this.birdFilter.bodyFilter = this.heavyFilter.bodyFilter = undefined;
+  }
+
+  // Pushes the other birds that this sub step moves the bird into: each takes BIRD.nudge.share of the
+  // part of the move past touching, along the line between them, at its own next sub step. So a run
+  // into the side of a walking bird shoves it out of the way, and a still bird slows the bird that
+  // pushes it.
+  nudgeBirds(bird, c) {
+    const k = bird.kcc, mx = c.position.x - k.position[0], mz = c.position.z - k.position[2];
+    const { share, touch } = BIRD.nudge, tall = 2 * (BIRD.solid.halfHeight + BIRD.solid.radius);
+    for (const other of this.birds) {
+      const o = other.kcc.position;
+      if (other === bird || Math.abs(o[1] - k.position[1]) > tall) continue;
+      const dx = o[0] - k.position[0], dz = o[2] - k.position[2], d = Math.hypot(dx, dz);
+      if (d < 1e-6) continue;
+      const approach = (mx * dx + mz * dz) / d, into = Math.min(approach, touch - (d - approach));
+      if (into <= 0) continue;
+      other.nudge[0] += dx / d * share * into;
+      other.nudge[1] += dz / d * share * into;
+    }
+  }
+
+  // Moves the bird by the nudges from other birds since its last sub step. Its sweep comes after, so
+  // a wall or a prop still stops it.
+  takeNudge(bird, c) {
+    const [x, z] = bird.nudge;
+    if (x === 0 && z === 0) return;
+    c.position.x += x;
+    c.position.z += z;
+    if (c.bounds) {
+      c.position.x = Math.min(Math.max(c.position.x, c.bounds.x[0]), c.bounds.x[1]);
+      c.position.z = Math.min(Math.max(c.position.z, c.bounds.z[0]), c.bounds.z[1]);
+    }
+    bird.nudge[0] = bird.nudge[1] = 0;
   }
 
   // The hollow prop the bird stands inside, as { id, body, info }, or null.

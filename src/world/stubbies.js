@@ -12,7 +12,7 @@
 // of a bottle doesn't show through its glass. The glass draws after everything opaque (transparent),
 // and the ibis reads its stencil values before then, so they don't mix.
 //
-//   const pins = new Stubbies(physics, asset, [x, z], { ground: streetHeight(z) });
+//   const pins = new Stubbies(physics, asset, { at: [x, z], heading, base });   // at: the head pin
 //   scene.add(pins.object);
 //   pins.update();   // every frame, after physics.step(dt)
 import {
@@ -53,7 +53,13 @@ const MATRIX = new Matrix4(), P = new Vector3(), Q = new Quaternion(), ONE = new
 const BANDS = [[[0.16, 0.48], 'label', 1.015], [[0.79, 0.89], 'label', 1.03]];   // body, neck
 
 export class Stubbies {
-  constructor(physics, asset, [x, z], { heading = 0, ground = 0 } = {}) {
+  // The triangle of pins, from the head pin back.
+  static footprint() {
+    const { radius: r, rows, spacing, height } = STUBBY, deep = (rows - 1) * spacing * Math.sqrt(3) / 2;
+    return { half: [(rows - 1) / 2 * spacing + r, deep / 2 + r], centre: [0, -deep / 2], height };
+  }
+
+  constructor(physics, asset, { at: [x, z], heading = 0, base = 0 }) {
     const { height: H, radius: r, rows, spacing } = STUBBY;
     this.physics = physics;
     this.events = [];
@@ -67,7 +73,7 @@ export class Stubbies {
       Array.from({ length: 10 }, (_, k) => [pr * r * Math.cos(k * Math.PI / 5), (py - 0.5) * H, pr * r * Math.sin(k * Math.PI / 5)]).flat());
     this.bottles = spots.map(([lx, lz]) => {
       const id = physics.addHull(hull, {
-        position: [x + lx * cs + lz * sn, ground + H / 2, z - lx * sn + lz * cs], light: true, grab: { hold: 'round' },
+        position: [x + lx * cs + lz * sn, base + H / 2, z - lx * sn + lz * cs], light: true, grab: { hold: 'round' },
         mass: STUBBY.mass, friction: STUBBY.friction, restitution: STUBBY.restitution, damping: STUBBY.damping,
       });
       return { id, slam: new Slam('glass', [r, H / 2, r], STUBBY.slam), rest: new Rest(physics, [id]) };

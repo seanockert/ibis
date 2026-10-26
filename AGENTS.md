@@ -17,6 +17,7 @@ Read the file in `docs/` for the area that you change, and only that file.
 | `docs/bake.md` | `tools/bake/*`, `tools/pack.mjs`, `public/ibis.glb` |
 | `docs/physics.md` | `physics.js`: layers, the bird's solid, shove, room, push, floor, bounds |
 | `docs/props.md` | A prop or set piece: size and mass rules, the bin, boxes, cereal, stubbies, grab |
+| `docs/levels.md` | Level data, prop placement and stacking, characters and brains, `src/main.js` and `src/app/` |
 | `docs/environment.md` | Street, kerb, footpaths, fence, tufts, sky, backdrop, grade, free play camera |
 | `docs/improvements.md` | Performance and clean-up ideas not done yet, with triangle counts |
 

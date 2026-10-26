@@ -1,7 +1,8 @@
 // Props for the play area, each a physics body (physics.js) with a toon mesh in the ibis's style: a lit
 // and a shade colour split by the sun, and an inverted hull outline, wider on the shadow side.
 //
-//   const ball = new Ball(physics, asset, [x, z]);
+//   const ball = new Ball(physics, asset, { at: [x, z], heading, base });   // base: height of its bottom
+//   Ball.footprint(def)   // { half: [x, z], height, centre? }: its size for placement (place.js)
 //   scene.add(ball.object);
 //   ball.update();   // every frame, after physics.step(dt)
 //   ball.events      // this update: { type: 'slam', kind, points: [{ at, strength }], centre } when a prop lands hard
@@ -37,11 +38,13 @@ const COLOURS = {
 export const FOOTY = { radii: [0.31, 0.31, 0.5], mass: 0.5, friction: 0.6, restitution: 0.55, damping: 0.15 };
 
 export class Ball {
-  constructor(physics, asset, [x, z], heading = 0) {
+  static footprint() { return { half: [FOOTY.radii[0], FOOTY.radii[2]], height: 2 * FOOTY.radii[1] }; }
+
+  constructor(physics, asset, { at: [x, z], heading = 0, base = 0 }) {
     const [a, b, c] = FOOTY.radii;
     this.physics = physics;
     this.id = physics.addHull(ellipsoidPoints(FOOTY.radii), {
-      position: [x, b, z], quaternion: yaw(heading), light: true,
+      position: [x, base + b, z], quaternion: yaw(heading), light: true,
       mass: FOOTY.mass, friction: FOOTY.friction, restitution: FOOTY.restitution, damping: FOOTY.damping,
     });
     this.rest = new Rest(physics, [this.id]);
@@ -135,13 +138,21 @@ export const BIN = {
   slam: { spin: 1.5, keep: 0.5, tilt: 1.0, fast: 0.6, strong: 6, low: 0.45 },
 };
 
+// Lid colours: red general waste, yellow recycling.
+const LIDS = { red: COLOURS.lidRed, yellow: COLOURS.lidYellow };
+const binScale = small => 1.2 * (small ? 0.70 : 1);
+
 export class Bin extends Tub {
-  // small: 70% scale; yellow: yellow lid instead of red.
-  // ground: the height of the ground under it.
-  constructor(physics, asset, [x, z], small = false, yellow = false, heading = 0, ground = 0) {
+  // The tub, the wheels out at the sides and the lid out at the front.
+  static footprint({ small = false }) {
+    const s = binScale(small), [w, h, d] = BIN.size.map(v => v * s), W = BIN.wheel;
+    return { half: [w / 2 + (W.gap + W.width) * s, d / 2 + 1.25 * BIN.lid.overhang * s], height: h };
+  }
+
+  // small: 70% scale. lid: a key of LIDS. base: the height of its bottom.
+  constructor(physics, asset, { at: [x, z], heading = 0, base = 0, small = false, lid: colour = 'red' }) {
     super(physics);
-    const scale = 1.2;
-    const s = scale * (small ? 0.70 : 1);
+    const s = binScale(small);
     const [w, h, d] = BIN.size.map(v => v * s), L = BIN.lid;
     const tub = [w, h - L.height * s, d];
     const lid = [w + L.overhang * s, L.height * s, d + 1.5 * L.overhang * s];
@@ -154,19 +165,19 @@ export class Bin extends Tub {
     this.half = tub.map(v => v / 2);
     this.slam = new Slam('bin', this.half, BIN.slam);
     this.id = physics.addHollowBox(tub, {
-      position: world([0, ground + tub[1] / 2, 0]),
+      position: world([0, base + tub[1] / 2, 0]),
       quaternion, mass: BIN.mass, friction: BIN.friction,
       com: BIN.com, group, wall: BIN.wall, floor: BIN.floor,
     });
 
     const lidId = physics.addBox(lid, {
-      position: world([0, ground + tub[1] + lid[1] / 2, lidZ]),
+      position: world([0, base + tub[1] + lid[1] / 2, lidZ]),
       quaternion, mass: L.mass, friction: BIN.friction, group,
     });
 
     const hinge = physics.addHinge(
       this.id, lidId,
-      world([0, ground + tub[1], lidZ - lid[2] / 2]),
+      world([0, base + tub[1], lidZ - lid[2] / 2]),
       [cs, 0, -sn], [sn, 0, cs], [-L.open, 0], BIN.flap.spring,
     );
 
@@ -174,7 +185,7 @@ export class Bin extends Tub {
       { ...BIN.flap, open: L.open },
       toonParts([[
         new RoundedBoxGeometry(...lid, 3, scaled(0.06)),
-        yellow ? COLOURS.lidYellow : COLOURS.lidRed,
+        LIDS[colour],
       ]], asset.uniforms));
 
     const [outside, inside] = openBox(tub, BIN.wall, BIN.floor);
@@ -231,8 +242,10 @@ export const CARTON = {
 };
 
 export class Box extends Tub {
-  // ground: the height of the ground under it.
-  constructor(physics, asset, [x, z], size, heading = 0, ground = 0) {
+  static footprint({ size: [w, h, d] }) { return { half: [w / 2, d / 2], height: h }; }
+
+  // size: [x, y, z]. base: the height of its bottom.
+  constructor(physics, asset, { at: [x, z], size, heading = 0, base = 0 }) {
     super(physics);
     const [w, h, d] = size, F = CARTON.flap, t = 0.006;
     const tub = [w, h - F.thick, d], flap = [w, F.thick, d / 2 - F.gap];
@@ -240,12 +253,12 @@ export class Box extends Tub {
     const group = physics.newGroup();
     this.half = tub.map(v => v / 2);
     this.slam = new Slam('box', this.half, CARTON.slam);
-    this.id = physics.addHollowBox(tub, { position: world([0, ground + tub[1] / 2, 0]), quaternion, mass: CARTON.mass, friction: CARTON.friction, group, wall: CARTON.wall });
+    this.id = physics.addHollowBox(tub, { position: world([0, base + tub[1] / 2, 0]), quaternion, mass: CARTON.mass, friction: CARTON.friction, group, wall: CARTON.wall });
     // A flap on each long side, hinged on the top edge, from the edge to the middle. The axis turns
     // with the side, so both open at less than 0.
     const flaps = [-1, 1].map(side => {
-      const id = physics.addBox(flap, { position: world([0, ground + tub[1] + F.thick / 2, side * (d / 4 + F.gap / 2)]), quaternion, mass: F.mass, friction: CARTON.friction, group });
-      const hinge = physics.addHinge(this.id, id, world([0, ground + tub[1], side * d / 2]), [-side * cs, 0, side * sn], [sn, 0, cs], [-F.open, 0], F.spring);
+      const id = physics.addBox(flap, { position: world([0, base + tub[1] + F.thick / 2, side * (d / 4 + F.gap / 2)]), quaternion, mass: F.mass, friction: CARTON.friction, group });
+      const hinge = physics.addHinge(this.id, id, world([0, base + tub[1], side * d / 2]), [-side * cs, 0, side * sn], [sn, 0, cs], [-F.open, 0], F.spring);
       return new Flap(physics, id, hinge, flap, F, toonParts([[new RoundedBoxGeometry(...flap, 1, 0.01), COLOURS.card]], asset.uniforms));
     });
     // Hollow, as the bin: the outside and the rim, and a darker inside under the flaps. A label a little
@@ -278,8 +291,10 @@ export const CEREAL = {
 };
 
 export class Cereal {
-  // ground: the height of the ground under it.
-  constructor(physics, asset, [x, z], size, heading = 0, print = 'sunny', ground = 0) {
+  static footprint({ size: [w, h, d] }) { return { half: [w / 2, d / 2], height: h }; }
+
+  // size: [x, y, z]. print: a key of CEREAL.prints. base: the height of its bottom.
+  constructor(physics, asset, { at: [x, z], size, heading = 0, print = 'sunny', base = 0 }) {
     const [w, h, d] = size, P = CEREAL.prints[print], t = 0.004;
     this.physics = physics;
     this.size = size;
@@ -288,7 +303,7 @@ export class Cereal {
     this.slam = new Slam('cereal', this.half, CEREAL.slam);
     this.events = [];
     this.id = physics.addBox(size, {
-      position: [x, ground + h / 2, z], quaternion: yaw(heading),
+      position: [x, base + h / 2, z], quaternion: yaw(heading),
       mass: CEREAL.mass, friction: CEREAL.friction, light: true, grab: { hold: 'flat', edge: w / 2 - CEREAL.bite },
     });
     this.rest = new Rest(physics, [this.id]);

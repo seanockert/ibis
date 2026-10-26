@@ -39,7 +39,7 @@ These are small. The bird and the physics take about 0.24 ms a frame at a run, s
 - **Shared GLSL helpers.** The pixel-wide step `1 - smoothstep(w - px, w + px, d)` is written in about 8 places (`street.js`, `puddle.js`, `fence.js`, `materials.js`). The world position and `toonShadowCoord` vertex shader is the same in `street.js`, `puddle.js` and `fence.js`. The lit and shade uniform pairs and `tone()` are made 3 times (`street.js`, `puddle.js`, `sky.js`).
 - **Ground normals.** `groundGeometry()` takes each normal from the two neighbour points, so a flat strip next to a slope leans a very small amount (about 0.002°). Give the end points of each curve the true normal (up). The visible change is less than a pixel.
 - **Footprints at a path edge.** A print near the edge of the raised footpath can hang over the grass. Skip a print whose toes are off the flat top.
-- **Demo buttons.** Three blocks in `demo.js` make buttons by hand, and `aria-pressed` is set in 5 places. A `button(label, onPress)` helper would do. `PAD` lists the 13 moves to leave out of the top bar; a list of the moves to keep is shorter, but then a new move does not show by default (a design choice).
+- **Demo buttons.** Three blocks in `src/app/ui.js` make buttons by hand, and `aria-pressed` is set in 5 places. A `button(label, onPress)` helper would do. `PAD` lists the 13 moves to leave out of the top bar; a list of the moves to keep is shorter, but then a new move does not show by default (a design choice).
 - **Bound sphere.** `Ibis.js` (`BOUND_OFFSET`, `BOUND_R`) and `model.glsl` (`BOUND_C`, `BOUND_R`, `boundCentre()`) hold the same sphere with different formulas. Make one source.
 
 ## Possible bugs

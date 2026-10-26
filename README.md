@@ -55,7 +55,7 @@ sound.update([ibis], camera);        // after ibis.update(dt)
 ```
 
 - The renderer must have a stencil buffer: `new THREE.WebGLRenderer({ stencil: true })`. The outline uses it.
-- Draw a flat ground first (`renderOrder = -1`) and do not let it write depth (`depthWrite: false`). If the ground writes depth, it can cover the outline at the feet. `src/demo.js` shows a ground that also shows the shadow.
+- Draw a flat ground first (`renderOrder = -1`) and do not let it write depth (`depthWrite: false`). If the ground writes depth, it can cover the outline at the feet. `plainGround()` in `src/app/stage.js` shows a ground that also shows the shadow.
 - `asset.sun` is the direction toward the sun, in world space. Set it to the direction of your shadow light.
 - `ibis.mud` (0 clean to 1 mud up to the belly) and `ibis.wet` (0 dry to 1 soaked) change how the ibis looks. Each ibis has its own values. Change them over time in your game, for example up while the ibis is in mud or rain and down after.
 - `ibis.setPose(pose)` sets a pose directly. Make a pose with `restPose()`, `clipPose()` or `mixPose()` from `src/ibis/rig.js`. Set `ibis.inPlace = true` to keep your own transform on `ibis.object`.
