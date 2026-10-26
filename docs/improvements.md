@@ -4,27 +4,25 @@ Ideas from the code review of October 2026 that are not done yet. Each has its e
 
 ## Triangle count
 
-Free play at 1200x800 draws about 144k triangles each frame, with the shadow pass (163k before the stubby, ball and small circle changes of October 2026). Most of them are in three things:
+Free play at 1200x800 draws about 97k triangles each frame, with the shadow pass (163k before the fence, glass, stubby, ball and small circle changes of October 2026). To find the share of a part, hide its object and count again (`renderer.info` with `autoReset` off). Most of them are in three things:
 
 | Part | Triangles | Why |
 |---|---|---|
-| Fence | 70k | About 80 posts and rails, `RoundedBoxGeometry` with 2 segments (300 triangles each), drawn 3 times (toon, outline, shadow) |
-| Stubbies | 22k | 10 bottles, lathe of 16 segments: label, glass inside, glass outside, outline, and the shadow of the glass |
 | Ibis | 30k | About 8k triangles, drawn for the body, the contour hull, the inner hull and the shadow |
+| Fence | 27k | 40 posts (186 triangles) and 38 rails (40), drawn 3 times (toon, outline, shadow). Was 70k with `RoundedBoxGeometry` |
+| Stubbies | 17k | 10 bottles, lathe of 16 segments: label, glass (front faces), outline, and the shadow of the glass |
 | Ball | 2.7k | Sphere of 28 by 16, drawn 3 times |
 | Everything else | 16k | Bin, boxes, cereal boxes, tufts, sky, backdrop |
 
-Ideas, largest gain first:
+Notes:
 
-1. **Fence posts and rails as custom low meshes** (about −55k). A post needs a round top edge only: a box with a chamfer or a 2-segment round on the 4 top edges, and no bottom face, is about 40 to 60 triangles. A rail meets a post at each end, so it needs no end caps; a round on the top edges only is about 20 to 30. Keep the near-post look: the rounding shows at the play camera (a 1-segment `RoundedBoxGeometry` made the near posts look cut, so do not use that). Do not turn off the rail shadow: near the camera, the shadow of the lower rail on the footpath is a wide band, and it went away.
-2. **Stubby inside draw.** Check the inside (back face) draw: at the play distance it may not show.
-3. **Ibis shadow mesh** (about −6k, and 4 fewer draws). The shadow pass draws the full 8k mesh as 5 group draws. Bake a second, coarse mesh for the shadow only (a higher `SIMPLIFY_ERROR`, about 2k triangles, one group), skinned to the same bones, with `castShadow` on it and off on the body.
+- **Ibis shadow: not done.** The shadow pass draws the body as 5 draws, one for each part group (each group has its own material, for the stencil). A coarse shadow mesh, or one mesh with no groups, would also draw in the main pass: three.js picks the shadow casters with the main camera's layers and `material.visible`. It would also change the bird's self shadow. Gain: about 6k triangles and 4 draws for each bird. Do it only with a profile that shows a need.
+- **Fence.** Posts and rails are low meshes now (`roundedPost()`, `roundedRail()`). Keep 4 segments in each quarter round: 2 made the near posts look faceted. Do not turn off the rail shadow: near the camera, the shadow of the lower rail on the footpath is a wide band.
 
 ## GPU
 
 - **Noise from a texture.** `noise3()` is 8 sin hashes. Each grass pixel calls it 4 times, each sky pixel 6 times, each backdrop pixel 3 times. One tiling noise texture would cost much less. The look changes a little: tune against the concept.
 - **Ibis body early-z.** The body program has `discard` (the lid cut), which can turn off early depth on the whole body. Compile the `discard` only into the material that draws the lids (a define), and draw the wings and the scarf before the torso, so the torso pixels that they hide skip the line march. The lids are in group 0 now: they would need their own group.
-- **Pixel ratio on mobile.** Free play renders to a 4x multisampled target (`grade.js`) at a pixel ratio of up to 1.5 (`demo.js`). On a phone, a lower cap or 2x samples is likely the largest GPU gain. The edges get softer.
 
 ## CPU
 

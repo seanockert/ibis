@@ -62,6 +62,7 @@ const COLOURS = {
   grassSun: [srgb(0.82, 0.86, 0.44), srgb(0.37, 0.58, 0.54)],   // sunny patches
   grassDark: [srgb(0.56, 0.72, 0.31), srgb(0.27, 0.48, 0.50)],  // lush patches
   path: [srgb(0.97, 0.89, 0.78), srgb(0.62, 0.62, 0.80)],
+  pathSide: [srgb(0.97, 0.89, 0.78), srgb(0.78, 0.68, 0.64)],   // the side of a slab away from the sun: darker concrete
   joint: [srgb(0.85, 0.74, 0.65), srgb(0.53, 0.52, 0.71)],
   kerb: [srgb(0.99, 0.91, 0.80), srgb(0.66, 0.65, 0.83)],
   road: [srgb(0.37, 0.36, 0.44), srgb(0.23, 0.24, 0.38)],     // dark slate, so the kerbs and the grass stand out
@@ -420,7 +421,11 @@ function groundMaterial(sun) {
         col = mix(col, col * vec3(0.80, 0.84, 0.95), line(pathOut(z) - ${f(PATH.contact / 2)}, ${f(PATH.contact)}));
         // Form: a slope that turns from the sun (the roll of a kerb that faces it away) gets a cool tone.
         float ndl = dot(n, uSun), fw = 0.5 * max(fwidth(ndl), 1e-5);
-        col *= mix(vec3(0.84, 0.85, 0.97), vec3(1.0), smoothstep(${f(FORM)} - fw, ${f(FORM)} + fw, ndl));
+        float form = 1.0 - smoothstep(${f(FORM)} - fw, ${f(FORM)} + fw, ndl);
+        col *= mix(vec3(1.0), vec3(0.84, 0.85, 0.97), form);
+        // Footpath: the round side of a slab that turns from the sun is darker concrete, not the cool shade.
+        float po = pathOut(z);
+        col = mix(col, ${tone('pathSide')}, form * step(po, 0.0) * step(${f(-PATH.edge)}, po));
         // Cracks on the footpath slabs, pebbles near the strip edges. Only near the camera: far away they
         // are too small to read.
         if (near > 0.0) {

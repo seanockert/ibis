@@ -3,7 +3,8 @@
 // (frames to time), mud and wet (0 to 1), root (1: with t, place the bird where the move took it),
 // props (0: no ball and bin in free play), physics (1: show the colliders), env (0 or 1: the street and
 // the sky; on in free play, off in the fixed views, so they still match sdf.html), sound (0: no sound),
-// terrain (1: steps and a ramp in free play, to test the foot placement).
+// terrain (1: steps and a ramp in free play, to test the foot placement), lite (0 or 1: less GPU work;
+// on for touch screens).
 // Free play: WASD or the arrow keys walk, Shift runs, Space jumps (hold to flutter). The joystick
 // walks, and runs when pushed far. A tap on the ground walks there; a tap on the bird prods it. The bird
 // can push the football, the wheelie bin, the cardboard boxes and the cereal boxes. A step or a jump in
@@ -68,16 +69,20 @@ const CEREALS = [[[-2.4, 4.6], [0.6, 0.86, 0.2], -0.4, 'sunny', 0], [[-1.6, 3.9]
 // Head pin of the stubbies on the road, in the near lane: kick the football down off the kerb at them.
 const PINS = [1.8, -6.2];
 // Free play sun shadow: half size of the area, map size, and the sun's distance from the area's centre.
-// Touch screens (phones and tablets) get a 2048 map: a quarter of the memory, and the toon step hides
-// the softer edge.
-const SHADOW = { half: 25, map: matchMedia('(pointer: coarse)').matches ? 2048 : 4096, sun: 20 };
+const SHADOW = { half: 25, map: 4096, sun: 20 };
+// Lite: less GPU work, for touch screens (phones and tablets). The pixel ratio cap (1.5 otherwise): about
+// 30% fewer pixels, a little softer. A 2048 shadow map: a quarter of the memory, and the toon step hides
+// the softer edge. lite=0 turns it off, lite=1 on.
+const LITE = { pixelRatio: 1.25, shadowMap: 2048 };
 
 const params = new URLSearchParams(location.search);
 // ui=0 hides the buttons and the joystick, for tools/strip.mjs.
 if (params.get('ui') === '0') for (const el of document.querySelectorAll('.bar, .stick, .acts')) el.style.display = 'none';
 let anim = Number(params.get('anim') || 0);
 const fixedTime = params.has('t') ? Number(params.get('t')) : null;
-const scale = Number(params.get('scale') || Math.min(window.devicePixelRatio, 1.5));
+const lite = params.has('lite') ? params.get('lite') === '1' : matchMedia('(pointer: coarse)').matches;
+const scale = Number(params.get('scale') || Math.min(window.devicePixelRatio, lite ? LITE.pixelRatio : 1.5));
+const shadowMap = lite ? LITE.shadowMap : SHADOW.map;
 const count = Number(params.get('count') || 1);
 const weather = { mud: Number(params.get('mud') || 0), wet: Number(params.get('wet') || 0) };   // targets
 const play = count === 1 && fixedTime === null && !params.has('yaw') && !params.has('bench');
@@ -114,7 +119,7 @@ sun.shadow.normalBias = 0.01;   // no shadow acne on the toon bands
 if (play) {
   // Free play: a wide shadow area round the camera's focus, so props away from the bird keep their
   // shadows. The map is larger, so a texel stays about as small as in the close views.
-  sun.shadow.mapSize.set(SHADOW.map, SHADOW.map);
+  sun.shadow.mapSize.set(shadowMap, shadowMap);
   const r = SHADOW.half;
   Object.assign(sun.shadow.camera, { left: -r, right: r, top: r, bottom: -r, near: 1, far: 2 * SHADOW.sun });
 }
@@ -308,7 +313,7 @@ function frame() {
 // across the sun's view, so the shadow edges don't crawl as the camera follows the bird.
 const sunRight = new THREE.Vector3(), sunUp = new THREE.Vector3(), centre = new THREE.Vector3();
 function shadowTo(point) {
-  const texel = 2 * SHADOW.half / SHADOW.map;
+  const texel = 2 * SHADOW.half / shadowMap;
   sunRight.crossVectors(asset.sun, new THREE.Vector3(0, 1, 0)).normalize();
   sunUp.crossVectors(sunRight, asset.sun);
   const x = Math.round(point.dot(sunRight) / texel) * texel, y = Math.round(point.dot(sunUp) / texel) * texel;

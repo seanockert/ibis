@@ -3,8 +3,10 @@
 // they knock each other. A bottle that falls hard clinks (Slam, kind 'glass'). A peck picks one up in the
 // bill, and the next peck drops it (grab in physics.js).
 //
-// Four instanced draws for all the bottles: the label (opaque, a colour on each vertex: toonMaterial
-// tones), the glass inside (back faces, darker), the glass outside (front faces), and the outline.
+// Three instanced draws for all the bottles: the label (opaque, a colour on each vertex: toonMaterial
+// tones), the glass, and the outline. The glass draws its front faces only, and blends the far wall
+// (darker) under each pixel in the shader, as a second draw of the back faces would. A disc closes the
+// mouth a little down the neck: it shows as the inside of the glass.
 // The glass is see-through, more at the middle and less at the edges, with a toon highlight. It writes
 // GLASS.stencil where it draws, and the outline draws only outside that, so the outline round the back
 // of a bottle doesn't show through its glass. The glass draws after everything opaque (transparent),
@@ -14,7 +16,7 @@
 //   scene.add(pins.object);
 //   pins.update();   // every frame, after physics.step(dt)
 import {
-  AlwaysStencilFunc, BackSide, FrontSide, InstancedMesh, LatheGeometry, Matrix4, NotEqualStencilFunc,
+  AlwaysStencilFunc, InstancedMesh, LatheGeometry, Matrix4, NotEqualStencilFunc,
   Quaternion, ReplaceStencilOp, ShaderMaterial, Vector2, Vector3,
 } from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
@@ -44,6 +46,7 @@ export const STUBBY = {
 // body, a round shoulder, a short neck, a lip and the open mouth (the lip turns in and down a little,
 // the thickness of the glass).
 const PROFILE = [[0, 0], [0.9, 0], [1, 0.03], [1, 0.58], [0.96, 0.63], [0.86, 0.68], [0.7, 0.72], [0.54, 0.76], [0.45, 0.8], [0.42, 0.85], [0.42, 0.92], [0.46, 0.94], [0.46, 0.96], [0.37, 0.96], [0.35, 0.91]];
+const MOUTH = PROFILE[PROFILE.length - 1];   // the disc that closes the mouth: its radius and height
 const HULL = PROFILE.slice(0, 13);   // the solid: the mouth closed
 const MATRIX = new Matrix4(), P = new Vector3(), Q = new Quaternion(), ONE = new Vector3(1, 1, 1);   // scratch
 // Label bands: [from, to] (units of the height), colour, and how far out of the glass (no flicker).
@@ -70,25 +73,26 @@ export class Stubbies {
       return { id, slam: new Slam('glass', [r, H / 2, r], STUBBY.slam), rest: new Rest(physics, [id]) };
     });
 
-    const glass = lathe(PROFILE, 0, 1, 1);
+    // The disc is a lathe of its own, so it does not bend the normals of the lip.
+    const glass = mergeGeometries([lathe(PROFILE, 0, 1, 1), lathe([MOUTH, [0, MOUTH[1]]], 0, 1, 1)]);
     const n = this.bottles.length, instanced = (geometry, material) => new InstancedMesh(geometry, material, n);
     const label = instanced(mergeGeometries(BANDS.map(([[a, b], colour, grow]) => tone(lathe(PROFILE, a, b, grow), COLOURS[colour]))),
       toonMaterial(COLOURS.label[0], COLOURS.label[1], asset.uniforms, { tones: true }));
     label.receiveShadow = true;   // no shadow: the glass shadow covers it
-    const inside = instanced(glass, glassMaterial(asset.uniforms, BackSide));
-    const outside = instanced(glass, glassMaterial(asset.uniforms, FrontSide));
+    const outside = instanced(glass, glassMaterial(asset.uniforms));
     outside.castShadow = true;   // a solid shadow: it reads better than a tinted one
     glass.setAttribute('_outline', smoothNormals(glass));
     const line = instanced(glass, Object.assign(outlineMaterial(COLOURS.glass[2], asset.uniforms), {
       transparent: true, stencilWrite: true, stencilRef: GLASS.stencil, stencilFunc: NotEqualStencilFunc,
     }));
-    // Transparent: inside, then outside, then the outline.
-    [inside, outside, line].forEach((mesh, i) => { mesh.renderOrder = 2 + i; });
-    // One matrix for each bottle, in one buffer for all four draws.
-    for (const mesh of [inside, outside, line]) mesh.instanceMatrix = label.instanceMatrix;
-    for (const mesh of [label, inside, outside, line]) mesh.frustumCulled = false;   // the bottles spread out as they fall
+    // Transparent: the glass, then the outline.
+    outside.renderOrder = 3;
+    line.renderOrder = 4;
+    // One matrix for each bottle, in one buffer for all three draws.
+    for (const mesh of [outside, line]) mesh.instanceMatrix = label.instanceMatrix;
+    for (const mesh of [label, outside, line]) mesh.frustumCulled = false;   // the bottles spread out as they fall
     this.object = label;
-    label.add(inside, outside, line);
+    label.add(outside, line);
     this.half = [r, H / 2, r];
     this.update();
   }
@@ -113,22 +117,23 @@ export class Stubbies {
   solids() { return this.bottles.map(b => ({ body: this.physics.body(b.id), half: this.half })); }
 }
 
-// See-through toon glass. side: BackSide for the inside (darker), FrontSide for the outside. Both write
-// GLASS.stencil where they draw, for the outline.
-function glassMaterial(shared, side) {
-  const [lit, shade] = COLOURS.glass;
+// See-through toon glass: the front faces, with the far wall blended under them. It writes GLASS.stencil
+// where it draws, for the outline.
+function glassMaterial(shared) {
+  const [lit, shade] = COLOURS.glass, { height: H, radius: r } = STUBBY;
   return new ShaderMaterial({
-    lights: true, transparent: true, depthWrite: false, side,
+    lights: true, transparent: true, depthWrite: false,
     stencilWrite: true, stencilRef: GLASS.stencil, stencilFunc: AlwaysStencilFunc, stencilZPass: ReplaceStencilOp,
     uniforms: { ...lightUniforms(), uSun: shared.uSun, uLit: { value: lit }, uShade: { value: shade } },
     vertexShader: /* glsl */`
       ${TOON_VERTEX}
       ${MODEL}
-      varying vec3 vNormal, vWorld;
+      varying vec3 vNormal, vWorld, vLocal;
       void main() {
         mat4 m = model();
         vec4 world = m * vec4(position, 1.0);
         vWorld = world.xyz;
+        vLocal = position;
         vNormal = normalize(mat3(m) * normal);
         gl_Position = projectionMatrix * viewMatrix * world;
         toonShadowCoord(world, vNormal);
@@ -136,22 +141,32 @@ function glassMaterial(shared, side) {
     fragmentShader: /* glsl */`
       ${TOON}
       uniform vec3 uSun, uLit, uShade;
-      varying vec3 vNormal, vWorld;
+      varying vec3 vNormal, vWorld, vLocal;
       void main() {
-        vec3 n = normalize(vNormal) * (gl_FrontFacing ? 1.0 : -1.0);
+        vec3 n = normalize(vNormal);
         vec3 v = normalize(cameraPosition - vWorld);
-        float band = toonBand(n, uSun);
-        vec3 col = mix(uShade, uLit, band);
         // Clear at the middle, thick at the edges, where the eye looks through more glass.
         float edge = 1.0 - abs(dot(n, v));
-        float alpha = mix(${f(GLASS.alpha[0])}, ${f(GLASS.alpha[1])}, edge * edge);
-        ${side === BackSide ? `col *= ${f(GLASS.back)};` : `
+        float thick = mix(${f(GLASS.alpha[0])}, ${f(GLASS.alpha[1])}, edge * edge);
+        // The far wall: its inside faces the eye. On a round bottle its normal is this one mirrored
+        // about the view direction, and it is as thick.
+        vec3 far = mix(uShade, uLit, toonBand(2.0 * dot(n, v) * v - n, uSun)) * ${f(GLASS.back)};
+        // The disc in the mouth: only the inside shows there.
+        if (abs(vLocal.y - ${f((MOUTH[1] - 0.5) * H)}) < 0.002 && length(vLocal.xz) < ${f((MOUTH[0] + 0.01) * r)}) {
+          gl_FragColor = vec4(mix(uShade, uLit, toonBand(n, uSun)) * ${f(GLASS.back)}, thick);
+          #include <colorspace_fragment>
+          return;
+        }
+        float band = toonBand(n, uSun);
+        vec3 col = mix(uShade, uLit, band);
         float facing = 1.0 - edge;
         col = mix(col, min(uLit * 1.2, vec3(1.0)), ${f(GLASS.glow)} * facing * facing);
         float gloss = toonGloss(n, v, uSun, ${f(GLASS.gloss)}) * band;
         col = mix(col, vec3(1.0, 0.96, 0.88), gloss);
-        alpha = max(alpha, gloss);`}
-        gl_FragColor = vec4(col, alpha);
+        float alpha = max(thick, gloss);
+        // This wall over the far wall, as the blend of two draws.
+        float both = alpha + thick * (1.0 - alpha);
+        gl_FragColor = vec4((col * alpha + far * thick * (1.0 - alpha)) / both, both);
         #include <colorspace_fragment>
       }`,
   });

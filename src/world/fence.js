@@ -10,7 +10,6 @@
 // quads, a diamond pattern in the shader with alphaToCoverage (soft edges with the multisampled target
 // of grade.js, no sorting). Far away, where a diamond is a few pixels, the lines blend to a flat tint.
 import { DoubleSide, Float32BufferAttribute, BufferGeometry, InstancedMesh, Matrix4, Mesh, Quaternion, ShaderMaterial, Vector3 } from 'three';
-import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
 import { lightUniforms, TOON, TOON_VERTEX } from '../ibis/materials.js';
 import { outlineMaterial, smoothNormals, toonMaterial } from './props.js';
 import { PLAY, streetHeight } from './street.js';
@@ -58,11 +57,11 @@ export class Fence {
       for (const mesh of meshes) mesh.frustumCulled = false;
       return meshes;
     };
-    const postGeometry = new RoundedBoxGeometry(pw, ph, pw, 2, 0.06).translate(0, ph / 2, 0);
+    const postGeometry = roundedPost(pw, ph, 0.06);
     const q = new Quaternion(), up = new Vector3(0, 1, 0);
     const postMeshes = instanced(postGeometry, fencePosts(), p => new Matrix4().setPosition(p));
     // Rails: a unit long box, stretched to the gap between two posts.
-    const railGeometry = new RoundedBoxGeometry(1, rh, rd, 2, 0.05).translate(0, railTop - rh / 2, 0);
+    const railGeometry = roundedRail(rh, rd, 0.05).translate(0, railTop - rh / 2, 0);
     const railMeshes = instanced(railGeometry, rails, ([a, b]) => {
       q.setFromAxisAngle(up, Math.atan2(a.z - b.z, b.x - a.x));
       return new Matrix4().compose(a.clone().add(b).multiplyScalar(0.5), q, new Vector3(a.distanceTo(b) - pw + 0.02, 1, 1));
@@ -96,6 +95,65 @@ function fenceRuns() {
   const { out } = FENCE, x0 = PLAY.x[0] - out, x1 = PLAY.x[1] + out, z0 = PLAY.z[0] - out, z1 = PLAY.z[1] + out;
   const at = (x, z) => new Vector3(x, streetHeight(z), z);
   return [[at(x0, z1), at(x1, z1)], [at(x0, z0), at(x1, z0)]];
+}
+
+// Segments in each quarter round: as a RoundedBoxGeometry of 2 segments.
+const ROUND = 4;
+
+// Points round a rectangle with round corners, half sizes a and b, corner radius r: [x, y, normal x,
+// normal y], counter-clockwise.
+function roundedRect(a, b, r) {
+  const out = [];
+  for (const [sx, sy, from] of [[1, 1, 0], [-1, 1, 1], [-1, -1, 2], [1, -1, 3]]) {
+    for (let k = 0; k <= ROUND; k++) {
+      const t = (from + k / ROUND) * Math.PI / 2, c = Math.cos(t), s = Math.sin(t);
+      out.push([sx * (a - r) + r * c, sy * (b - r) + r * s, c, s]);
+    }
+  }
+  return out;
+}
+
+// Indexed geometry from rows of [x, y, z, nx, ny, nz] that wrap round: a quad strip between each pair of
+// rows, outward for rows that go up or along +x. No triangles of zero area (where a row closes to a point).
+function rings(rows, extra = []) {
+  const position = [], normal = [], index = [], n = rows[0].length;
+  for (const row of rows) for (const [x, y, z, nx, ny, nz] of row) { position.push(x, y, z); normal.push(nx, ny, nz); }
+  const same = (i, j) => [0, 1, 2].every(k => Math.abs(position[3 * i + k] - position[3 * j + k]) < 1e-6);
+  const tri = (a, b, c) => { if (!same(a, b) && !same(b, c) && !same(c, a)) index.push(a, b, c); };
+  for (let j = 0; j + 1 < rows.length; j++) {
+    for (let i = 0; i < n; i++) {
+      const a = j * n + i, b = j * n + (i + 1) % n;
+      tri(a, b, b + n);
+      tri(a, b + n, a + n);
+    }
+  }
+  const g = new BufferGeometry();
+  g.setAttribute('position', new Float32BufferAttribute(position, 3));
+  g.setAttribute('normal', new Float32BufferAttribute(normal, 3));
+  g.setIndex(index.concat(extra));
+  return g;
+}
+
+// A post: width w, height h, the four upright edges and the top edges round with radius r. No bottom: it
+// stands in the grass. The same shape as a RoundedBoxGeometry of 2 segments, with no flat face split.
+function roundedPost(w, h, r) {
+  const ring = roundedRect(w / 2, w / 2, r);
+  // Profile: up the side, then a quarter round over to the top.
+  const profile = [[0, 0], ...Array.from({ length: ROUND + 1 }, (_, k) => [k / ROUND * Math.PI / 2, h - r])];
+  const rows = profile.map(([t, y]) => ring.map(([x, z, nx, nz]) => {
+    const c = Math.cos(t), s = Math.sin(t), cx = x - r * nx, cz = z - r * nz;
+    return [cx + r * c * nx, y + r * s, -(cz + r * c * nz), c * nx, s, -c * nz];
+  }));
+  // Top: the last ring is the square between the four corner centres.
+  const top = ROUND * ring.length + ring.length, q = ROUND + 1;
+  return rings(rows, [top, top + q, top + 2 * q, top, top + 2 * q, top + 3 * q]);
+}
+
+// A rail: unit long along x, height h and depth d, the four long edges round with radius r. No ends: they
+// are in the posts.
+function roundedRail(h, d, r) {
+  const ring = roundedRect(h / 2, d / 2, r);
+  return rings([-0.5, 0.5].map(x => ring.map(([y, z, ny, nz]) => [x, y, z, 0, ny, nz])));
 }
 
 // One quad for each run, from the wire bottom to its top. uv: x along the run, y up, in units.
