@@ -12,23 +12,25 @@ The game draws the mesh with toon materials and an outline. A procedural motion 
 npm install
 npm run dev     # demo at /index.html, SDF reference view at /sdf.html
 npm run bake    # SDF -> public/ibis.glb (about 90 s)
+npm run bake -- miner   # the noisy miner: src/miner/model.glsl -> public/miner.glb
 npm run build   # production build of the demo
 npm run shot -- out.png "index.html?anim=2&t=0.4" 700x700
 npm run strip -- out.png "index.html?anim=7&yaw=1.3&pitch=0.1" 0 1.2 12   # filmstrip of a move
 npm run bench -- "index.html?anim=2" 1280x800 60
 ```
 
-Page parameters: `anim` (a move from `src/moves.js`, index + 1: 1 idle, 2 walk, 3 peck, 4 squawk, 5 run, 6 jump, 7 happy, 8 shake head, 9 threat, 10 startle, 11 stumble, 12 shake, 13 turn, 14 prod), `t` (fixed time), `yaw` and `pitch` (fixed camera), `count` (number of ibises, demo only), `ui=0` (no buttons).
+Page parameters: `anim` (a move from `src/moves.js`, index + 1: 1 idle, 2 walk, 3 peck, 4 squawk, 5 run, 6 jump, 7 happy, 8 shake head, 9 threat, 10 startle, 11 stumble, 12 shake, 13 turn, 14 prod), `t` (fixed time), `yaw` and `pitch` (fixed camera), `count` (number of ibises, demo only), `ui=0` (no buttons), `bird=miner` (show the noisy miner in the fixed views and in `sdf.html`), `fly=1` or `fly=2` with `bird=miner` (the miner flies on the spot, or dives).
 
-Demo controls: WASD or the arrow keys walk, Shift runs, Space jumps (hold it to flutter). Tap the ground to walk there. Tap the bird to prod it: it looks away, then glares, then shakes, then threatens. Drag to orbit.
+Demo controls: WASD or the arrow keys walk, Shift runs, Space jumps (hold it to flutter). Tap the ground to walk there. Tap the bird to prod it: it looks away, then glares, then shakes, then threatens. Drag to orbit. The camera swings behind the bird as it moves, and waits 2 s after a drag. On a touch screen, tap the middle of the joystick to turn the camera behind the bird.
 Use the same parameters on `index.html` and `sdf.html` to compare the mesh with the SDF.
 
 ## Use in a game
 
 ```js
+import { IBIS } from './ibis/bird.js';
 import { Ibis, loadIbis } from './ibis/Ibis.js';
 
-const asset = await loadIbis('/ibis.glb');   // load one time
+const asset = await loadIbis(IBIS);          // load one time: public/ibis.glb
 const ibis = new Ibis(asset);                // one for each character
 scene.add(ibis.object);
 
@@ -140,6 +142,7 @@ The head turns apart from the neck, so the neck slides into the skull, as it doe
 ## Change the character
 
 - To change the shape or the colours, edit `src/sdf/model.glsl`, then run `npm run bake`.
+- The noisy miner is a second bird on the same rig: `src/miner/model.glsl` and `src/miner/bird.js`. Look at it with `sdf.html?bird=miner`, then run `npm run bake -- miner`. In free play three miners circle over the ibis and dive at its head (`src/miner/flight.js`, `src/characters/swoop.js`).
 - To change a clip, edit `src/ibis/rig.js`. To change a move, edit `src/ibis/motion/`. You do not have to bake again.
   You must bake again if you change `restPose()` or the rig dimensions, because the mesh is bound in the rest pose.
 

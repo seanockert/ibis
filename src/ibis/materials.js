@@ -1,12 +1,10 @@
-// Toon materials for the ibis mesh: the body, the outline hull and the material lines.
+// Toon materials for the mesh of a bird (src/birds.js): the body, the outline hull and the material lines.
 // Line widths are in character units, set to match the SDF view at its default camera, with a floor in
 // pixels so far away lines don't vanish.
 import { BackSide, Color, Matrix4, Quaternion, ShaderMaterial, UniformsLib, UniformsUtils, Vector2, Vector3 } from 'three';
-import { MAT } from './materialIds.js';
-import { BIND_RIG, HEAD_SCALE, rigUniforms } from './rig.js';
+import { bindPose, rigUniforms } from './rig.js';
 import eye from '../sdf/eye.glsl?raw';
 import library from '../sdf/library.glsl?raw';
-import model from '../sdf/model.glsl?raw';
 
 const SHARED = /* glsl */`
 uniform vec3 uSun;            // toward the sun, world space
@@ -91,41 +89,56 @@ vec3 cameraInObject() { mat3 r = mat3(modelMatrix); return (cameraPosition - mod
 vec2 ndcPerPixel() { return 2.0 / (uViewHeight * vec2(projectionMatrix[1][1] / projectionMatrix[0][0], 1.0)); }
 `;
 
-// Eye space of a vertex from its bind position: the same frame as eyeSpace() in model.glsl, with the
-// side (sign of x) in w. Eyes and lids move with the head only, so the bind position is enough.
-const EYE_SPACE = /* glsl */`
+// Highlight for each material: the N.H threshold (larger is smaller) and how far it goes toward white.
+// Other materials are matte. Runtime only, so no bake. On the ibis, BLACK is the bare head, bill and
+// neck (the wing tips are BLACK too, but the shader keeps them matte) and BEAK is the jaw.
+const GLOSS = { BLACK: [0.98, 0.12], BEAK: [0.98, 0.12], LEG: [0.985, 0.1], EYE: [0.985, 0.8] };
+
+// The shader parts that depend on the bird, made once for each bird.
+const chunks = new Map();
+function birdChunks(bird) {
+  if (chunks.has(bird)) return chunks.get(bird);
+  const { MAT } = bird;
+  const count = Math.max(...Object.values(MAT)) + 1;   // length of the arrays by material id
+  const { rig } = bindPose(bird.shape);
+  const c = {
+    count,
+    bindRig: rig,
+    // Bind pose: character space to head space.
+    headInv: new Matrix4().compose(rig.head, new Quaternion().setFromRotationMatrix(rig.headRot), new Vector3().setScalar(bird.shape.headScale)).invert(),
+    // Eye space of a vertex from its bind position: the same frame as eyeSpace() in model.glsl, with the
+    // side (sign of x) in w. Eyes and lids move with the head only, so the bind position is enough.
+    eyeSpace: /* glsl */`
+${bird.eye}
 ${eye}
 uniform mat4 uHeadInv;   // bind pose: character space to head space
 vec4 eyeSpace(vec3 p) {
     vec3 h = (uHeadInv * vec4(p, 1.0)).xyz;
     return vec4(vec3(abs(h.x), h.y, h.z) - EYE_C, sign(h.x));
 }
-`;
-const headInv = new Matrix4().compose(BIND_RIG.head, new Quaternion().setFromRotationMatrix(BIND_RIG.headRot), new Vector3().setScalar(HEAD_SCALE)).invert();
-
-// The lid for a fragment shader without model.glsl (the hull): the same uniforms, from Ibis.setPose().
-const LID = /* glsl */`
+`,
+    // The lid for a fragment shader without model.glsl (the hull): the same uniforms, from Ibis.setPose().
+    lid: /* glsl */`
+${bird.eye}
 ${eye}
 uniform float gBlink;
 uniform vec4 gExpr;
-`;
-
-// Material and part group ids as ints. model.glsl has the MAT_* names as floats.
-const ids = Object.entries(MAT).map(([k, v]) => `const int ID_${k} = ${v};`).join('\n') + `
+`,
+    // Material and part group ids as ints. model.glsl has the MAT_* names as floats.
+    ids: Object.entries(MAT).map(([k, v]) => `const int ID_${k} = ${v};`).join('\n') + `
 const int GROUP_TORSO = 0;
 const int GROUP_JAW = 1;
 const int GROUP_WINGS = 2;
-const int GROUP_SCARF = 4;`;
+const int GROUP_SCARF = 4;`,
+    gloss: () => Array.from({ length: count }, (_, id) => new Vector2(...(GLOSS[Object.keys(MAT).find(k => MAT[k] === id)] || [0, 0]))),
+  };
+  chunks.set(bird, c);
+  return c;
+}
 
-// Highlight for each material: the N.H threshold (larger is smaller) and how far it goes toward white.
-// Other materials are matte. Runtime only, so no bake. BLACK is the bare head, bill and neck (the wing
-// tips are BLACK too, but the shader keeps them matte); BEAK is the jaw.
-const GLOSS = { [MAT.BLACK]: [0.98, 0.12], [MAT.BEAK]: [0.98, 0.12], [MAT.LEG]: [0.985, 0.1], [MAT.EYE]: [0.985, 0.8] };
-const glossArray = () => Array.from({ length: MAT.LID + 1 }, (_, id) => new Vector2(...(GLOSS[id] || [0, 0])));
-
-function paletteArrays(palette) {
-  const lit = [], shade = [], line = [];
-  for (let id = 0; id <= MAT.LID; id++) {
+function paletteArrays(palette, bird) {
+  const { MAT } = bird, lit = [], shade = [], line = [];
+  for (let id = 0; id < birdChunks(bird).count; id++) {
     const c = palette[id] || palette[MAT.WHITE];
     lit.push(new Color().setRGB(...c.lit, 'srgb'));
     shade.push(new Color().setRGB(...c.shade, 'srgb'));
@@ -185,15 +198,16 @@ const SKIN_VERTEX = /* glsl */`
 // the lid line, both with a line on the edge. Where a wing sinks into the body, both draw a line on the
 // true intersection: the body tests the wing SDF and the wing tests the body SDF, from model.glsl with
 // the current rig in the g* uniforms (see Ibis.setPose()).
-export function bodyMaterial(palette, shared) {
-  const { lit, shade, line } = paletteArrays(palette);
-  const rig = Object.fromEntries(Object.entries(rigUniforms(BIND_RIG)).map(([k, v]) => [k, { value: v }]));
+export function bodyMaterial(palette, shared, bird) {
+  const { lit, shade, line } = paletteArrays(palette, bird);
+  const c = birdChunks(bird), N = c.count;
+  const rig = Object.fromEntries(Object.entries(rigUniforms(c.bindRig)).map(([k, v]) => [k, { value: v }]));
   return new ShaderMaterial({
-    name: 'ibis-body',
+    name: bird.name + '-body',
     lights: true,
     uniforms: {
-      ...lightUniforms(), ...shared, ...rig, uHeadInv: { value: headInv },
-      uLit: { value: lit }, uShade: { value: shade }, uLine: { value: line }, uGloss: { value: glossArray() },
+      ...lightUniforms(), ...shared, ...rig, uHeadInv: { value: c.headInv },
+      uLit: { value: lit }, uShade: { value: shade }, uLine: { value: line }, uGloss: { value: c.gloss() },
       uMud: { value: 0 }, uWet: { value: 0 }, uMudLit: { value: MUD_LIT }, uMudShade: { value: MUD_SHADE },
     },
     vertexShader: /* glsl */`
@@ -201,7 +215,7 @@ export function bodyMaterial(palette, shared) {
       #include <skinning_pars_vertex>
       ${SHARED}
       ${PROJECT}
-      ${EYE_SPACE}
+      ${c.eyeSpace}
       ${TOON_VERTEX}
       attribute float _mat;
       attribute float _group;
@@ -235,24 +249,29 @@ export function bodyMaterial(palette, shared) {
       }`,
     fragmentShader: /* glsl */`
       ${library}
+      ${bird.eye}
       ${eye}
-      ${model}
-      ${ids}
+      ${bird.model}
+      ${c.ids}
       ${SHARED}
       ${TOON}
       ${NOISE}
       ${WEATHER}
-      uniform vec3 uLit[${MAT.LID + 1}], uShade[${MAT.LID + 1}], uLine[${MAT.LID + 1}];
-      uniform vec2 uGloss[${MAT.LID + 1}];
+      uniform vec3 uLit[${N}], uShade[${N}], uLine[${N}];
+      uniform vec2 uGloss[${N}];
       // A part that lies over the torso: the distance to its solid stand-in and its material at p.
       // PART_SCARF is the scarf as baked, without the head carve.
       const int PART_SCARF = 0, PART_WINGS = 1;
       vec2 over(vec3 p, int part) {
         if (part == PART_WINGS) { vec2 l = wingL(p), r = wingR(p); return l.x < r.x ? l : r; }
+      #ifdef SCARF
         vec3 q = bodySpace(p);
         float solid;
         float id = scarfUncarved(q, body(q), solid).y;
         return vec2(solid, id);
+      #else
+        return vec2(1e9, 0.0);
+      #endif
       }
       varying vec3 vNormal;
       varying vec3 vPos;
@@ -286,7 +305,9 @@ export function bodyMaterial(palette, shared) {
           bool rising = clear < RISE_FULL;
           float b = part == PART_SCARF || rising ? body(q) : 0.0, d;
           if (part == PART_WINGS) d = over(x, part).x;
+        #ifdef SCARF
           else scarfUncarved(q, b, d);
+        #endif
           if (rising) clear = max(clear, min(min(b, tail(q)), d));
           if (d < miss) { miss = d; at = x; rise = clear; }
           // In the scarf's solid the miss is below 0: the line is full at any width.
@@ -339,7 +360,9 @@ export function bodyMaterial(palette, shared) {
           // below zero.
           if (d < 1.0) edge = lineMask(d, (halfPx + 0.5) * wingSeam(vPos) - 0.5);
           if (group == GROUP_TORSO) {
+          #ifdef SCARF
             if (over(vPos, PART_SCARF).x < 1.2) overLine(PART_SCARF, 1.2, edge, edgeCol);
+          #endif
             if (d < 0.35) overLine(PART_WINGS, 0.6, edge, edgeCol);
           }
         }
@@ -364,20 +387,21 @@ export function bodyMaterial(palette, shared) {
 // inner: thin, and pulled toward the camera, so it also shows where a part lies close on another or
 //   sinks into it (a wing on the body). The stencil keeps it off its own part group, so it can't show
 //   through a thin part.
-export function hullMaterial(palette, shared, body, kind) {
-  const { line } = paletteArrays(palette);
+export function hullMaterial(palette, shared, body, kind, bird) {
+  const { line } = paletteArrays(palette, bird);
+  const c = birdChunks(bird);
   return new ShaderMaterial({
-    name: 'ibis-hull-' + kind,
+    name: bird.name + '-hull-' + kind,
     side: BackSide,
     defines: { CONTOUR: kind === 'contour' ? 1 : 0 },
-    uniforms: { ...shared, uHeadInv: { value: headInv }, uLine: { value: line }, gBlink: body.uniforms.gBlink, gExpr: body.uniforms.gExpr },
+    uniforms: { ...shared, uHeadInv: { value: c.headInv }, uLine: { value: line }, gBlink: body.uniforms.gBlink, gExpr: body.uniforms.gExpr },
     vertexShader: /* glsl */`
       #include <common>
       #include <skinning_pars_vertex>
-      ${ids}
+      ${c.ids}
       ${SHARED}
       ${PROJECT}
-      ${EYE_SPACE}
+      ${c.eyeSpace}
       attribute float _mat;
       attribute float _group;
       attribute float _line;
@@ -418,10 +442,10 @@ export function hullMaterial(palette, shared, body, kind) {
         gl_Position = clip;
       }`,
     fragmentShader: /* glsl */`
-      ${ids}
+      ${c.ids}
       ${SHARED}
-      ${LID}
-      uniform vec3 uLine[${MAT.LID + 1}];
+      ${c.lid}
+      uniform vec3 uLine[${c.count}];
       varying float vMat;
       varying vec4 vEye;
       void main() {

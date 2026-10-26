@@ -5,6 +5,7 @@
 //
 //   const fence = new Fence(asset, physics);   // physics optional: a solid wall for the props
 //   scene.add(fence.object);
+//   fence.perches();   // where a flying miner can land: the post tops and the middle of each rail
 //
 // Posts and rails are instanced (one draw each, and one for each outline). The wire is one mesh of flat
 // quads, a diamond pattern in the shader with alphaToCoverage (soft edges with the multisampled target
@@ -71,6 +72,18 @@ export class Fence {
     this.wire.frustumCulled = false;
     this.object = postMeshes[0];
     this.object.add(postMeshes[1], ...railMeshes, this.wire);
+    this.rails = rails;
+  }
+
+  // Perches for the flying miners (src/characters/swoop.js), as perch() on a prop: the top of each post,
+  // and the middle of the top of each rail, where a bird stands across the rail (face: across the run).
+  perches() {
+    const post = FENCE.post[1], rail = FENCE.rail[0];
+    const spot = (p, face = null) => ({ perch: (out = new Vector3()) => out.copy(p), face });
+    return [
+      ...fencePosts().map(p => spot(p.clone().setY(p.y + post))),
+      ...this.rails.map(([a, b]) => spot(a.clone().lerp(b, 0.5).setY(a.y + rail), new Vector3(b.z - a.z, 0, a.x - b.x).normalize())),
+    ];
   }
 }
 

@@ -33,20 +33,23 @@ The physics is in `physics.md`.
 
 ## Characters and brains
 
-- `SPECIES` in `src/characters/species.js` makes a character from its name. Only the ibis exists now.
+- `SPECIES` in `src/characters/species.js` makes a character from its name and the bird assets (`birds` of the `Level`).
+- The noisy miner on the ground (`SPECIES.miner`) uses the ibis `Character` and motion, scaled by `MINER_SCALE`. It only stands: a scaled bird that walks takes steps that are too short for its speed. It has no solid in the physics (`solid: false` in `src/miner/bird.js`). The street does not use it.
+- `fliers` in the level data: birds in the air (`FLIERS`, `src/miner/flier.js`), with the options of their `Flight` (circle `height`, `radius`, start `angle`, `dir`). They are not in `level.ibises`: no footprints, puddle, sound or tap. `Swoop` circles them over the player and starts one dive at a time (`SWOOP.wait`). The dive aims at the head when it starts down and keeps that line, so a player that moves out of the way is missed. Now and then a flier lands on a perch within `SWOOP.reach` of the player and in the camera's view (`level.perches`: the props with `perch()`, and the `perches()` of the scenery parts, as the fence post tops and rail middles; on a rail it lands across the rail) (at most `SWOOP.perched` at one time, so one keeps diving), and takes off when the player comes within `SWOOP.scare`, when the prop moves or tips, or after `SWOOP.sit`. A dive that hits the player's head calls `player.prod()`, so the player flinches, and more prods soon after each other annoy it more.
+- The free play camera looks down at the player, so a flier high over it is often out of view. The circle heights (3.9 to 5.2) keep them low enough to show often.
 - A brain writes `character.input` (move, fast, jump), the same input that a player gives. So a brain works for any species with a `Controller`.
 - `Wander` (`src/characters/wander.js`): walks to a random point within `WANDER.range` of its home, waits, and picks another. It sometimes runs (`WANDER.run`). It gives up on a goal after `WANDER.stuck` seconds with no progress (a prop in the way).
 - Random values come from `hash()` with the seed, not `Math.random()`.
 - Each character has its own mud and wet targets (`level.target(ibis)`). The Wet button sets all of them. A splash or a shake changes only that character.
 - Only the player gets the peck highlight and the camera follow.
 - Every character with physics has a solid (`addBird()`), so characters collide with the props and with each other, and push each other (`bird` layer and bird push, see `physics.md`).
-- Plans for other species: a brush turkey (a walk and a short flight, as the ibis), a ringtail possum (a walk on four legs), a miner bird (it flies, circles overhead and dives at the player). Each needs its own controller and animator. The brain shape stays the same.
+- Plans for other species: a brush turkey (a walk and a short flight, as the ibis), a ringtail possum (a walk on four legs). Each needs its own controller and animator. The brain shape stays the same.
 
 ## Add an AI character
 
 1. Put it in the `characters` list of the level, with a brain: `{ species: 'ibis', at: [5, 2], heading: -2, brain: 'wander' }`. It collides, pushes, splashes and gets muddy as the player does.
 2. A new behaviour is a new brain: a class with `update(character, dt)` that sets `character.input` (`move`, `fast`, `jump`) and can call `character.act(name)`. Put it in `src/characters/` and add it to `BRAINS` in `src/world/level.js`. `BRAINS` makes it from `(seed, home, bounds)`. Use `hash()` with the seed for random values. Look at `Wander` first.
-3. A new species is a maker in `SPECIES` (`src/characters/species.js`): `(asset, seed)` to an object with `object` (a three.js `Object3D`), `character` (a `Controller` and an `Animator`, as `Character`) and `update(dt)`.
+3. A new species is a maker in `SPECIES` (`src/characters/species.js`): `(birds, seed)` to an object with `object` (a three.js `Object3D`), `character` (a `Controller` and an `Animator`, as `Character`) and `update(dt)`.
 4. A new species also needs work outside `src/characters/`, because these parts take the ibis as given:
    - `Physics.addBird()` and the code that it calls (`feetGround()`, `makeRoom()`, `placeLimbs()`, grab) read the ibis rig (`rig.footL`, `rig.footR`, `rig.head`, `rig.headRot`) and the ibis sizes in `BIRD`. Give the species its own solid sizes and rig points, or a simpler path (for example only the solid and one ground ray).
    - `IbisEffects`, `IbisSound` and `Puddle` read the rig feet and head, and `ibis.mud` and `ibis.wet`.

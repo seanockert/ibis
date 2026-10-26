@@ -1,4 +1,5 @@
-// Raymarch reference view of the ibis, for sdf.html. Needs library.glsl and model.glsl first.
+// Raymarch reference view of a bird, for sdf.html. Needs library.glsl and model.glsl first, and CAM_DIST and
+// CAM_TARGET (the close camera of the bird, from viewer.js).
 
 #define DEBUG_MODE 0   // 0 final | 1 distance slice | 2 normals | 3 material ids | 4 steps | 5 masks (band, outline, shadow) | 6 N.L
 #define OUTLINE 1      // 1 = thin inner lines from 4 extra edge rays per pixel, plus a thick contour from the primary ray
@@ -14,7 +15,6 @@ const float CONTOUR_LIT = 1.8;     // contour width in pixels on the lit side, a
 const float CONTOUR_SHADE = 4.2;   // contour width in pixels on the shadow side
 const float CONTOUR_RISE = 0.07;   // how far the ray must move away after a near miss to draw a contour over the body
 const float FOCAL = 3.2;           // larger = more telephoto
-const float CAM_DIST = 6.2;
 const float CAM_YAW = -0.8;        // radians around the character; 0 = front
 
 // ---- view helpers, from shader-skills (MIT): https://github.com/gokayfem/shader-skills ----
@@ -125,7 +125,7 @@ void camera(out vec3 ro, out vec3 ta) {
         yaw = (iMouse.x / iResolution.x - 0.5) * TAU;
         pitch = mix(-0.05, 1.1, iMouse.y / iResolution.y);
     }
-    ta = vec3(0.0, 1.0, 0.3);
+    ta = CAM_TARGET;
     ro = ta + CAM_DIST * vec3(sin(yaw) * cos(pitch), sin(pitch), cos(yaw) * cos(pitch));
 }
 

@@ -44,7 +44,7 @@ src/ibis/rig.js     (pose -> joints -> bone matrices)
 
 ```sh
 npm run dev      # demo /index.html, reference /sdf.html
-npm run bake     # about 90 s, writes public/ibis.glb
+npm run bake     # about 90 s, writes public/ibis.glb. npm run bake -- miner writes public/miner.glb
 npm run shot -- out.png "index.html?anim=6&t=0.35&yaw=1.3&pitch=0" 700x700
 npm run build
 ```
@@ -54,8 +54,9 @@ URL parameters and the other tools are in `docs/tools.md`.
 ## Rules
 
 - Determinism: random values come from `hash()` with the seed. Do not use `Math.random()` in motion code.
-- Constants are copied between `rig.js` and `model.glsl` (`WING_FOLD`, `NECK_BASE`, `HEAD_SCALE`, the toe directions and lengths, the jaw hinge). Change both.
-- `MAT` in `src/ibis/materialIds.js` must match `MAT_*` in `model.glsl`.
+- Constants are copied between the bird's `SHAPE` (`rig.js` for the ibis, `src/miner/bird.js` for the miner) and its `model.glsl` (`headScale`, the toe directions and lengths, the jaw hinge). Change both.
+- `MAT` in the bird's `materialIds.js` must match `MAT_*` in its `model.glsl`.
+- A change to the shared code (`rig.js`, `materials.js`, `bake.glsl`, `eye.glsl`, `raymarch.glsl`) must not change the ibis. Check with a pixel diff.
 - Scale: the ibis is 2 units tall (1 unit is about 35 cm). Size and weigh every object for a bird of that size.
 - Australian, not American, and no real brands. See `docs/props.md`.
 - Only `src/world/physics.js` imports crashcat.

@@ -93,7 +93,26 @@ class Tub {
   }
 
   solids() { return [{ body: this.physics.body(this.id), half: this.half }, ...this.flaps.map(f => f.solid())]; }
+
+  // Where a small bird can land on top, world, or null: the middle of the top, while the tub stands
+  // upright and the lid or the flaps are shut. Rays down halfway to the front and the back find them at
+  // the height of the top (not in the middle: the two flaps of a box meet there with a gap). cap: the
+  // thickness of the lid or the flaps.
+  perch(out = new Vector3()) {
+    const body = this.physics.body(this.id);
+    if (tiltAngle(body.quaternion) > PERCH.tilt) return null;
+    const q = new Quaternion().fromArray(body.quaternion), at = new Vector3().fromArray(body.position), top = this.half[1] + this.cap;
+    for (const side of [-0.5, 0.5]) {
+      const p = new Vector3(0, top, side * this.half[2]).applyQuaternion(q).add(at);
+      if (Math.abs(this.physics.groundAt(p.x, p.z, p.y + 0.5, PERCH.probe).y - p.y) > PERCH.shut) return null;
+    }
+    return out.set(0, top, 0).applyQuaternion(q).add(at);
+  }
 }
+
+// Perch on a tub: tilt, the most tilt (radians) to land on it. shut: the top must be this near the
+// height of a shut lid.
+const PERCH = { tilt: 0.15, shut: 0.1, probe: { y: 0, n: new Vector3() } };
 
 // A lid or a flap on a hinge: it opens F.tilt for each radian of the tub's tilt, and F.spin for each
 // radian per second of its spin, up to F.open. size: of the body.
@@ -163,6 +182,7 @@ export class Bin extends Tub {
     const group = physics.newGroup();
 
     this.half = tub.map(v => v / 2);
+    this.cap = lid[1];
     this.slam = new Slam('bin', this.half, BIN.slam);
     this.id = physics.addHollowBox(tub, {
       position: world([0, base + tub[1] / 2, 0]),
@@ -252,6 +272,7 @@ export class Box extends Tub {
     const world = toWorld(x, z, heading), quaternion = yaw(heading), [cs, sn] = [Math.cos(heading), Math.sin(heading)];
     const group = physics.newGroup();
     this.half = tub.map(v => v / 2);
+    this.cap = F.thick;
     this.slam = new Slam('box', this.half, CARTON.slam);
     this.id = physics.addHollowBox(tub, { position: world([0, base + tub[1] / 2, 0]), quaternion, mass: CARTON.mass, friction: CARTON.friction, group, wall: CARTON.wall });
     // A flap on each long side, hinged on the top edge, from the edge to the middle. The axis turns

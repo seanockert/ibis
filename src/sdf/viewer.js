@@ -1,10 +1,13 @@
 // Raymarch reference view. URL params: anim (1 and up: a move from src/moves.js), t (fixed time), debug, aa, scale,
-// yaw and pitch (fixed camera), sheet (turnaround), bench (frames to time).
+// yaw and pitch (fixed camera), sheet (turnaround), bench (frames to time), bird (miner: the noisy miner),
+// fly (with bird=miner: 1 the flight, 2 dives; src/miner/flight.js).
 import raymarch from './raymarch.glsl?raw';
 import { createProgram, fragmentSource, setRigUniforms } from './gl.js';
 import { Character } from '../ibis/motion/character.js';
 import { solveRig } from '../ibis/rig.js';
 import { MOVES, scriptedCharacter, startMove } from '../moves.js';
+import { pageBird } from '../birds.js';
+import { Flight, flightDemo } from '../miner/flight.js';
 
 const params = new URLSearchParams(location.search);
 // ui=0 hides the buttons and the hint, for tools/strip.mjs.
@@ -22,12 +25,20 @@ if (params.has('yaw')) { mouse[0] = (Number(params.get('yaw')) / (2 * Math.PI) +
 let body = raymarch;
 if (params.has('debug')) body = body.replace(/#define DEBUG_MODE \d/, `#define DEBUG_MODE ${params.get('debug')}`);
 if (params.has('aa')) body = body.replace(/#define AA \d/, `#define AA ${params.get('aa')}`);
-const header = 'uniform vec3 iResolution; uniform float iTime; uniform int iFrame; uniform vec4 iMouse; uniform vec2 iOffset;\nout vec4 outColor;';
-const prog = createProgram(gl, fragmentSource(header, body + '\nvoid main() { mainImage(outColor, gl_FragCoord.xy - iOffset); outColor.a = 1.0; }\n'));
+const bird = pageBird();
+const { dist, target } = bird.view;
+const header = 'uniform vec3 iResolution; uniform float iTime; uniform int iFrame; uniform vec4 iMouse; uniform vec2 iOffset;\nout vec4 outColor;\n'
+  + `const float CAM_DIST = ${dist.toFixed(4)};\nconst vec3 CAM_TARGET = vec3(${target.map(x => x.toFixed(4)).join(', ')});`;
+const prog = createProgram(gl, fragmentSource(header, body + '\nvoid main() { mainImage(outColor, gl_FragCoord.xy - iOffset); outColor.a = 1.0; }\n', bird));
 
 // The character moves on the spot: this view draws character space only.
-const character = fixedTime !== null ? scriptedCharacter(moveIndex, fixedTime) : new Character();
+const fly = Number(params.get('fly') || 0);
+const character = fixedTime !== null && !fly ? scriptedCharacter(moveIndex, fixedTime) : new Character();
 let script = startMove(character, moveIndex), moveTime = 0;
+// fly: the flight on the spot instead of a move. With t, it runs from 0 to t at 60 steps per second.
+const flight = fly ? new Flight() : null, dives = fly ? flightDemo(flight, fly) : null;
+const flyStep = dt => { dives(dt); flight.update(dt); };
+if (fly && fixedTime !== null) for (let time = 0; time < fixedTime - 1e-9; time += 1 / 60) flyStep(Math.min(1 / 60, fixedTime - time));
 
 // Views drawn side by side: the live view, or a turnaround sheet when ?sheet=1.
 const sheetYaws = [0, -Math.PI / 2, Math.PI, -0.8];
@@ -43,9 +54,10 @@ function drawFrame() {
   gl.useProgram(prog);
   const now = performance.now(), dt = Math.min((now - last) / 1000, 0.1);
   last = now;
-  if (fixedTime === null) { script(character, moveTime); moveTime += dt; character.update(Math.max(dt, 1e-4)); }
+  if (fixedTime === null && fly) flyStep(Math.max(dt, 1e-4));
+  else if (fixedTime === null) { script(character, moveTime); moveTime += dt; character.update(Math.max(dt, 1e-4)); }
   const t = fixedTime !== null ? fixedTime : moveTime;
-  setRigUniforms(gl, prog, solveRig(character.pose));
+  setRigUniforms(gl, prog, solveRig(fly ? flight.pose : character.pose, bird.shape));
   const views = params.has('sheet') ? sheetYaws.length : 1;
   const vw = Math.floor(w / views);
   for (let v = 0; v < views; v++) {

@@ -1,13 +1,17 @@
 // index.html: the game. Free play loads a level (src/levels/) with the player, other characters and
-// props; the other views (fixed time, fixed camera, the grid, the bench) show ibises playing moves, as
-// sdf.html. URL parameters: src/app/config.js.
+// props; the other views (fixed time, fixed camera, the grid, the bench) show birds (the bird parameter)
+// playing moves, as sdf.html. URL parameters: src/app/config.js.
 import * as THREE from 'three';
 import { readConfig } from './app/config.js';
 import { Follow } from './app/follow.js';
 import { Input } from './app/input.js';
 import { Stage, TARGET_PLAY } from './app/stage.js';
 import { hideUi, Ui } from './app/ui.js';
+import { IBIS } from './ibis/bird.js';
 import { Ibis, loadIbis } from './ibis/Ibis.js';
+import { MINER } from './miner/bird.js';
+import { Flier } from './miner/flier.js';
+import { flightDemo } from './miner/flight.js';
 import { Character } from './ibis/motion/character.js';
 import { IbisSound } from './ibis/sound.js';
 import { STREET } from './levels/street.js';
@@ -18,20 +22,30 @@ const config = readConfig();
 const { play, count, anim, fixedTime } = config;
 if (!config.ui) hideUi();
 
-const asset = await loadIbis('/ibis.glb');
+// The meshes of the birds, by species. They share the sun.
+const asset = await loadIbis(IBIS);
+const birds = { ibis: asset, miner: await loadIbis(MINER, asset.uniforms) };
 const stage = new Stage(document.getElementById('c'), config, asset.sun);
 const { scene, camera, controls, sun } = stage;
 const sound = config.sound ? new IbisSound() : null;
 sound?.load('/sfx/honk.m4a');
-const level = new Level(STREET, { asset, scene, env: config.env, props: config.props, terrain: config.terrain, sound, weather: config.weather });
+const level = new Level(STREET, { asset, birds, scene, env: config.env, props: config.props, terrain: config.terrain, sound, weather: config.weather });
 
 // Free play: the level's characters and props. Other views: ibises in a grid that play moves in place,
 // in the walk circle of the moves.
 if (play) level.populate();
-else {
+else if (config.fly) {
+  // One miner that flies on the spot, as sdf.html with fly.
+  const flier = level.addFlier(new Flier(birds.miner, { scale: 1 }));
+  flier.inPlace = true;
+  flier.object.position.set(0, 0, 0);
+  flier.object.rotation.set(0, 0, 0);
+  const dives = flightDemo(flier.flight, config.fly);
+  level.flyDemo = dt => { dives(dt); };
+} else {
   const side = Math.ceil(Math.sqrt(count));
   for (let i = 0; i < count; i++) {
-    const ibis = level.add(new Ibis(asset, { seed: i }));
+    const ibis = level.add(new Ibis(birds[config.bird.name], { seed: i }));
     ibis.inPlace = true;
     ibis.object.position.set((i % side - (side - 1) / 2) * 2.2, 0, -Math.floor(i / side) * 2.2);
     ibis.character.controller.bounds = { x: [-ARENA - 0.5, ARENA + 0.5], z: [-ARENA - 0.5, ARENA + 0.5] };
@@ -65,7 +79,7 @@ if (play) {
   controls.update();
 }
 const follow = play ? new Follow(camera, controls, TARGET_PLAY.y) : null;
-const input = play ? new Input(stage.renderer.domElement, stage, level, () => { freePlay = true; ui.setPressed(-1); }) : null;
+const input = play ? new Input(stage.renderer.domElement, stage, level, () => { freePlay = true; ui.setPressed(-1); }, () => follow.recentre()) : null;
 window.demo.input = input;
 const ui = new Ui({
   play, anim, level, input,
@@ -84,6 +98,7 @@ function frame() {
     if (freePlay) input.apply(ibis.character);
     else { scripts[i].run(ibis.character, scripts[i].time); scripts[i].time += dt; }
   });
+  level.flyDemo?.(dt);
   level.update(dt, camera);
   ui.update();
   stage.keepAbove();
@@ -103,6 +118,13 @@ if (config.bench !== null) {
   const t0 = performance.now();
   for (let i = 0; i < n; i++) once();
   document.title = 'BENCH ' + ((performance.now() - t0) / n).toFixed(2) + ' ms';
+} else if (fixedTime !== null && config.fly) {
+  // The flight from 0 to t at 60 steps per second, as sdf.html.
+  const [flier] = level.fliers;
+  for (let time = 0; time < fixedTime - 1e-9; time += 1 / 60) { const dt = Math.min(1 / 60, fixedTime - time); level.flyDemo(dt); flier.update(dt); }
+  level.updateView(camera, 0);
+  stage.render();
+  document.title = 'DONE';
 } else if (fixedTime !== null) {
   // Replay the move from 0 on a new character, with the effects, so the dust at t is always the same.
   // root=1: place the bird where the move took it, to see turns and steps on the ground.

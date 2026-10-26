@@ -1,7 +1,7 @@
 // Ibis character for three.js: the baked mesh (public/ibis.glb), toon materials with an outline, and a
 // Character (src/ibis/motion/) that moves it and drives the bones through src/ibis/rig.js.
 //
-//   const asset = await loadIbis('/ibis.glb');
+//   const asset = await loadIbis(IBIS);   // a bird from src/birds.js: its mesh is public/<name>.glb
 //   const ibis = new Ibis(asset);
 //   scene.add(ibis.object);
 //   ibis.input.move.set(0, 1);   // walk toward +z. ibis.input.fast, ibis.input.jump
@@ -16,7 +16,7 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js';
 import { bodyMaterial, hullMaterial, lineMaterial, sharedUniforms } from './materials.js';
 import { Character } from './motion/character.js';
-import { BONES, NECK_BIND_LENGTHS, boneMatrices, rigUniforms, solveRig } from './rig.js';
+import { BONES, bindPose, boneMatrices, rigUniforms, solveRig } from './rig.js';
 
 export { ACTIONS } from './motion/actions.js';
 
@@ -29,15 +29,17 @@ const SCARF_GROUP = 4;
 const BOUND_OFFSET = new Vector3(0, 0.42, 0.3);
 const BOUND_R = 1.9;
 
-// Loads the mesh once. Every Ibis made from the asset shares its geometry and its sun direction.
-export async function loadIbis(url) {
-  const gltf = await new GLTFLoader().setMeshoptDecoder(MeshoptDecoder).loadAsync(url);
+// Loads the mesh of a bird (src/birds.js) once. Every Ibis made from the asset shares its geometry and
+// the shared uniforms (the sun direction). Pass the uniforms of another asset to share them.
+export async function loadIbis(bird, uniforms = sharedUniforms()) {
+  const gltf = await new GLTFLoader().setMeshoptDecoder(MeshoptDecoder).loadAsync(`/${bird.name}.glb`);
   let body;
   gltf.scene.traverse(o => { if (o.isSkinnedMesh) body = o; });
   const palette = body.userData.palette;
   groupByPart(body.geometry);
-  const uniforms = sharedUniforms();
   return {
+    bird,
+    neckLengths: bindPose(bird.shape).neckLengths,
     scene: gltf.scene,
     palette,
     lineGeometry: borderLines(body.geometry, palette),
@@ -47,15 +49,20 @@ export async function loadIbis(url) {
 }
 
 export class Ibis {
-  constructor(asset, { seed = 0 } = {}) {
+  // scale: the size of the bird in the world. The motion is in character units, so a scaled bird that
+  // walks takes steps that are too short for its speed.
+  constructor(asset, { seed = 0, scale = 1 } = {}) {
+    this.bird = asset.bird;
+    this.neckLengths = asset.neckLengths;
     this.object = cloneSkinned(asset.scene);
+    this.object.scale.setScalar(scale);
     this.object.traverse(o => { if (o.isSkinnedMesh) this.body = o; });
     const byName = Object.fromEntries(this.body.skeleton.bones.map(b => [b.name, b]));
     this.bones = BONES.map(name => byName[name]);
 
     // Each part group draws its stencil value, and the inner outline of a group draws only where the
     // stencil holds a different group.
-    const body = bodyMaterial(asset.palette, asset.uniforms);
+    const body = bodyMaterial(asset.palette, asset.uniforms, this.bird);
     this.uniforms = body.uniforms;
     // Materials by part group (_group): a missing group leaves a gap, not a shift.
     const byGroup = make => { const out = []; for (const g of this.body.geometry.groups) out[g.materialIndex] = make(g.materialIndex); return out; };
@@ -64,11 +71,11 @@ export class Ibis {
     this.body.receiveShadow = true;
     // The contours of the wings and the scarf do not draw over the torso (stencil 1): the body shader
     // draws their lines there instead.
-    const contour = hullMaterial(asset.palette, asset.uniforms, body, 'contour');
+    const contour = hullMaterial(asset.palette, asset.uniforms, body, 'contour', this.bird);
     this.contour = this.attach(this.body.geometry, byGroup(i =>
       i === WING_GROUP || i === SCARF_GROUP ? stencilled(contour, TORSO_GROUP + 1, NotEqualStencilFunc, KeepStencilOp) : contour));
     this.contour.renderOrder = 1;   // after every body has drawn its stencil
-    const inner = hullMaterial(asset.palette, asset.uniforms, body, 'inner');
+    const inner = hullMaterial(asset.palette, asset.uniforms, body, 'inner', this.bird);
     this.inner = this.attach(this.body.geometry, byGroup(i => stencilled(inner, i + 1, NotEqualStencilFunc, KeepStencilOp)));
     this.inner.renderOrder = 1;   // after every body has drawn its stencil
     // The wings and the scarf get their inner lines from the SDF test in the body shader instead.
@@ -110,9 +117,9 @@ export class Ibis {
 
   // Poses the character directly. Takes a Pose from rig.js.
   setPose(pose) {
-    const rig = solveRig(pose);
+    const rig = solveRig(pose, this.bird.shape);
     this.rig = rig;
-    boneMatrices(rig, NECK_BIND_LENGTHS).forEach((m, i) => {
+    boneMatrices(rig, this.neckLengths, this.bird.shape).forEach((m, i) => {
       const b = this.bones[i];
       m.decompose(b.position, b.quaternion, b.scale);
     });

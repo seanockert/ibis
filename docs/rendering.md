@@ -15,10 +15,9 @@ Spaces, materials, colours, light, lines, mud and wet on the ibis.
 - A material is an id per surface point, returned by the part SDFs as `vec2(distance, id)`.
 - To add a colour region, change the id inside the part function. Example: the pink underwing disc in `wing()` (`WING_PINK_C`, `WING_PINK_R`).
 - To add a new material id:
-  1. Add `MAT_X` in `model.glsl` and `X` in `src/ibis/materialIds.js`.
+  1. Add `MAT_X` in `model.glsl` and `X` in `src/ibis/materialIds.js` (for the miner: `src/miner/`).
   2. Add its colours to `paletteSrgb()`.
-  3. If the id is larger than `MAT.LID`, increase the uniform array sizes in `materials.js` (they use `MAT.LID + 1`).
-  4. Keep ids below 32 (`weldByMaterial` key) and below 256 (`pack.mjs` byte type).
+  3. Keep ids below 32 (`weldByMaterial` key and the bake palette) and below 256 (`pack.mjs` byte type). The uniform arrays in `materials.js` get their size from the largest id.
 - The bake writes the palette into the GLB (`mesh.userData.palette`). A colour change needs a bake.
 - `MAT_WHITE` and `MAT_WING` have the same colour but different ids, so a line splits wing from body. Use a new id when you need a line.
 - Light: `TOON` and `TOON_VERTEX` in `materials.js`, used by the ibis and the props. `toonBand()` is the N.L split (edge one pixel wide, from the screen derivative) times the stepped sun shadow. The material needs `lights: true` and `lightUniforms()`, and the mesh `receiveShadow`.
@@ -28,7 +27,7 @@ Spaces, materials, colours, light, lines, mud and wet on the ibis.
 
 ## Part groups and lines
 
-- Groups (`_group` attribute): 0 torso and head, 1 jaw, 2 wings, 3 legs, 4 scarf. They are set in `PARTS` in `bake.js` and used for stencil values in `Ibis.js`.
+- Groups (`_group` attribute): 0 torso and head, 1 jaw, 2 wings, 3 legs, 4 scarf, 5 head of the miner (`headGroup` in its `bird.js`). They are set in `PARTS` in `bake.js` and used for stencil values in `Ibis.js`.
 - Line types:
   - Contour hull: wide inverted hull for the silhouette.
   - Inner hull: thin inverted hull where one group lies near another. It is off for the wings and the scarf.
@@ -52,6 +51,7 @@ Spaces, materials, colours, light, lines, mud and wet on the ibis.
 ## Known traps
 
 - The mesh is not on the SDF surface. The error is up to `SIMPLIFY_ERROR`. A runtime SDF test at `vPos` can get the wrong sign. Example: `overLine()` uses `abs(miss)` for the wings, because the torso can sit just inside a wing. Do not use `abs` for the scarf: its solid stand-in is larger than the drawn scarf, and `abs` opens a gap at its outline.
-- Constants are copied between `rig.js` and `model.glsl` (`WING_FOLD`, `NECK_BASE`, `HEAD_SCALE`, the toe directions and lengths in `toeDir()` and `toeLength()`, the jaw hinge). Change both.
+- Constants are copied between the bird's `SHAPE` and its `model.glsl` (`headScale`, the toe directions and the lengths in `toes`, the jaw hinge). Change both.
+- The noisy miner paints the back of its body with the wing id (`bodyMat()`), so no line shows where the folded wings lie on the back. It has no glint material: the eye highlight is `GLOSS`, as on the ibis.
 - The renderer needs a stencil buffer (`stencil: true`).
 - Bone count is 27 (`BONES` in `rig.js`). Byte joints allow up to 256.

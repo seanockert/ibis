@@ -1,6 +1,10 @@
 // Australian white ibis: the SDF model. This is the source of the shape. tools/bake.mjs turns it into
 // public/ibis.glb, and sdf.html raymarches it as a reference.
 // The bones come from src/ibis/rig.js as the g* uniforms. Needs library.glsl first.
+// The bake (tools/bake/bake.glsl) and the game shaders (src/ibis/materials.js) call the parts by name.
+// Another bird's model must have the same part functions.
+
+#define SCARF   // scarfUncarved() exists
 
 const float WING_FOLD = 0.50;
 const vec2  WING_BULGE = vec2(0.05, -0.45);   // wing-local (z, y) of the point that sits furthest out
@@ -133,10 +137,10 @@ float wingSeam(vec3 p) {
 }
 
 // Fluffy white thigh that flows out of the belly.
-float thigh(vec3 p, vec3 hip, vec3 knee, float bodyD) {
-    float d = sdEllipsoid(p - (hip + (knee - hip) * 0.42), vec3(0.17, 0.20, 0.18));
-    return smin(d, bodyD, 0.14);
+float thighOnly(vec3 p, vec3 hip, vec3 knee) {
+    return sdEllipsoid(p - (hip + (knee - hip) * 0.42), vec3(0.17, 0.20, 0.18));
 }
+float thigh(vec3 p, vec3 hip, vec3 knee, float bodyD) { return smin(thighOnly(p, hip, knee), bodyD, 0.14); }
 
 // Bare shank and toes, below the thigh.
 float lowerLeg(vec3 p, vec3 hip, vec3 knee, vec3 foot, float side) {
@@ -233,6 +237,13 @@ vec2 head(vec3 h, float neckD) {
 
 // Neck tapers from the shoulders to the nape.
 float neck(vec3 p) { return taperTube(p, gNeckBase, gNeckCtrl, gNeckTip, 0.13, 0.095, 1.0).x; }
+
+// Materials of the parts, for the bake: the body, the thighs, the tail, the neck and the skull (h: head space).
+float bodyMat(vec3 q) { return MAT_WHITE; }
+const float MAT_THIGH = MAT_WHITE;
+const float MAT_NECK = MAT_BLACK;
+float tailMat(vec3 q) { return MAT_TAIL; }
+float skullMat(vec3 h) { return MAT_BLACK; }
 
 // Body space.
 vec3 bodySpace(vec3 p) { return gBodyInv * (p - gPelvis); }

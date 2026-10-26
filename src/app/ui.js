@@ -46,7 +46,11 @@ export class Ui {
         acts.appendChild(b);
       }
       acts.hidden = false;
-      input.bindStick(document.getElementById('stick'));
+      const stick = document.getElementById('stick');
+      input.bindStick(stick);
+      // The orbit controls listen for pointer moves on the whole document and do not check the pointer id.
+      // Stop the moves of a finger on the joystick or a button there, or the camera jumps to that finger.
+      for (const el of [stick, acts]) for (const ev of ['pointermove', 'pointerup']) el.addEventListener(ev, e => e.stopPropagation());
       bar.hidden = true;
     }
     this.buttons = [];
@@ -72,7 +76,10 @@ export class Ui {
     document.getElementById('weather').append(wet, topActions);
   }
 
-  wetOn() { return this.level.target(this.level.player ?? this.level.ibises[0]).wet > 0; }
+  wetOn() {
+    const bird = this.level.player ?? this.level.ibises[0];   // none in the fly view
+    return !!bird && this.level.target(bird).wet > 0;
+  }
 
   update() {
     const on = String(this.wetOn());

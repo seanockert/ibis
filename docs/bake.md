@@ -1,6 +1,11 @@
 # Bake and pack
 
-`tools/bake/*`, `tools/pack.mjs`, `public/ibis.glb`.
+`tools/bake/*`, `tools/pack.mjs`, `public/ibis.glb`, `public/miner.glb`.
+
+- `npm run bake -- NAME` bakes the bird `NAME` of `src/birds.js` (`bake.html?bird=NAME`). The default is the ibis.
+- `bake.glsl` is the same for all birds. It calls the part functions of the bird's model by name (`body`, `tail`, `thigh`, `thighOnly`, `lowerLeg`, `wingL`, `skullBill`, `jaw`, ...) and the material hooks `bodyMat()`, `tailMat()`, `skullMat()`, `MAT_THIGH` and `MAT_NECK`. The scarf part is only for a model that defines `SCARF`.
+- `headGroup` of the bird is the part group of the head, neck, eyes and lids. The miner uses 5, so the inner hull draws a line where the dark hood meets the pale body. Separate meshes in one group get no line where they meet.
+- A fresh bake of the HEAD code does not give the same bytes as the `public/ibis.glb` in git: the file in git is from an older bake. To show that a bake did not change, compare it with a bake from a copy of HEAD.
 
 - `SIMPLIFY_ERROR = 0.003` gives about 8k triangles. 0.0015 gives about 15k with no visible gain. 0.005 makes the beak and head look faceted.
 - The simplifier sees two vertices at one position as a seam, not a border. `LockBorder` alone does not hold material lines. `simplify()` locks material line points `LINE_LOCK_SPACING` (0.02) apart, so the lines keep their curves.

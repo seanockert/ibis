@@ -4,11 +4,17 @@ What each source file does.
 
 | File | Purpose |
 |---|---|
-| `src/sdf/model.glsl` | SDF parts, material ids (`MAT_*`), `paletteSrgb()` colours, `wingSeam()` |
+| `src/sdf/model.glsl` | SDF parts, material ids (`MAT_*`), `paletteSrgb()` colours, `wingSeam()`. The part functions that the bake and the game shaders call by name (`body`, `tail`, `bodyMat`, `tailMat`, `skullMat`, ...) |
 | `src/sdf/library.glsl` | SDF primitives (`sdEllipsoid`, `smin`, ...), shared by the game shader, the bake and `sdf.html` |
-| `src/sdf/eye.glsl` | Eye and lid shapes (`EYE_C`, `EYE_R`, `lidCover()`, `lidCrease()`, `pupilIn()`), shared by `model.glsl` and the runtime shaders. `gl.js` and `materials.js` include it before `model.glsl` |
+| `src/sdf/eye.glsl` | Eye and lid functions (`lidCover()`, `lidCrease()`, `pupilIn()`), shared by `model.glsl` and the runtime shaders. The eye constants (`EYE_C`, `EYE_R`, `LID_OPEN`, `PUPIL_DIR`, `PUPIL_R`) come from `eye` of the bird first. `gl.js` and `materials.js` include it before `model.glsl` |
+| `src/birds.js` | `BIRDS` by name, `pageBird()`: the `bird` URL parameter |
+| `src/ibis/bird.js` | `IBIS`: the ibis as a bird for the shared code: model, `SHAPE`, `MAT`, eye constants, `scarf`, `headGroup`, `solid`, `view` (close camera) |
+| `src/miner/flight.js` | `Flight`: the miner in the air. It circles over a centre (flap and glide, bank into the turn) and dives at a target (`dive()`): it turns toward the target, takes aim at where it is then, and dives in a straight line, faster on the way down. It does not follow the target, so a target that moves gets missed. Then it climbs back in an arc (a Hermite curve). `land(at)`: an arc down onto a point with a flare, then it stands (the ibis idle clip). `takeOff()`: a crouch, a jump up and back to the circle. Event `hit` when the body passes the target. `FLIGHT` tuning. `flightDemo()`: the dives of the `fly` views |
+| `src/miner/flier.js` | `Flier`: an `Ibis` mesh moved by a `Flight`. `centre()`: the middle of the body, world |
+| `src/characters/swoop.js` | `Swoop`: the brain of the fliers. They circle over the player, and one at a time dives at its head. Now and then one lands on a perch near the player and in view of the camera (a bin or a box: `perch()` on the prop; the fence: `Fence.perches()`, the post tops and the rail middles) and sits, until the player comes near, the prop moves, or its time is up. `SWOOP` |
+| `src/miner/bird.js`, `src/miner/model.glsl`, `src/miner/materialIds.js` | `MINER`: the noisy miner. Its own SDF model, shape and ids on the ibis rig and motion. `MINER_SCALE`: its size in the game. Mesh: `public/miner.glb` |
 | `src/sdf/raymarch.glsl` | Reference renderer for `sdf.html`, with its view helpers (camera, colour, dither, debug, `palette()`). `DEBUG_MODE` shows ids, normals and masks |
-| `src/ibis/rig.js` | `Pose`, authored clips (`idle peck squawk`), `solveRig()`, `boneMatrices()`, `rigUniforms()` |
+| `src/ibis/rig.js` | `Pose`, authored clips (`idle peck squawk`), `SHAPE` (the ibis body sizes), `solveRig()`, `boneMatrices()`, `rigUniforms()`, `bindPose()`. The solve takes the shape of a bird, the ibis by default |
 | `src/ibis/motion/spring.js` | `Spring` (implicit, stable at any dt), easing, `hash()` (seeded random) |
 | `src/ibis/motion/controller.js` | `Controller`: input to position, heading, speed, jump and flutter. `MOVE`, `JUMP` tuning |
 | `src/ibis/motion/animator.js` | `Animator`: the layer stack that makes the Pose. `GAIT` tuning |
@@ -19,18 +25,18 @@ What each source file does.
 | `src/moves.js` | Demo moves: buttons, `anim=N` scripts, `scriptedCharacter()` for fixed-time poses |
 | `src/ibis/materialIds.js` | `MAT` ids for JS. Must match `MAT_*` in `model.glsl` |
 | `src/ibis/materials.js` | Runtime shaders: body (cel shading, eye, lids, wing and scarf lines), hull outline, border lines |
-| `src/ibis/Ibis.js` | `loadIbis()`, `Ibis` class, part groups, stencil setup, border line geometry |
+| `src/ibis/Ibis.js` | `loadIbis(bird)`, `Ibis` class (any bird, with a `scale`), part groups, stencil setup, border line geometry |
 | `src/main.js` | Entry of `index.html`: reads the config, makes the stage and the level, runs the frame loop. Free play, or the other views (fixed time, fixed camera, grid, bench) |
 | `src/app/config.js` | `readConfig()`: the URL parameters, read once. `LITE` |
 | `src/app/stage.js` | `Stage`: renderer, scene, camera and orbit controls, sun and shadow (`SHADOW`, `shadowTo()`), grade, plain ground, `keepAbove()` (`CAM_MIN_Y`) |
-| `src/app/follow.js` | `Follow`: the free play camera follow. `CAMERA` |
-| `src/app/input.js` | `Input`: keys, joystick (walks, runs when pushed far, `STICK_RUN`), tap to walk, tap to prod |
+| `src/app/follow.js` | `Follow`: the free play camera follow, the swing behind the bird and the recentre. `CAMERA` |
+| `src/app/input.js` | `Input`: keys, joystick (walks, runs when pushed far, `STICK_RUN`), tap to walk, tap to prod, joystick tap to recentre (`STICK_TAP`) |
 | `src/app/ui.js` | `Ui`: free play Threat, Squawk, Peck and Jump diamond (hold Jump to flutter), the other action (Shake) in the top bar after Wet. Other views: one button for each move |
 | `src/levels/street.js` | `STREET`: the street level as data: ground, scenery, characters, props |
 | `src/world/level.js` | `Level`: makes a level from data, steps characters, brains, puddle, physics and props, and sends events to effects and sounds. Mud and wet targets for each character |
 | `src/world/place.js` | `stack()`: the base height of each prop from the ground and the props before it, so props stack and never start inside each other |
 | `src/world/kinds.js` | `PROPS`: prop kind names in level data to classes |
-| `src/characters/species.js` | `SPECIES`: species names in level data to makers. Only the ibis |
+| `src/characters/species.js` | `SPECIES`: species names in level data to makers. The ibis, and the miner on the ground (it only stands). `FLIERS`: the miner in the air |
 | `src/characters/wander.js` | `Wander`: a brain that walks a character to random points near its home. `WANDER` |
 | `src/world/physics.js` | `Physics`: the crashcat world, the bird's solid, shove and room. The only file that imports crashcat |
 | `src/world/props.js` | `Ball` (AFL football), `Bin` (wheelie bin with a hinged lid), `Box` (cardboard box with two hinged flaps, `CARTON`) and `Cereal` (`CEREAL`): bodies and toon meshes. `Tub` and `Flap` (the bin and the boxes: a hollow body with hinged flaps), `Slam` (dust and sound when a prop falls over hard), `Rest` (a prop whose bodies sleep does no work), `toonParts()` (the parts of one body as two draws) |

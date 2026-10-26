@@ -1,17 +1,17 @@
 // WebGL helpers shared by the SDF view and the bake.
 import eye from './eye.glsl?raw';
 import library from './library.glsl?raw';
-import model from './model.glsl?raw';
 import { rigUniforms } from '../ibis/rig.js';
 
-// Fragment shader source: the header, the library, the eye, the model, then the body.
-export function fragmentSource(header, body) {
+// Fragment shader source: the header, the library, the eye, the model of bird (src/birds.js), then the body.
+export function fragmentSource(header, body, bird) {
   return `#version 300 es
 precision highp float; precision highp int;
 ${header}
 ${library}
+${bird.eye}
 ${eye}
-${model}
+${bird.model}
 ${body}`;
 }
 

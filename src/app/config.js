@@ -4,7 +4,10 @@
 // props (0: no physics and props in free play), physics (1: show the colliders), env (0 or 1: the street
 // and the sky; on in free play, off in the fixed views, so they still match sdf.html), sound (0: no
 // sound), terrain (1: steps and a ramp in free play, to test the foot placement), lite (0 or 1: less GPU
-// work; on for touch screens), ui (0: no buttons and joystick, for tools/strip.mjs).
+// work; on for touch screens), ui (0: no buttons and joystick, for tools/strip.mjs), bird (miner: the
+// fixed views show the noisy miner, src/birds.js), fly (with bird=miner in the fixed views: 1 the flight,
+// 2 dives, on the spot; src/miner/flight.js).
+import { pageBird } from '../birds.js';
 
 // Lite: less GPU work, for touch screens (phones and tablets). The pixel ratio cap (1.5 otherwise): about
 // 30% fewer pixels, a little softer. A 2048 shadow map: a quarter of the memory, and the toon step hides
@@ -24,6 +27,8 @@ export function readConfig(search = location.search) {
   const play = count === 1 && fixedTime === null && !params.has('yaw') && bench === null;
   return {
     play, count, fixedTime, bench, lite,
+    bird: pageBird(search),
+    fly: play ? 0 : number('fly', 0),
     anim: Number(params.get('anim') || 0),
     scale: Number(params.get('scale') || Math.min(window.devicePixelRatio, lite ? LITE.pixelRatio : 1.5)),
     shadowMap: lite ? LITE.shadowMap : SHADOW_MAP,

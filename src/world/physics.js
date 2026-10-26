@@ -18,7 +18,8 @@
 // limit, so a light ball moves away and a heavy bin stops the bird. Each bird's solid is a body on the
 // bird layer, so the sweep of one bird stops at the solid of another, and pushes it (nudgeBirds()).
 // Small kinematic spheres on the feet and the head kick and peck light props only, so a peck can't
-// shove the bin.
+// shove the bin. A flying bird (a miner, src/miner/flier.js) is one kinematic sphere on the flier layer:
+// it knocks light props, and the other birds' sweeps and the rays pass through it.
 //
 // Shove: the beak is not part of the solid. Rays ahead find a heavy prop before the beak gets to it,
 // and set controller.shove (0 to 1). The animator puts the head down, so the beak points along the
@@ -87,6 +88,7 @@ export const BIRD = {
   room: 600,                   // push on the prop in N for each unit of overlap,
   roomSpeed: 1,                // up to this speed of the prop where the head is
   foot: 0.13, footUp: 0.1,     // foot spheres: radius, height above the ankle
+  flier: 0.18,                 // the sphere of a flying bird (a miner) round the middle of its body
   peck: 0.2,                   // head sphere that follows the rig
   // Bird into bird: the other bird takes this part of the move into it. touch: the solids touch at
   // this distance (two radii and the kcc padding).
@@ -119,13 +121,15 @@ export class Physics {
     // fixed: the ground. fence: stops light props only, so a bin can still fall over it. terrain: steps
     // and ramps; the bird walks on them. heavy: blocks the bird. light: the feet and head move it too.
     // limb: the bird's kinematic spheres. bird: each bird's solid; it collides with nothing, but the
-    // sweeps of the other birds stop at it. ghost: a held prop; it touches nothing.
+    // sweeps of the other birds stop at it. ghost: a held prop; it touches nothing. flier: the sphere of
+    // a flying bird; it knocks light props.
     this.layers = {
       fixed: addObjectLayer(s, still), fence: addObjectLayer(s, still), terrain: addObjectLayer(s, still), heavy: addObjectLayer(s, moving),
       light: addObjectLayer(s, moving), limb: addObjectLayer(s, moving), bird: addObjectLayer(s, moving), ghost: addObjectLayer(s, moving),
+      flier: addObjectLayer(s, moving),
     };
     const L = this.layers;
-    const pairs = [['heavy', 'fixed'], ['heavy', 'terrain'], ['light', 'terrain'], ['heavy', 'heavy'], ['heavy', 'light'], ['light', 'fixed'], ['light', 'fence'], ['light', 'light'], ['limb', 'light']];
+    const pairs = [['heavy', 'fixed'], ['heavy', 'terrain'], ['light', 'terrain'], ['heavy', 'heavy'], ['heavy', 'light'], ['light', 'fixed'], ['light', 'fence'], ['light', 'light'], ['limb', 'light'], ['flier', 'light']];
     for (const [a, b] of pairs) {
       enableCollision(s, L[a], L[b]);
     }
@@ -137,16 +141,17 @@ export class Physics {
     // Set the object layers directly: disableObjectLayer() also turns off the broadphase layer, which
     // the limbs share with the props.
     this.birdFilter = filter.create(this.world.settings.layers);
-    for (const layer of [L.fixed, L.fence, L.limb, L.ghost]) this.birdFilter.enabledObjectLayers[layer] = 0;
+    for (const layer of [L.fixed, L.fence, L.limb, L.ghost, L.flier]) this.birdFilter.enabledObjectLayers[layer] = 0;
     this.birdUpdate = kcc.createDefaultUpdateSettings();
     this.birdUpdate.stickToFloorStepDown = [0, 0, 0];
     this.birdUpdate.walkStairsStepUp = [0, 0, 0];
     this.birds = [];
+    this.fliers = [];   // { flier, body, placed }
     this.heavyFilter = filter.create(this.world.settings.layers);
-    for (const layer of [L.fixed, L.fence, L.terrain, L.light, L.limb, L.bird, L.ghost]) this.heavyFilter.enabledObjectLayers[layer] = 0;
+    for (const layer of [L.fixed, L.fence, L.terrain, L.light, L.limb, L.bird, L.ghost, L.flier]) this.heavyFilter.enabledObjectLayers[layer] = 0;
     // Ground rays: the ground, terrain and heavy props.
     this.groundFilter = filter.create(this.world.settings.layers);
-    for (const layer of [L.fence, L.light, L.limb, L.bird, L.ghost]) this.groundFilter.enabledObjectLayers[layer] = 0;
+    for (const layer of [L.fence, L.light, L.limb, L.bird, L.ghost, L.flier]) this.groundFilter.enabledObjectLayers[layer] = 0;
     this.ray = createClosestCastRayCollector();
     this.raySettings = createDefaultCastRaySettings();
     this.groundSettings = { ...createDefaultCastRaySettings(), treatConvexAsSolid: false };
@@ -287,6 +292,15 @@ export class Physics {
     this.birds.push(bird);
     c.collide = (controller, dt) => this.moveBird(bird, controller, dt);
     c.controller.groundAt = (x, z, out) => this.groundAt(x, z, c.position.y + GROUND.stepUp, out);
+  }
+
+  // Gives a flying bird (src/miner/flier.js) its sphere. It follows flier.centre() each step.
+  addFlier(flier) {
+    const body = rigidBody.create(this.world, {
+      motionType: MotionType.KINEMATIC, objectLayer: this.layers.flier, shape: sphere.create({ radius: BIRD.flier }),
+      position: flier.centre().toArray(),
+    }).id;
+    this.fliers.push({ flier, body, placed: false });
   }
 
   // One controller sub step: sweep the solid from where it was to where the controller put it. It turns
@@ -540,6 +554,14 @@ export class Physics {
       if (events.some(e => e.type === 'drop')) this.drop(bird);
       else if (bird.held === null && events.some(e => e.type === 'grab')) this.grab(bird);
       this.placeLimbs(bird, dt);
+    }
+    // moveKinematic gives the flier's sphere the velocity to get there in dt, so a dive passes its speed
+    // to what it hits.
+    for (const f of this.fliers) {
+      const body = rigidBody.get(this.world, f.body), to = f.flier.centre().toArray();
+      if (!f.placed) rigidBody.setPosition(this.world, body, to, false);
+      else rigidBody.moveKinematic(body, to, body.quaternion, dt);
+      f.placed = true;
     }
     const n = Math.max(1, Math.ceil(dt / STEP - 1e-6));
     for (let i = 0; i < n; i++) updateWorld(this.world, undefined, dt / n);

@@ -6,12 +6,13 @@ const WIDTH = 2048;        // texels per row
 const MAX_ROWS = 2048;     // rows per draw
 
 export class SdfEval {
-  constructor(rig) {
+  // bird: from src/birds.js. rig: a solved rig of the bird.
+  constructor(bird, rig) {
     const canvas = document.createElement('canvas');
     const gl = canvas.getContext('webgl2');
     if (!gl.getExtension('EXT_color_buffer_float')) throw new Error('EXT_color_buffer_float is not available');
     this.gl = gl;
-    this.prog = createProgram(gl, fragmentSource('', kernel));
+    this.prog = createProgram(gl, fragmentSource('', kernel, bird));
     gl.useProgram(this.prog);
     setRigUniforms(gl, this.prog, rig);
     this.target = gl.createTexture();

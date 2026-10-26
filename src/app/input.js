@@ -1,27 +1,36 @@
 // Free play input: WASD or the arrow keys walk, Shift runs, Space jumps (hold to flutter). The joystick
 // walks, and runs when pushed far. A tap on the ground walks there (runs when far); a tap on the player
-// prods it. A drag orbits the camera.
+// prods it. A drag orbits the camera. A tap on the middle of the joystick turns the camera behind the bird.
 //
-//   const input = new Input(canvas, stage, level, () => { ... });   // called when the player takes over
+//   const input = new Input(canvas, stage, level, () => { ... }, () => { ... });   // onFree, onRecentre
 //   input.bindStick(element);
 //   input.apply(character);   // every frame, before the level update
 import * as THREE from 'three';
 import { MOVE } from '../ibis/motion/controller.js';
+import { wrapAngle } from '../ibis/motion/spring.js';
 
 const TAP_PX = 8;           // a pointer that moves less than this between down and up is a tap
 const STICK_DEAD = 0.12;    // joystick dead zone, part of its reach
 const STICK_RUN = 0.65;     // the joystick walks up to this part of its reach, then runs
+const STICK_TAP = 0.35;     // a tap on the joystick inside this part of its reach recentres the camera
+const TAP_MS = 300;         // a tap is shorter than this
+const INPUT_TURN = Math.PI / 4;   // the input keeps its view until its direction turns more than this
 const WALK_KEYS = ['KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'];
 
 export class Input {
   // onFree: called when a key, the joystick, a tap or a held button takes over from a move script.
-  constructor(canvas, stage, level, onFree) {
-    Object.assign(this, { stage, level, onFree });
+  // onRecentre: called on a tap on the middle of the joystick.
+  constructor(canvas, stage, level, onFree, onRecentre) {
+    Object.assign(this, { stage, level, onFree, onRecentre });
     this.keys = new Set();
     this.goal = null;                 // tap target on the ground, world space
     this.stick = new THREE.Vector2();   // joystick: x right, y up, length 0 to 1 (with stickRun, of the run speed)
     this.stickRun = false;
     this.jump = false;                // the Jump button, while held
+    this.view = null;                 // while there is move input: { dir, fwd }, its direction and view
+    this.dragging = false;
+    stage.controls.addEventListener('start', () => { this.dragging = true; });
+    stage.controls.addEventListener('end', () => { this.dragging = false; });
     addEventListener('keydown', e => {
       if (e.repeat) return;
       this.keys.add(e.code);
@@ -47,8 +56,16 @@ export class Input {
     const { keys, stick } = this, { camera, controls } = this.stage;
     const ax = (keys.has('KeyD') || keys.has('ArrowRight') ? 1 : 0) - (keys.has('KeyA') || keys.has('ArrowLeft') ? 1 : 0) + stick.x;
     const ay = (keys.has('KeyW') || keys.has('ArrowUp') ? 1 : 0) - (keys.has('KeyS') || keys.has('ArrowDown') ? 1 : 0) + stick.y;
-    // Camera relative: up on the keys and the joystick is away from the camera.
+    // Camera relative: up on the keys and the joystick is away from the camera. The camera swings behind
+    // the bird, so the input keeps the view of when it started or last turned a lot: held to the side, the
+    // bird keeps its line and doesn't circle the camera. A drag turns the view at once.
     const fwd = new THREE.Vector3().subVectors(controls.target, camera.position).setY(0).normalize();
+    if ((ax === 0 && ay === 0) || this.dragging) this.view = null;
+    else {
+      const dir = Math.atan2(ax, ay);
+      if (!this.view || Math.abs(wrapAngle(dir - this.view.dir)) > INPUT_TURN) this.view = { dir, fwd: fwd.clone() };
+      fwd.copy(this.view.fwd);
+    }
     const right = new THREE.Vector3(-fwd.z, 0, fwd.x);
     const move = fwd.multiplyScalar(ay).add(right.multiplyScalar(ax));
     c.input.fast = keys.has('ShiftLeft') || keys.has('ShiftRight') || this.stickRun;
@@ -82,10 +99,11 @@ export class Input {
   }
 
   // Joystick: the knob follows the pointer out to the rim. Its offset is the move input: the inner part
-  // walks from still to the walk speed, the outer part runs from the walk speed to the run speed.
+  // walks from still to the walk speed, the outer part runs from the walk speed to the run speed. A short
+  // tap near the middle recentres the camera.
   bindStick(pad) {
     const knob = pad.firstElementChild, stick = this.stick;
-    let finger = null;
+    let finger = null, tap = null;   // tap: { x, y, time } of the press while it can still be a tap
     const aim = e => {
       const r = pad.getBoundingClientRect(), reach = r.width / 2;
       stick.set(e.clientX - r.left - reach, r.top + reach - e.clientY).divideScalar(reach);
@@ -102,11 +120,20 @@ export class Input {
       pad.setPointerCapture(finger);
       this.free();
       aim(e);
+      const r = pad.getBoundingClientRect(), reach = r.width / 2;
+      const middle = Math.hypot(e.clientX - r.left - reach, e.clientY - r.top - reach) < STICK_TAP * reach;
+      tap = middle ? { x: e.clientX, y: e.clientY, time: e.timeStamp } : null;
     });
-    pad.addEventListener('pointermove', e => { if (e.pointerId === finger) aim(e); });
+    pad.addEventListener('pointermove', e => {
+      if (e.pointerId !== finger) return;
+      aim(e);
+      if (tap && Math.hypot(e.clientX - tap.x, e.clientY - tap.y) > TAP_PX) tap = null;
+    });
     for (const ev of ['pointerup', 'pointercancel']) pad.addEventListener(ev, e => {
       if (e.pointerId !== finger) return;
+      if (ev === 'pointerup' && tap && e.timeStamp - tap.time < TAP_MS) this.onRecentre();
       finger = null;
+      tap = null;
       stick.set(0, 0);
       this.stickRun = false;
       knob.style.transform = '';

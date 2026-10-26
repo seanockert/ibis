@@ -1,14 +1,15 @@
 // A level: the scenery, ground, physics, props and characters of one play space, made from level data
 // (src/levels/). It steps them each frame and sends their events to the effects and the sounds.
 //
-//   const level = new Level(STREET, { asset, scene });
+//   const level = new Level(STREET, { asset, birds, scene });
 //   level.player.input.move.set(0, 1);   // the player's input, then:
 //   level.update(dt, camera);       // every frame
 //   level.updateView(camera, dt);   // after the camera moves: the parts that follow it, then render
 //
 // Without env there is no scenery and the ground is flat at 0 (the fixed views, which match sdf.html).
 // Without props there is no physics.
-import { SPECIES } from '../characters/species.js';
+import { FLIERS, SPECIES } from '../characters/species.js';
+import { Swoop } from '../characters/swoop.js';
 import { Wander } from '../characters/wander.js';
 import { IbisEffects } from '../ibis/effects.js';
 import { Highlight } from './highlight.js';
@@ -24,14 +25,18 @@ const PROP_FENCE = 0.5;     // the walls that stop light props are this far outs
 const BRAINS = { wander: (seed, at, bounds) => new Wander(seed, at, bounds) };
 
 export class Level {
+  // asset: the ibis asset (loadIbis()), for the shared uniforms. birds: the bird assets by species.
   // env: the scenery and the ground of the level. props: physics and props. terrain: the test course
   // (terrain.js). sound: an IbisSound, or null. weather: { mud, wet } (0 to 1) of every character at
   // the start.
-  constructor(def, { asset, scene, env = true, props = true, terrain = false, sound = null, weather = { mud: 0, wet: 0 } }) {
-    Object.assign(this, { def, asset, scene, sound, weather });
+  constructor(def, { asset, birds = { ibis: asset }, scene, env = true, props = true, terrain = false, sound = null, weather = { mud: 0, wet: 0 } }) {
+    Object.assign(this, { def, asset, birds, scene, sound, weather });
     this.ground = env ? def.ground : FLAT;
     this.bounds = def.bounds;
     this.ibises = [];
+    this.fliers = [];            // birds in the air (src/miner/flier.js)
+    this.swoop = null;           // their brain: circle over the player, dive at its head
+    this.perches = [];           // what they can land on (Swoop)
     this.player = null;
     this.brains = new Map();     // ibis to brain
     this.targets = new Map();    // ibis to { mud, wet }: where its mud and wet go
@@ -58,10 +63,16 @@ export class Level {
   // Makes the characters and the props (with physics only) of the level data. The characters go first,
   // so their solids go into the physics before the props.
   populate() {
-    this.def.characters.forEach((c, seed) => this.add(SPECIES[c.species](this.asset, seed), c));
+    this.def.characters.forEach((c, seed) => this.add(SPECIES[c.species](this.birds, seed), c));
+    const first = this.def.characters.length;
+    (this.def.fliers ?? []).forEach(({ species, ...flight }, i) => this.addFlier(FLIERS[species](this.birds, first + i, flight)));
+    if (this.fliers.length) this.swoop = new Swoop(first);
+    // Where the fliers can land: the scenery parts that have perches (the fence), and the props below.
+    this.perches = this.parts.flatMap(p => p.perches?.() ?? []);
     if (!this.physics) return;
     const defs = this.def.props, bases = stack(defs, d => PROPS[d.kind].footprint(d), this.ground.height);
     for (const [i, d] of defs.entries()) this.addProp(new PROPS[d.kind](this.physics, this.asset, { ...d, base: bases[i] }));
+    this.perches.push(...this.props.filter(p => p.perch));
   }
 
   // Adds a character. at: [x, z], or none to keep where it is. player: the one the input drives. brain:
@@ -78,10 +89,18 @@ export class Level {
     this.targets.set(ibis, { ...this.weather });
     if (player) this.player = ibis;
     if (brain) this.brains.set(ibis, BRAINS[brain](this.ibises.length, at ?? [c.position.x, c.position.z], this.bounds));
-    this.physics?.addBird(ibis);
+    if (ibis.bird.solid) this.physics?.addBird(ibis);
     this.ibises.push(ibis);
     this.scene.add(ibis.object);
     return ibis;
+  }
+
+  // Adds a bird in the air. With physics, it gets a sphere that knocks light props.
+  addFlier(flier) {
+    this.physics?.addFlier(flier);
+    this.fliers.push(flier);
+    this.scene.add(flier.object);
+    return flier;
   }
 
   addProp(prop) {
@@ -122,6 +141,12 @@ export class Level {
         target.wet = ibis.wet = Math.max(ibis.wet - 0.5, 0);
         target.mud = ibis.mud = Math.max(ibis.mud - 0.5, 0);
       }
+    }
+    // The fliers circle, dive and perch on props. A dive that hits the player's head prods it: it gets more annoyed each time.
+    this.swoop?.update(this.fliers, this.player, dt, this.perches, camera);
+    for (const flier of this.fliers) {
+      flier.update(dt);
+      for (const e of flier.events) if (e.type === 'hit' && this.player) this.player.prod(e.at);
     }
     // Puddle splashes: mud on the bird at once (the target too, so it stays), mud blobs and a splash sound.
     this.puddle?.update(dt, this.ibises);

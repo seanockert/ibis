@@ -7,9 +7,7 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { Grade } from '../world/grade.js';
 
 const FOCAL = 3.2;   // the SDF view's lens: vertical half-angle atan(1 / FOCAL)
-const CAM_DIST = 6.2;        // close camera, as in the SDF view: screenshots and the grid
 const CAM_DIST_PLAY = 12.5;  // free play: the whole walk circle is in view, then the camera follows
-export const TARGET = new THREE.Vector3(0, 1, 0.3);
 export const TARGET_PLAY = new THREE.Vector3(0, 0.9, 0);
 const CAM_MIN_Y = 0.3;      // the orbit can't take the camera lower than this
 const GROUND_LIT = new THREE.Color().setRGB(0.925, 0.902, 0.855, 'srgb');
@@ -35,9 +33,11 @@ export class Stage {
     const camera = this.camera = new THREE.PerspectiveCamera(2 * Math.atan(1 / FOCAL) * 180 / Math.PI, innerWidth / innerHeight, 0.1, env ? 800 : 100);
     const yaw = config.yaw ?? -0.8;
     const pitch = config.pitch !== null ? -0.05 + 1.15 * config.pitch : play ? 0.25 : 0.22;
-    const target = play ? TARGET_PLAY : TARGET;
+    // Close camera, as in the SDF view (view of the bird): screenshots and the grid.
+    const { view } = config.bird;
+    const target = play ? TARGET_PLAY : new THREE.Vector3(...view.target);
     camera.position.set(Math.sin(yaw) * Math.cos(pitch), Math.sin(pitch), Math.cos(yaw) * Math.cos(pitch))
-      .multiplyScalar(play ? CAM_DIST_PLAY : CAM_DIST).add(target);
+      .multiplyScalar(play ? CAM_DIST_PLAY : view.dist).add(target);
     const controls = this.controls = new OrbitControls(camera, canvas);
     controls.target.copy(target);
     controls.update();

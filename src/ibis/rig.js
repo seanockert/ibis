@@ -5,23 +5,35 @@
 import { Matrix3, Matrix4, Quaternion, Vector2, Vector3, Vector4 } from 'three';
 import { TAU, clamp, mix, smoothstep } from './motion/spring.js';
 
-const PELVIS_Y = 0.58;
-const THIGH_LEN = 0.30;
-const SHANK_LEN = 0.31;
-const WING_FOLD = 0.50;
-const WING_TUCK = 0.70;   // folded wings roll about their long axis to face back
-const NECK_BASE = new Vector3(0.0, 0.72, 0.20);   // body space
-const NAPE = new Vector3(0.0, -0.06, -0.08);       // head space: the neck joins the back of the skull here
-// Neck end (the nape) and Bezier control point, upright and reaching down. Offsets from the neck base,
-// except NECK_TIP_DOWN, which is in character space.
-const NECK_TIP_UP = new Vector3(0, 0.40, 0.0);
-const NECK_TIP_DOWN = new Vector3(0, 1.12, 1.30);
-const NECK_CTRL_UP = new Vector3(0, 0.30, -0.10);
-const NECK_CTRL_DOWN = new Vector3(0, 0.30, 0.15);
-// Neck held straight out in front, head low (a goose hiss). Offsets from the neck base.
-const NECK_TIP_REACH = new Vector3(0, 0.06, 0.58);
-const NECK_CTRL_REACH = new Vector3(0, 0.10, 0.28);
-export const HEAD_SCALE = 1.12;
+// Body shape: the sizes the solve uses. Other species have their own (src/miner/bird.js). Some values
+// are copied in model.glsl: change both.
+export const SHAPE = {
+  pelvisY: 0.58,
+  thigh: 0.30,
+  shank: 0.31,
+  wingFold: 0.50,
+  wingTuck: 0.70,   // folded wings roll about their long axis to face back
+  wingLevel: 0,     // 1: an open wing turns against the body pitch, so its chord stays level
+  neckBase: new Vector3(0.0, 0.72, 0.20),   // body space
+  nape: new Vector3(0.0, -0.06, -0.08),     // head space: the neck joins the back of the skull here
+  // Neck end (the nape) and Bezier control point, upright and reaching down. Offsets from the neck base,
+  // except neckTipDown, which is in character space.
+  neckTipUp: new Vector3(0, 0.40, 0.0),
+  neckTipDown: new Vector3(0, 1.12, 1.30),
+  neckCtrlUp: new Vector3(0, 0.30, -0.10),
+  neckCtrlDown: new Vector3(0, 0.30, 0.15),
+  // Neck held straight out in front, head low (a goose hiss). Offsets from the neck base.
+  neckTipReach: new Vector3(0, 0.06, 0.58),
+  neckCtrlReach: new Vector3(0, 0.10, 0.28),
+  headScale: 1.12,
+  shoulder: new Vector3(0.20, 0.60, -0.04),   // body space, left side
+  hip: new Vector3(0.20, 0.04, 0.0),          // body space, left side
+  toes: [0.34, 0.42, 0.34, 0.20],             // toe lengths from the ankle, as toeDir()
+  jawHinge: new Vector3(0, -0.07, 0.10),      // head space, before headScale
+  pitch: 0,       // added to the Pose's body pitch
+  headPitch: 0,   // added to the Pose's head pitch
+};
+export const HEAD_SCALE = SHAPE.headScale;
 export const NECK_BONES = 8;
 
 const fract = x => x - Math.floor(x);
@@ -129,36 +141,39 @@ const at = (m, x, y, z) => new Vector3(x, y, z).applyMatrix4(m);
 
 // Joint positions and part rotations for a Pose. Same values as the g* uniforms in model.glsl,
 // with rotations in place of their inverses.
-export function solveRig(P) {
+export function solveRig(P, S = SHAPE) {
   const R = {};
-  R.pelvis = new Vector3(P.x, PELVIS_Y + P.bob + P.lift, P.z);
-  R.body = mul(rotY(P.yaw), rotZ(P.roll), rotX(P.pitch));
+  R.pelvis = new Vector3(P.x, S.pelvisY + P.bob + P.lift, P.z);
+  R.body = mul(rotY(P.yaw), rotZ(P.roll), rotX(P.pitch + S.pitch));
   const toBody = (x, y, z) => at(R.body, x, y, z).add(R.pelvis);
 
   // The neck runs from its base to the nape, and the head turns about the nape.
-  R.neckBase = toBody(NECK_BASE.x, NECK_BASE.y, NECK_BASE.z);
-  const tipUp = R.neckBase.clone().addScaledVector(NECK_TIP_UP, P.stretch).add(new Vector3(0, 0, P.headFwd));
-  R.neckTip = tipUp.lerp(NECK_TIP_DOWN, P.neck);
-  R.neckCtrl = R.neckBase.clone().add(NECK_CTRL_UP.clone().multiplyScalar(P.stretch).lerp(NECK_CTRL_DOWN, P.neck));
+  R.neckBase = toBody(S.neckBase.x, S.neckBase.y, S.neckBase.z);
+  const tipUp = R.neckBase.clone().addScaledVector(S.neckTipUp, P.stretch).add(new Vector3(0, 0, P.headFwd));
+  R.neckTip = tipUp.lerp(S.neckTipDown, P.neck);
+  R.neckCtrl = R.neckBase.clone().add(S.neckCtrlUp.clone().multiplyScalar(P.stretch).lerp(S.neckCtrlDown, P.neck));
   if (P.reach > 0) {
-    R.neckTip.lerp(R.neckBase.clone().add(NECK_TIP_REACH), P.reach);
-    R.neckCtrl.lerp(R.neckBase.clone().add(NECK_CTRL_REACH), P.reach);
+    R.neckTip.lerp(R.neckBase.clone().add(S.neckTipReach), P.reach);
+    R.neckCtrl.lerp(R.neckBase.clone().add(S.neckCtrlReach), P.reach);
   }
-  R.headRot = mul(rotY(P.headYaw), rotX(P.headPitch), rotZ(P.headRoll));
-  R.head = R.neckTip.clone().sub(NAPE.clone().multiplyScalar(HEAD_SCALE).applyMatrix4(R.headRot));
+  R.headRot = mul(rotY(P.headYaw), rotX(P.headPitch + S.headPitch), rotZ(P.headRoll));
+  R.head = R.neckTip.clone().sub(S.nape.clone().multiplyScalar(S.headScale).applyMatrix4(R.headRot));
 
-  const foldL = WING_FOLD * (1 - 0.8 * clamp(P.wingL, 0, 1));
-  const foldR = WING_FOLD * (1 - 0.8 * clamp(P.wingR, 0, 1));
-  R.shoulderL = toBody(0.20, 0.60, -0.04);
-  R.shoulderR = toBody(-0.20, 0.60, -0.04);
-  const tuckL = WING_TUCK * (1 - clamp(P.wingL, 0, 1));
-  const tuckR = WING_TUCK * (1 - clamp(P.wingR, 0, 1));
-  R.wingL = mul(R.body.clone(), rotY(-P.sweepL), rotX(foldL), rotY(tuckL), rotZ(P.wingL));
-  R.wingR = mul(R.body.clone(), rotY(P.sweepR), rotX(foldR), rotY(-tuckR), rotZ(-P.wingR));
+  const foldL = S.wingFold * (1 - 0.8 * clamp(P.wingL, 0, 1));
+  const foldR = S.wingFold * (1 - 0.8 * clamp(P.wingR, 0, 1));
+  R.shoulderL = toBody(S.shoulder.x, S.shoulder.y, S.shoulder.z);
+  R.shoulderR = toBody(-S.shoulder.x, S.shoulder.y, S.shoulder.z);
+  const tuckL = S.wingTuck * (1 - clamp(P.wingL, 0, 1));
+  const tuckR = S.wingTuck * (1 - clamp(P.wingR, 0, 1));
+  // With wingLevel, an open wing turns back by the body pitch about its own axis.
+  const levelL = S.wingLevel * (P.pitch + S.pitch) * smoothstep(0.7, 1.2, P.wingL);
+  const levelR = S.wingLevel * (P.pitch + S.pitch) * smoothstep(0.7, 1.2, P.wingR);
+  R.wingL = mul(R.body.clone(), rotY(-P.sweepL), rotX(foldL - levelL), rotY(tuckL), rotZ(P.wingL));
+  R.wingR = mul(R.body.clone(), rotY(P.sweepR), rotX(foldR - levelR), rotY(-tuckR), rotZ(-P.wingR));
 
   R.pole = at(rotY(P.yaw), 0, 0, -1);
-  R.hipL = toBody(0.20, 0.04, 0.0);
-  R.hipR = toBody(-0.20, 0.04, 0.0);
+  R.hipL = toBody(S.hip.x, S.hip.y, S.hip.z);
+  R.hipR = toBody(-S.hip.x, S.hip.y, S.hip.z);
   R.footL = P.footL.clone().setY(P.footL.y + P.lift + P.floorL);
   R.footR = P.footR.clone().setY(P.footR.y + P.lift + P.floorR);
   R.clearL = P.footL.y + P.air;   // foot height above the ground under it
@@ -168,8 +183,8 @@ export function solveRig(P) {
   R.splay = P.splay;
   R.footYawL = P.footYawL;
   R.footYawR = P.footYawR;
-  R.kneeL = solveJoint(R.hipL, R.footL, THIGH_LEN, SHANK_LEN, R.pole);
-  R.kneeR = solveJoint(R.hipR, R.footR, THIGH_LEN, SHANK_LEN, R.pole);
+  R.kneeL = solveJoint(R.hipL, R.footL, S.thigh, S.shank, R.pole);
+  R.kneeR = solveJoint(R.hipR, R.footR, S.thigh, S.shank, R.pole);
 
   R.jaw = P.jaw;
   R.blink = P.blink;
@@ -211,12 +226,12 @@ export function toeDir(side, i) {
 }
 
 // Toe length from the ankle, character units. Same as lowerLeg() in model.glsl.
-export const toeLength = i => (i === 3 ? 0.20 : i === 1 ? 0.42 : 0.34);
+export const toeLength = (i, S = SHAPE) => S.toes[i];
 
 // Toes curl down while the foot is lifted. clear: foot height above the ground.
-function toeCurl(clear, side, i) {
+function toeCurl(clear, side, i, S) {
   const curl = clamp((clear - 0.06) * 3, 0, 0.5);
-  const drop = Math.atan2((i === 3 ? 0.06 : 0.18) * curl, toeLength(i));
+  const drop = Math.atan2((i === 3 ? 0.06 : 0.18) * curl, toeLength(i, S));
   const axis = new Vector3(0, 1, 0).cross(toeDir(side, i)).normalize();
   return new Matrix4().makeRotationAxis(axis, drop);
 }
@@ -238,7 +253,7 @@ function neckPoints(R) {
 
 // Bone matrices in character space, in BONES order. A neck bone runs along the chord between two
 // neck points and stretches with it, relative to bindLengths.
-export function boneMatrices(R, bindLengths) {
+export function boneMatrices(R, bindLengths, S = SHAPE) {
   const out = {};
   out.pelvis = place(R.pelvis, R.body);
   const pts = neckPoints(R);
@@ -253,7 +268,7 @@ export function boneMatrices(R, bindLengths) {
     out['neck' + k] = place(pts[k], rot).multiply(new Matrix4().makeScale(1, 1, stretch));
   }
   out.head = place(R.head, R.headRot);
-  const hinge = new Vector3(0, -0.07, 0.10).multiplyScalar(HEAD_SCALE);
+  const hinge = S.jawHinge.clone().multiplyScalar(S.headScale);
   out.jaw = out.head.clone().multiply(mul(
     new Matrix4().makeTranslation(hinge), rotX(R.jaw), new Matrix4().makeTranslation(hinge.clone().negate())));
   out.wingL = place(R.shoulderL, R.wingL);
@@ -266,14 +281,15 @@ export function boneMatrices(R, bindLengths) {
     const tilt = new Matrix4().makeRotationFromQuaternion(new Quaternion().setFromUnitVectors(UP, R['slope' + s]));
     const turn = tilt.multiply(rotY(side * R.splay + R['footYaw' + s]));
     out['foot' + s] = place(foot, turn);
-    for (const i of TOES) out['toe' + s + i] = place(foot, mul(turn.clone(), toeCurl(R['clear' + s], side, i)));
+    for (const i of TOES) out['toe' + s + i] = place(foot, mul(turn.clone(), toeCurl(R['clear' + s], side, i, S)));
   }
   return BONES.map(name => out[name]);
 }
 
-// Bind pose: the rest pose. The mesh is baked in it.
-export const BIND_RIG = solveRig(restPose());
-export const NECK_BIND_LENGTHS = (() => {
-  const pts = neckPoints(BIND_RIG);
-  return pts.slice(1).map((p, k) => p.distanceTo(pts[k]));
-})();
+// Bind pose: the rest pose. The mesh is baked in it. neckLengths: the bind lengths of the neck bones.
+export function bindPose(S = SHAPE) {
+  const rig = solveRig(restPose(), S);
+  const pts = neckPoints(rig);
+  return { rig, neckLengths: pts.slice(1).map((p, k) => p.distanceTo(pts[k])) };
+}
+export const { rig: BIND_RIG, neckLengths: NECK_BIND_LENGTHS } = bindPose();

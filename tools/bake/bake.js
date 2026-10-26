@@ -1,11 +1,12 @@
-// Bakes the SDF model into a skinned glTF mesh in the bind pose. Runs in the browser (tools/bake.mjs).
+// Bakes the SDF model of a bird into a skinned glTF mesh in the bind pose. Runs in the browser (tools/bake.mjs).
+// The bird is the bird URL parameter (src/birds.js), the ibis by default.
 // For each part: sample the distance on a grid, mesh it with dual contouring, split the triangles where
 // the material changes, simplify, then add normals and skin weights.
 import { MeshoptSimplifier } from 'meshoptimizer';
 import * as THREE from 'three';
 import { GLTFExporter } from 'three/examples/jsm/exporters/GLTFExporter.js';
-import { BIND_RIG, BONES, NECK_BIND_LENGTHS, NECK_BONES, bezier, boneMatrices, toeDir, toeLength } from '../../src/ibis/rig.js';
-import { MAT } from '../../src/ibis/materialIds.js';
+import { BONES, NECK_BONES, bezier, bindPose, boneMatrices, toeDir, toeLength } from '../../src/ibis/rig.js';
+import { pageBird } from '../../src/birds.js';
 import { SdfEval } from './sdfEval.js';
 import { dualContour } from './dualContour.js';
 
@@ -14,22 +15,26 @@ const LINE_LOCK_SPACING = 0.02;  // distance between held points on a material l
 const BISECT_STEPS = 14;
 const OUTLINE_SMOOTHING = 3;     // passes of neighbour averaging on the outline normals
 const BONE = Object.fromEntries(BONES.map((name, i) => [name, i]));
+const BIRD = pageBird();
+const { MAT, shape: SHAPE } = BIRD;
+const { rig: BIND_RIG, neckLengths: NECK_BIND_LENGTHS } = bindPose(SHAPE);
 
 // part: PART_* in bake.glsl. cell: grid spacing. mat: one material for the whole part.
 // group: the inner outline of a group never draws over the same group (see Ibis.js). 0 torso and head,
-// 1 jaw, 2 wings, 3 legs, 4 scarf.
+// 1 jaw, 2 wings, 3 legs, 4 scarf, 5 head apart from the torso (headGroup of the bird), so a line splits them.
+const HEAD = BIRD.headGroup;
 const PARTS = [
   { name: 'core', part: 1, group: 0, cell: 0.006, weights: coreWeights },
-  { name: 'neck', part: 15, group: 0, cell: 0.005, weights: neckWeights },
-  { name: 'head', part: 16, group: 0, cell: 0.004, weights: rigid('head') },
+  { name: 'neck', part: 15, group: HEAD, cell: 0.005, weights: neckWeights },
+  { name: 'head', part: 16, group: HEAD, cell: 0.004, weights: rigid('head') },
   { name: 'legL', part: 2, group: 3, cell: 0.004, weights: legWeights('L', 1) },
   { name: 'legR', part: 3, group: 3, cell: 0.004, weights: legWeights('R', -1) },
   { name: 'wingL', part: 4, group: 2, cell: 0.004, weights: rigid('wingL') },
   { name: 'wingR', part: 5, group: 2, cell: 0.004, weights: rigid('wingR') },
   { name: 'jaw', part: 6, group: 1, cell: 0.003, weights: rigid('jaw') },
-  { name: 'eyes', part: 7, group: 0, cell: 0.003, mat: MAT.EYE, weights: rigid('head') },
-  { name: 'lids', part: 8, group: 0, cell: 0.003, mat: MAT.LID, weights: rigid('head') },
-  { name: 'scarf', part: 9, group: 4, cell: 0.002, weights: rigid('pelvis') },
+  { name: 'eyes', part: 7, group: HEAD, cell: 0.003, mat: MAT.EYE, weights: rigid('head') },
+  { name: 'lids', part: 8, group: HEAD, cell: 0.003, mat: MAT.LID, weights: rigid('head') },
+  ...(BIRD.scarf ? [{ name: 'scarf', part: 9, group: 4, cell: 0.002, weights: rigid('pelvis') }] : []),
 ];
 const PART_W = { body: 10, thighL: 11, thighR: 12 };
 
@@ -350,7 +355,7 @@ function legWeights(s, side) {
     const upper = hip.clone().lerp(knee, 0.5);
     const toes = [0, 1, 2, 3].map(i => {
       const dir = toeDir(side, i);
-      return [foot.clone().addScaledVector(dir, 0.06), foot.clone().addScaledVector(dir, toeLength(i))];
+      return [foot.clone().addScaledVector(dir, 0.06), foot.clone().addScaledVector(dir, toeLength(i, SHAPE))];
     });
     return Array.from({ length: pos.length / 3 }, (_, i) => {
       const p = V(pos, i);
@@ -415,7 +420,7 @@ function buildGeometry(parts) {
 
 async function bake() {
   await MeshoptSimplifier.ready;
-  const ev = new SdfEval(BIND_RIG);
+  const ev = new SdfEval(BIRD, BIND_RIG);
   const palette = ev.palette();
   const parts = PARTS.map(spec => bakePart(ev, spec));
   const eyes = parts.find(p => p.spec.name === 'eyes');
@@ -426,8 +431,8 @@ async function bake() {
   const geometry = buildGeometry(parts);
 
   const root = new THREE.Group();
-  root.name = 'ibis';
-  const bind = boneMatrices(BIND_RIG, NECK_BIND_LENGTHS);
+  root.name = BIRD.name;
+  const bind = boneMatrices(BIND_RIG, NECK_BIND_LENGTHS, SHAPE);
   const bones = BONES.map((name, i) => {
     const b = new THREE.Bone();
     b.name = name;
@@ -435,7 +440,7 @@ async function bake() {
     root.add(b);
     return b;
   });
-  const material = new THREE.MeshStandardMaterial({ name: 'ibis', roughness: 1, metalness: 0 });
+  const material = new THREE.MeshStandardMaterial({ name: BIRD.name, roughness: 1, metalness: 0 });
   const mesh = new THREE.SkinnedMesh(geometry, material);
   mesh.name = 'body';
   mesh.userData = { palette: colors };   // sRGB lit, shade and line colours by material id

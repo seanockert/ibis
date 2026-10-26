@@ -1,4 +1,4 @@
-// Bake kernel: evaluates one part of model.glsl at grid points or at listed points.
+// Bake kernel: evaluates one part of the bird's model.glsl at grid points or at listed points.
 // Each output texel is one sample, numbered row by row from uOffset.
 uniform int uPart;     // PART_* below
 uniform int uMode;     // 0 grid (d, id) | 1 points (d, id) | 2 points (gradient, d) | 3 palette
@@ -27,24 +27,20 @@ const int PART_W_BODY = 10;
 const int PART_W_THIGH_L = 11;
 const int PART_W_THIGH_R = 12;
 
-float thighOnly(vec3 p, vec3 hip, vec3 knee) {
-    return sdEllipsoid(p - (hip + (knee - hip) * 0.42), vec3(0.17, 0.20, 0.18));
-}
-
 vec2 part(vec3 p) {
     vec3 q = bodySpace(p);
     vec3 h = headSpace(p);
     float bodyD = body(q);
     if (uPart == PART_CORE) {
-        vec2 res = vec2(bodyD, MAT_WHITE);
-        addPart(res, tail(q), MAT_TAIL);
-        addPart(res, thigh(p, gHipL, gKneeL, bodyD), MAT_WHITE);
-        addPart(res, thigh(p, gHipR, gKneeR, bodyD), MAT_WHITE);
+        vec2 res = vec2(bodyD, bodyMat(q));
+        addPart(res, tail(q), tailMat(q));
+        addPart(res, thigh(p, gHipL, gKneeL, bodyD), MAT_THIGH);
+        addPart(res, thigh(p, gHipR, gKneeR, bodyD), MAT_THIGH);
         return res;
     }
-    if (uPart == PART_NECK) return vec2(neck(p), MAT_BLACK);
+    if (uPart == PART_NECK) return vec2(neck(p), MAT_NECK);
     // No neck: a far distance. Not 1e9: smin() computes mix(b, a, 1) and in float that loses a.
-    if (uPart == PART_HEAD) return vec2(skullBill(h, 10.0) * HEAD_SCALE, MAT_BLACK);
+    if (uPart == PART_HEAD) return vec2(skullBill(h, 10.0) * HEAD_SCALE, skullMat(h));
     if (uPart == PART_LEG_L) return vec2(lowerLeg(p, gHipL, gKneeL, gFootL, 1.0), MAT_LEG);
     if (uPart == PART_LEG_R) return vec2(lowerLeg(p, gHipR, gKneeR, gFootR, -1.0), MAT_LEG);
     if (uPart == PART_WING_L) return wingL(p);
@@ -52,7 +48,9 @@ vec2 part(vec3 p) {
     if (uPart == PART_JAW) { vec2 j = jaw(h); return vec2(j.x * HEAD_SCALE, j.y); }
     if (uPart == PART_EYES) return vec2(sdEllipsoid(eyeSpace(h), EYE_R) * HEAD_SCALE, MAT_EYE);
     if (uPart == PART_LIDS) return vec2(sdEllipsoid(eyeSpace(h), EYE_R + 0.006) * HEAD_SCALE, MAT_BLACK);
+#ifdef SCARF
     if (uPart == PART_SCARF) { float solid; return scarfUncarved(q, bodyD, solid); }
+#endif
     if (uPart == PART_W_BODY) return vec2(min(bodyD, tail(q)), 0.0);
     if (uPart == PART_W_THIGH_L) return vec2(thighOnly(p, gHipL, gKneeL), 0.0);
     if (uPart == PART_W_THIGH_R) return vec2(thighOnly(p, gHipR, gKneeR), 0.0);
