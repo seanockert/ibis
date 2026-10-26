@@ -46,8 +46,9 @@ import {
   compound, hingeConstraint, kcc, motionProperties, offsetCenterOfMass, registerConstraints, registerShapes, rigidBody, sphere, updateWorld,
 } from 'crashcat';
 import { Matrix4, Quaternion, Vector3 } from 'three';
+import { Character } from '../ibis/motion/character.js';
 import { GROUND } from '../ibis/motion/controller.js';
-import { HEAD_SCALE } from '../ibis/rig.js';
+import { HEAD_SCALE, solveRig } from '../ibis/rig.js';
 
 registerShapes([sphere.def, box.def, capsule.def, convexHull.def, offsetCenterOfMass.def, compound.def]);
 registerConstraints([hingeConstraint.def]);
@@ -514,26 +515,17 @@ export class Physics {
   }
 
   // A peck: picks up the nearest grabbable prop within GRAB.reach of the bill tip. It pops into the
-  // bill at once. With none, but another prop in reach (too big: the ball, a box), the bird tries to
-  // bite it and gives up (fumble in actions.js).
+  // bill at once, and the head comes up with it (lift in actions.js). With none, but another prop in
+  // reach (too big: the ball, a box), the bird tries to bite it and gives up (fumble in actions.js).
   grab(bird) {
     const c = bird.ibis.character;
     const tip = this.headPoint(bird, GRAB.tip);
-    const near = ids => {
-      let best = GRAB.reach, id = null;
-      for (const other of ids ?? []) {
-        if (this.held(other)) continue;
-        const box = rigidBody.get(this.world, other).aabb;
-        const d = Math.hypot(...[0, 1, 2].map(i => Math.max(box[i] - tip[i], 0, tip[i] - box[i + 3])));
-        if (d < best) { best = d; id = other; }
-      }
-      return id;
-    };
-    const id = near(this.grabbable?.keys());
+    const id = this.nearest(this.grabbable?.keys(), tip);
     if (id === null) {
-      if (near(this.bulky) !== null) c.act('fumble');
+      if (this.nearest(this.bulky, tip) !== null) c.act('fumble');
       return;
     }
+    c.act('lift');
     const body = rigidBody.get(this.world, id);
     rigidBody.setMotionType(this.world, body, MotionType.KINEMATIC, true);
     rigidBody.setObjectLayer(this.world, body, this.layers.ghost);
@@ -543,12 +535,31 @@ export class Physics {
     c.events.push({ type: 'pick', hold: this.grabbable.get(id).hold });   // for the sound (sound.js)
   }
 
+  // The grabbable prop that a peck would pick up now (grab()), or null: the nearest one to where the bill
+  // tip goes at the 'grab' of a peck (peckTip()). For a highlight.
+  target(ibis) {
+    const bird = this.birds.find(b => b.ibis === ibis);
+    if (!bird || bird.held !== null) return null;
+    const c = ibis.character, [x, y, z] = this.peckTip ??= peckTip();
+    const cs = Math.cos(c.heading), sn = Math.sin(c.heading);
+    return this.nearest(this.grabbable?.keys(), [c.position.x + x * cs + z * sn, c.position.y + y, c.position.z - x * sn + z * cs]);
+  }
+
+  // Of ids, the prop not in a bill whose box is nearest to the world point tip, within GRAB.reach.
+  nearest(ids, tip) {
+    let best = GRAB.reach, id = null;
+    for (const other of ids ?? []) {
+      if (this.held(other)) continue;
+      const box = rigidBody.get(this.world, other).aabb;
+      const d = Math.hypot(...[0, 1, 2].map(i => Math.max(box[i] - tip[i], 0, tip[i] - box[i + 3])));
+      if (d < best) { best = d; id = other; }
+    }
+    return id;
+  }
+
   // A head space point (as BIRD.reach) in world space, from the rig.
-  headPoint(bird, [hx, hy, hz]) {
-    const { rig: R, character: c } = bird.ibis, e = R.headRot.elements, s = HEAD_SCALE;
-    const x = R.head.x + s * (e[0] * hx + e[4] * hy + e[8] * hz);
-    const y = R.head.y + s * (e[1] * hx + e[5] * hy + e[9] * hz);
-    const z = R.head.z + s * (e[2] * hx + e[6] * hy + e[10] * hz);
+  headPoint(bird, point) {
+    const { rig: R, character: c } = bird.ibis, [x, y, z] = headToCharacter(R, point);
     const cs = Math.cos(c.heading), sn = Math.sin(c.heading);
     return [c.position.x + x * cs + z * sn, y, c.position.z - x * sn + z * cs];
   }
@@ -612,3 +623,21 @@ const add = (a, b) => [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
 const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
 const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
 
+// A head space point in character space, from the rig R.
+function headToCharacter(R, [hx, hy, hz]) {
+  const e = R.headRot.elements, s = HEAD_SCALE;
+  return [
+    R.head.x + s * (e[0] * hx + e[4] * hy + e[8] * hz),
+    R.head.y + s * (e[1] * hx + e[5] * hy + e[9] * hz),
+    R.head.z + s * (e[2] * hx + e[6] * hy + e[10] * hz),
+  ];
+}
+
+// The bill tip at the 'grab' event of a peck from rest, in character space: about on the ground, 1.5
+// ahead. A walk plays the peck on the upper body only, so it is the same then.
+function peckTip() {
+  const c = new Character();
+  c.act('peck');
+  for (let i = 0; i < 120 && !c.events.some(e => e.type === 'grab'); i++) c.update(STEP);
+  return headToCharacter(solveRig(c.pose), GRAB.tip);
+}

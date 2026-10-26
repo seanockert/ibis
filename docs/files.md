@@ -23,6 +23,7 @@ What each source file does.
 | `src/demo.js` | Demo page and URL parameters. Free play UI: joystick (bottom left: walks, runs when pushed far, `STICK_RUN`), Threat, Squawk, Peck and Jump diamond (bottom right; hold Jump to flutter; Squawk gives a squawk and a happy dance in turn), the other action (Shake) in the top bar after Wet. Other views: one button for each move |
 | `src/world/physics.js` | `Physics`: the crashcat world, the bird's solid, shove and room. The only file that imports crashcat |
 | `src/world/props.js` | `Ball` (AFL football), `Bin` (wheelie bin with a hinged lid), `Box` (cardboard box with two hinged flaps, `CARTON`) and `Cereal` (`CEREAL`): bodies and toon meshes. `Tub` and `Flap` (the bin and the boxes: a hollow body with hinged flaps), `Slam` (dust and sound when a prop falls over hard), `Rest` (a prop whose bodies sleep does no work), `toonParts()` (the parts of one body as two draws) |
+| `src/world/highlight.js` | `Highlight`: a thick white outline round the prop that a peck would pick up now (`Physics.target()`, `hull(id)` on the prop). `HIGHLIGHT` |
 | `src/world/util.js` | `srgb()` (a colour from sRGB values) and `f()` (a number as a GLSL float), for the world files |
 | `src/world/stubbies.js` | `Stubbies`: ten empty beer stubbies as bowling pins, see-through glass, four instanced draws. `STUBBY`, `GLASS` |
 | `src/world/terrain.js` | `Terrain`: a test course (steps, a top, a ramp) of static prisms, for the foot placement. `COURSE` |

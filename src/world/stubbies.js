@@ -33,7 +33,7 @@ const COLOURS = {
 // See-through glass. alpha: at the middle, and at the edges (seen side on). back: the colour of the
 // inside, the far wall. gloss: N.H size of the highlight. stencil: above the ibis's values (1 to 5).
 // glow: the middle of the glass, where it faces the eye, lights up a little, as light through it.
-const GLASS = { alpha: [0.4, 0.9], back: 0.6, gloss: 0.955, glow: 0.3, stencil: 8 };
+export const GLASS = { alpha: [0.4, 0.9], back: 0.6, gloss: 0.955, glow: 0.3, stencil: 8 };
 
 // About 1 tall, half the bird. mass in kg. spacing: between pins in a row.
 export const STUBBY = {
@@ -74,7 +74,7 @@ export class Stubbies {
     });
 
     // The disc is a lathe of its own, so it does not bend the normals of the lip.
-    const glass = mergeGeometries([lathe(PROFILE, 0, 1, 1), lathe([MOUTH, [0, MOUTH[1]]], 0, 1, 1)]);
+    const glass = this.glass = mergeGeometries([lathe(PROFILE, 0, 1, 1), lathe([MOUTH, [0, MOUTH[1]]], 0, 1, 1)]);
     const n = this.bottles.length, instanced = (geometry, material) => new InstancedMesh(geometry, material, n);
     const label = instanced(mergeGeometries(BANDS.map(([[a, b], colour, grow]) => tone(lathe(PROFILE, a, b, grow), COLOURS[colour]))),
       toonMaterial(COLOURS.label[0], COLOURS.label[1], asset.uniforms, { tones: true }));
@@ -111,6 +111,14 @@ export class Stubbies {
       else this.events.push(...b.slam.update(body));
     });
     if (moved) this.object.instanceMatrix.needsUpdate = true;
+  }
+
+  // The outline of bottle id, for the highlight (highlight.js), or null.
+  hull(id) {
+    const i = this.bottles.findIndex(b => b.id === id);
+    if (i < 0) return null;
+    this.object.getMatrixAt(i, MATRIX);
+    return { geometry: this.glass, matrix: MATRIX.premultiply(this.object.matrixWorld) };
   }
 
   // The solids, for the grass tufts (tufts.js): a box round each bottle.

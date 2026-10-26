@@ -8,12 +8,12 @@
 //
 // Each rigid body's mesh is two draws, whatever its parts (toonParts()). A prop whose bodies sleep does
 // no work (Rest).
-import { BackSide, BufferGeometry, CircleGeometry, Float32BufferAttribute, Color, CylinderGeometry, Group, Matrix4, Mesh, PlaneGeometry, Quaternion, ShaderMaterial, SphereGeometry, Vector3 } from 'three';
+import { BackSide, BufferGeometry, CircleGeometry, Float32BufferAttribute, Color, CylinderGeometry, Group, Matrix4, Mesh, PlaneGeometry, Quaternion, ShaderMaterial, SphereGeometry, Vector3, Vector4 } from 'three';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { lightUniforms, TOON, TOON_VERTEX } from '../ibis/materials.js';
 import { tiltAngle, yaw } from './physics.js';
-import { srgb } from './util.js';
+import { f, srgb } from './util.js';
 
 // lit, shade, line. The shades lean cool, as in paletteSrgb() in model.glsl.
 const COLOURS = {
@@ -320,6 +320,14 @@ export class Cereal {
 
   solids() { return [{ body: this.physics.body(this.id), half: this.half }]; }
 
+  // The outline of the box, for the highlight (highlight.js), or null.
+  hull(id) {
+    if (id !== this.id) return null;
+    const line = this.print.children[1];
+    line.updateWorldMatrix(true, false);
+    return { geometry: line.geometry, matrix: line.matrixWorld };
+  }
+
   // The side of the box that faces up: its axis (0 x, 1 y, 2 z), its world direction, out of the top.
   up(body) {
     const m = new Matrix4().makeRotationFromQuaternion(new Quaternion().fromArray(body.quaternion));
@@ -619,17 +627,21 @@ export function toonMaterial(lit, shade, shared, { tones = false } = {}) {
 }
 
 // Back faces pushed out in screen space along a smooth normal, as hullMaterial() in materials.js.
-// tones: the line colour comes from the vertex attribute aLine.
-export function outlineMaterial(line, shared, { tones = false } = {}) {
+// tones: the line colour comes from the vertex attribute aLine. screen: this part of the view height
+// wider than the contour line, at any distance. front: the line takes the depth
+// of the front of a sphere round the object (uniform uFront: world centre, radius), not of its back
+// faces, so the ground under the object does not cover it.
+export function outlineMaterial(line, shared, { tones = false, screen = 0, front = false } = {}) {
   return new ShaderMaterial({
     side: BackSide,
-    defines: tones ? { TONES: '' } : {},
-    uniforms: { uSun: shared.uSun, uViewHeight: shared.uViewHeight, uLine: { value: line } },
+    defines: { ...(tones ? { TONES: '' } : {}), ...(screen ? { SCREEN: f(screen) } : {}), ...(front ? { FRONT: '' } : {}) },
+    uniforms: { uSun: shared.uSun, uViewHeight: shared.uViewHeight, uLine: { value: line }, uFront: { value: new Vector4() } },
     vertexShader: /* glsl */`
       ${BAND}
       ${MODEL}
       uniform vec3 uSun;
       uniform float uViewHeight;
+      uniform vec4 uFront;
       attribute vec3 _outline;
       #ifdef TONES
       attribute vec3 aLine;
@@ -644,9 +656,16 @@ export function outlineMaterial(line, shared, { tones = false } = {}) {
         vec4 clip = projectionMatrix * viewMatrix * m * vec4(position, 1.0);
         float units = mix(CONTOUR_SHADE, CONTOUR_LIT, smoothstep(-0.3, 0.6, dot(worldNormal, uSun)));
         float px = max(units * uViewHeight * projectionMatrix[1][1] / (2.0 * clip.w), LINE_MIN_PX);
+        #ifdef SCREEN
+        px += SCREEN * uViewHeight;
+        #endif
         vec2 dir = normalize(normalize(mat3(viewMatrix) * worldNormal).xy + 1e-6);
         vec2 ndcPerPixel = 2.0 / (uViewHeight * vec2(projectionMatrix[1][1] / projectionMatrix[0][0], 1.0));
         clip.xy += dir * px * ndcPerPixel * clip.w;
+        #ifdef FRONT
+        vec4 near = projectionMatrix * viewMatrix * vec4(uFront.xyz + normalize(cameraPosition - uFront.xyz) * uFront.w, 1.0);
+        clip.z = near.z / near.w * clip.w;
+        #endif
         gl_Position = clip;
       }`,
     fragmentShader: /* glsl */`

@@ -96,6 +96,22 @@ export const ACTIONS = {
   // 'grab' on the way down in the first jab: physics.js picks up a prop near the bill. Early, so a
   // fumble (a prop too big) takes over before the bill goes into the prop.
   peck: clipAction('peck', 2 / 1.2, [{ at: 0.08, type: 'grab' }]),
+  // A peck that picks up a prop (physics.js): in place of the rest of the peck, one quick nod. The
+  // head starts down at the prop, as the jab left it, comes straight up with it, and tosses a little.
+  // The legs are not in the mask: the feet ease back from the peck stance as the peck fades out.
+  lift: {
+    length: 0.4, fadeIn: 0.05, fadeOut: 0.12, mask: { root: 1, body: 1, neck: 1, wings: 1, face: 1 }, moveMask: UPPER,
+    apply(P, t) {
+      const down = 0.8 * (1 - smoothstep(0.03, 0.24, t));
+      const toss = window4(0.16, 0.24, 0.28, 0.4, t);
+      P.pitch = mix(P.pitch, 0.75, down);
+      P.bob = mix(P.bob, -0.06, down);
+      P.neck = mix(P.neck, 1.0, down);
+      P.headPitch = mix(P.headPitch, 1.05, down) - 0.18 * toss;
+      P.wingL = P.wingR = mix(P.wingL, 0.06, down);
+      P.look.y = mix(P.look.y, -0.35, down);
+    },
+  },
   // A peck at a prop too big for the bill (physics.js): the bill opens wide on it with the head held
   // above it (lower, the head goes into the prop), snaps shut where it slips off, then the head comes
   // up, a small shake, and the bird slumps.

@@ -21,6 +21,7 @@ import { ARENA, MOVES, playScript, startMove } from './moves.js';
 import { Physics } from './world/physics.js';
 import { Ball, Bin, Box, Cereal } from './world/props.js';
 import { Stubbies } from './world/stubbies.js';
+import { Highlight } from './world/highlight.js';
 import { Terrain } from './world/terrain.js';
 import { Grade } from './world/grade.js';
 import { Backdrop } from './world/backdrop.js';
@@ -162,6 +163,9 @@ bird.character.controller.bounds = play ? PLAY : { x: [-ARENA - 0.5, ARENA + 0.5
 const physics = play && params.get('props') !== '0' ? new Physics({ ground: env ? PROFILE : null }) : null;
 const props = [];
 let physicsView = null;
+// A white outline round the prop that a peck would pick up now.
+const highlight = physics ? new Highlight(asset.uniforms) : null;
+if (highlight) scene.add(highlight.object);
 if (physics) {
   physics.addFence({ x: [PLAY.x[0] - 0.5, PLAY.x[1] + 0.5], z: [PLAY.z[0] - 0.5, PLAY.z[1] + 0.5] });
   physics.addBird(bird);
@@ -182,7 +186,7 @@ if (physics) {
 // A white post and wire fence round the play area, with the street. With props, a wall for them too.
 const fence = env ? new Fence(asset, physics) : null;
 if (fence) scene.add(fence.object);
-window.demo = { ibises, physics, props, puddle, fence, fx, sound, camera, controls, world, sun, grade, renderer, scene, render: draw };   // for the console
+window.demo = { ibises, physics, props, highlight, puddle, fence, fx, sound, camera, controls, world, sun, grade, renderer, scene, render: draw };   // for the console
 if (count > 1) {
   Object.assign(sun.shadow.camera, { left: -side * 1.5, right: side * 1.5, top: side * 2.5, bottom: -side * 1.5 });
   sun.shadow.camera.updateProjectionMatrix();
@@ -293,6 +297,7 @@ function frame() {
         if (e.type === 'squash') { fx.burst(e.points, e.centre); sound?.squash(e, camera); }
       }
     }
+    highlight.update(props, physics.target(bird));
     physicsView?.update();
   }
   fx.update(dt, ibises, camera);
