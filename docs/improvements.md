@@ -12,6 +12,7 @@ Free play at 1200x800 draws about 97k triangles each frame, with the shadow pass
 | Fence | 27k | 40 posts (186 triangles) and 38 rails (40), drawn 3 times (toon, outline, shadow). Was 70k with `RoundedBoxGeometry` |
 | Stubbies | 17k | 10 bottles, lathe of 16 segments: label, glass (front faces), outline, and the shadow of the glass |
 | Ball | 2.7k | Sphere of 28 by 16, drawn 3 times |
+| Plants | 130k at most | 15 plants (`plants.js`), all chunks, toon and outline; the shadow adds the leaves and bark of the chunks in the shadow box. Chunks out of view are skipped. Not in the 97k above. To cut more: a far version of each chunk (see LOD in `environment.md`) |
 | Everything else | 16k | Bin, boxes, cereal boxes, tufts, sky, backdrop |
 
 Notes:

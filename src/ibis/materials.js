@@ -20,12 +20,16 @@ const float GLOW = 0.005;   // the glow contour's added width, a part of the vie
 // Toon light for the ibis and the props: two bands split by the sun, and the sun's shadow map. The
 // material needs lights: true and lightUniforms(), and the mesh needs receiveShadow.
 // Vertex shader: TOON_VERTEX, then toonShadowCoord() in main(). Fragment shader: TOON, then toonBand().
+// Past the sun's map, the far map of the plants (FAR_SHADOW, src/world/farShadow.js) gives the shadow.
 export const TOON_VERTEX = /* glsl */`
 #include <shadowmap_pars_vertex>
+uniform mat4 uFarShadowMatrix;
+varying vec3 vFarShadowCoord;
 void toonShadowCoord(vec4 worldPosition, vec3 worldNormal) {
 #if defined(USE_SHADOWMAP) && NUM_DIR_LIGHT_SHADOWS > 0
     vDirectionalShadowCoord[0] = directionalShadowMatrix[0] * (worldPosition + vec4(worldNormal * directionalLightShadows[0].shadowNormalBias, 0.0));
 #endif
+    vFarShadowCoord = (uFarShadowMatrix * (worldPosition + vec4(worldNormal * 0.1, 0.0))).xyz;
 }
 `;
 export const TOON = /* glsl */`
@@ -36,6 +40,21 @@ const float BAND_SPLIT = 0.12;   // N.L threshold between the lit and the shadow
 uniform bool receiveShadow;
 #include <packing>
 #include <shadowmap_pars_fragment>
+uniform sampler2D uFarShadow;
+uniform bool uFarShadowOn;
+varying vec3 vFarShadowCoord;
+// 0 in the shadow of a plant in the far map, 1 in the sun, off the map, or with no far map. 2 by 2 taps.
+float farShadow() {
+    vec3 c = vFarShadowCoord;
+    if (!uFarShadowOn || any(lessThan(c.xy, vec2(0.0))) || any(greaterThan(c.xy, vec2(1.0)))) return 1.0;
+    vec2 texel = 0.5 / vec2(textureSize(uFarShadow, 0));
+    float z = min(c.z, 1.0), s = 0.0;
+    s += step(z, texture2D(uFarShadow, c.xy + vec2(-texel.x, -texel.y)).r);
+    s += step(z, texture2D(uFarShadow, c.xy + vec2(texel.x, -texel.y)).r);
+    s += step(z, texture2D(uFarShadow, c.xy + vec2(-texel.x, texel.y)).r);
+    s += step(z, texture2D(uFarShadow, c.xy + vec2(texel.x, texel.y)).r);
+    return 0.25 * s;
+}
 // 0 in the sun's shadow, 1 in the sun. Stepped, so the shadow gets a hard edge as the band does.
 float sunShadow() {
     float s = 1.0;
@@ -43,9 +62,9 @@ float sunShadow() {
     DirectionalLightShadow l = directionalLightShadows[0];
     if (receiveShadow) {
         s = getShadow(directionalShadowMap[0], l.shadowMapSize, l.shadowIntensity, l.shadowBias, l.shadowRadius, vDirectionalShadowCoord[0]);
-        // Fade out near the edge of the shadow area, so a shadow never ends in a hard line.
+        // Near the edge of the shadow area, fade to the far map, so a shadow never ends in a hard line.
         vec2 c = vDirectionalShadowCoord[0].xy / vDirectionalShadowCoord[0].w;
-        s = mix(1.0, s, smoothstep(0.0, 0.12, min(min(c.x, 1.0 - c.x), min(c.y, 1.0 - c.y))));
+        s = mix(farShadow(), s, smoothstep(0.0, 0.12, min(min(c.x, 1.0 - c.x), min(c.y, 1.0 - c.y))));
     }
 #endif
     return smoothstep(0.35, 0.65, s);
@@ -63,7 +82,10 @@ float toonGloss(vec3 n, vec3 v, vec3 sun, float size) {
     return smoothstep(size - w, size + w, ndh);
 }
 `;
-export const lightUniforms = () => UniformsUtils.clone(UniformsLib.lights);
+// The far shadow map (src/world/farShadow.js), shared by all toon materials. matrix: world to the map
+// ([0, 1] in x, y and depth). on: false with no far map (the fixed views).
+export const FAR_SHADOW = { map: { value: null }, matrix: { value: new Matrix4() }, on: { value: false } };
+export const lightUniforms = () => ({ ...UniformsUtils.clone(UniformsLib.lights), uFarShadow: FAR_SHADOW.map, uFarShadowMatrix: FAR_SHADOW.matrix, uFarShadowOn: FAR_SHADOW.on });
 
 // Smooth value noise, 0 to 1. Also used by effects.js.
 export const NOISE = /* glsl */`

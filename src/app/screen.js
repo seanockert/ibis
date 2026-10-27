@@ -19,7 +19,9 @@ export function lockScreen() {
   // Full screen on the first touch, where the browser lets an element go full screen (Android, iPad).
   // Not in an installed app (it is full screen already) and not with a mouse.
   const installed = matchMedia('(display-mode: fullscreen), (display-mode: standalone)').matches || navigator.standalone;
-  if (installed) fillScreen();
+  // navigator.standalone is true only in an iOS home screen app. display-mode: fullscreen also matches a
+  // desktop browser in full screen, where the screen is taller than the window.
+  if (navigator.standalone) fillScreen();
   const el = document.documentElement, go = el.requestFullscreen ?? el.webkitRequestFullscreen;
   if (installed || !go || !(document.fullscreenEnabled ?? document.webkitFullscreenEnabled) || !matchMedia('(pointer: coarse)').matches) return;
   addEventListener('pointerup', () => {

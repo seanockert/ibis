@@ -15,6 +15,7 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 import { lightUniforms, TOON, TOON_VERTEX } from '../ibis/materials.js';
 import { tiltAngle, yaw } from './physics.js';
 import { f, srgb } from './util.js';
+import { WIND_SWAY, windDepthMaterial, windTime } from './wind.js';
 
 // lit, shade, line. The shades lean cool, as in paletteSrgb() in model.glsl.
 const COLOURS = {
@@ -559,9 +560,12 @@ function openBox([w, h, d], wall, floor) {
 
 // A rigid prop's parts as two draws: one toon mesh, with the lit and shade colours on each vertex, and
 // one outline round the parts that have a line colour, with it on each vertex. All props share the two
-// materials. parts: [geometry, [lit, shade, line?], at = [0, 0, 0]]: the geometry moves to at.
-export function toonParts(parts, shared) {
-  const { body, line } = toonMaterials(shared);
+// materials. parts: [geometry, [lit, shade, line?], at = [0, 0, 0]]: the geometry moves to at. wind:
+// the parts sway (wind.js): world space geometry with aSway, and their own materials. ids: the parts
+// have aSeeId (see seeId), and their own materials.
+export function toonParts(parts, shared, { wind = false, ids = false } = {}) {
+  const { body, line } = toonMaterials(shared, wind, ids);
+  const sway = [...(wind ? ['aSway'] : []), ...(ids ? ['aSeeId'] : [])];
   const toned = parts.map(([geometry, colours, at = [0, 0, 0]]) => {
     if (colours[2]) geometry.setAttribute('_outline', smoothNormals(geometry));   // before the vertices split
     const g = (geometry.index ? geometry.toNonIndexed() : geometry).translate(...at);
@@ -572,18 +576,21 @@ export function toonParts(parts, shared) {
     for (const name of names) out.setAttribute(name, g.getAttribute(name));
     return out;
   }));
-  const mesh = new Mesh(merge(toned, ['position', 'normal', 'aLit', 'aShade']), body);
+  const mesh = new Mesh(merge(toned, ['position', 'normal', 'aLit', 'aShade', ...sway]), body);
   mesh.castShadow = true;
   mesh.receiveShadow = true;
+  if (wind) mesh.customDepthMaterial = windDepthMaterial();
   const lined = toned.filter(t => t.line);
-  return lined.length ? [mesh, new Mesh(merge(lined, ['position', '_outline', 'aLine']), line)] : [mesh];
+  return lined.length ? [mesh, new Mesh(merge(lined, ['position', '_outline', 'aLine', ...sway]), line)] : [mesh];
 }
 
 // One toon and one outline material for each set of shared uniforms, with the colours on the vertices.
 // Each has a faded twin (userData.faded, and back with userData.solid) for seeInside().
 const materials = new WeakMap();
-function toonMaterials(shared) {
-  if (!materials.has(shared)) {
+function toonMaterials(shared, wind = false, ids = false) {
+  if (!materials.has(shared)) materials.set(shared, {});
+  const cache = materials.get(shared), key = `${wind} ${ids}`;
+  if (!cache[key]) {
     const none = new Color();
     const pair = make => {
       const solid = make(false), faded = make(true);
@@ -591,12 +598,12 @@ function toonMaterials(shared) {
       faded.userData.solid = solid;
       return solid;
     };
-    materials.set(shared, {
-      body: pair(faded => toonMaterial(none, none, shared, { tones: true, faded })),
-      line: pair(faded => outlineMaterial(none, shared, { tones: true, faded })),
-    });
+    cache[key] = {
+      body: pair(faded => toonMaterial(none, none, shared, { tones: true, faded, wind, ids })),
+      line: pair(faded => outlineMaterial(none, shared, { tones: true, faded, wind, ids })),
+    };
   }
-  return materials.get(shared);
+  return cache[key];
 }
 
 // Fades the whole prop while the camera is in one of its solids (a box, SEE.margin larger), as in a
@@ -641,14 +648,33 @@ const float LINE_MIN_PX = 1.0;
 // fade. margin: seeInside() fades a prop when the camera is this near its solids. Units.
 export const SEE = { near: 0.6, soft: 0.4, min: 0.3, margin: 0.15 };
 export const seeOn = { value: 0 };
+// One mesh of many objects (the plants): a material with SEE_ID gets the object of each vertex
+// (aSeeId), and fades all over where it is the object the camera is in (seeId; -1: none).
+export const seeId = { value: -1 };
+export const SEE_VERTEX = /* glsl */`
+#ifdef SEE_ID
+attribute float aSeeId;
+varying float vSeeId;
+#define seeVertex() vSeeId = aSeeId
+#else
+#define seeVertex()
+#endif
+`;
 export const SEE_THROUGH = /* glsl */`
 uniform float uSee;
+#ifdef SEE_ID
+uniform float uSeeId;
+varying float vSeeId;
+#endif
 // Opacity at a world point: 1 away from the camera, SEE.min at the camera.
 float seeThrough(vec3 p) {
 #ifdef FADED
   return ${f(SEE.min)};
 #endif
   if (uSee == 0.0) return 1.0;
+#ifdef SEE_ID
+  if (abs(vSeeId - uSeeId) < 0.5) return ${f(SEE.min)};
+#endif
   float near = 1.0 - smoothstep(${f(SEE.near - SEE.soft)}, ${f(SEE.near)}, distance(p, cameraPosition));
   return mix(1.0, ${f(SEE.min)}, near);
 }
@@ -658,6 +684,16 @@ bool seeHidden(float opacity) {
   const float BAYER[16] = float[16](0.0, 8.0, 2.0, 10.0, 12.0, 4.0, 14.0, 6.0, 3.0, 11.0, 1.0, 9.0, 15.0, 7.0, 13.0, 5.0);
   return opacity < 1.0 && opacity * 16.0 <= BAYER[q.y * 4 + q.x];
 }
+`;
+
+// The vertex position, POS: with WIND, moved by the wind (wind.js).
+const WIND_VERTEX = /* glsl */`
+#ifdef WIND
+${WIND_SWAY}
+#define POS sway(position)
+#else
+#define POS position
+#endif
 `;
 
 // The model matrix, with the instance matrix on an InstancedMesh.
@@ -672,15 +708,18 @@ mat4 model() {
 `;
 
 // tones: the lit and shade colours come from the vertex attributes aLit and aShade, so parts of
-// several colours draw in one call. Works on an InstancedMesh.
-export function toonMaterial(lit, shade, shared, { tones = false, faded = false } = {}) {
+// several colours draw in one call. Works on an InstancedMesh. wind: the vertices sway (wind.js).
+// ids: the vertices have aSeeId (seeId).
+export function toonMaterial(lit, shade, shared, { tones = false, faded = false, wind = false, ids = false } = {}) {
   return new ShaderMaterial({
     lights: true,
-    defines: { ...(tones ? { TONES: '' } : {}), ...(faded ? { FADED: '' } : {}) },
-    uniforms: { ...lightUniforms(), uSun: shared.uSun, uLit: { value: lit }, uShade: { value: shade }, uSee: seeOn },
+    defines: { ...(tones ? { TONES: '' } : {}), ...(faded ? { FADED: '' } : {}), ...(wind ? { WIND: '' } : {}), ...(ids ? { SEE_ID: '' } : {}) },
+    uniforms: { ...lightUniforms(), uSun: shared.uSun, uLit: { value: lit }, uShade: { value: shade }, uSee: seeOn, uSeeId: seeId, uWindTime: windTime },
     vertexShader: /* glsl */`
       ${TOON_VERTEX}
       ${MODEL}
+      ${WIND_VERTEX}
+      ${SEE_VERTEX}
       varying vec3 vNormal, vWorld;
       #ifdef TONES
       attribute vec3 aLit, aShade;
@@ -688,11 +727,12 @@ export function toonMaterial(lit, shade, shared, { tones = false, faded = false 
       #endif
       void main() {
         mat4 m = model();
-        vec4 world = m * vec4(position, 1.0);
+        vec4 world = m * vec4(POS, 1.0);
         vWorld = world.xyz;
         vNormal = normalize(mat3(m) * normal);
         gl_Position = projectionMatrix * viewMatrix * world;
         toonShadowCoord(world, vNormal);
+        seeVertex();
         #ifdef TONES
         vLit = aLit;
         vShade = aShade;
@@ -723,15 +763,19 @@ export function toonMaterial(lit, shade, shared, { tones = false, faded = false 
 // tones: the line colour comes from the vertex attribute aLine. screen: this part of the view height
 // wider than the contour line, at any distance. front: the line takes the depth
 // of the front of a sphere round the object (uniform uFront: world centre, radius), not of its back
-// faces, so the ground under the object does not cover it.
-export function outlineMaterial(line, shared, { tones = false, screen = 0, front = false, faded = false } = {}) {
+// faces, so the ground under the object does not cover it. wind: the vertices sway (wind.js). back:
+// the line takes the depth of a point this many units farther from the camera, so it shows only
+// against what is far behind it (no lines inside a leaf crown). ids: the vertices have aSeeId (seeId).
+export function outlineMaterial(line, shared, { tones = false, screen = 0, front = false, faded = false, wind = false, back = 0, ids = false } = {}) {
   return new ShaderMaterial({
     side: BackSide,
-    defines: { ...(tones ? { TONES: '' } : {}), ...(screen ? { SCREEN: f(screen) } : {}), ...(front ? { FRONT: '' } : {}), ...(faded ? { FADED: '' } : {}) },
-    uniforms: { uSun: shared.uSun, uViewHeight: shared.uViewHeight, uLine: { value: line }, uFront: { value: new Vector4() }, uSee: seeOn },
+    defines: { ...(tones ? { TONES: '' } : {}), ...(screen ? { SCREEN: f(screen) } : {}), ...(front ? { FRONT: '' } : {}), ...(faded ? { FADED: '' } : {}), ...(wind ? { WIND: '' } : {}), ...(back ? { BACK: f(back) } : {}), ...(ids ? { SEE_ID: '' } : {}) },
+    uniforms: { uSun: shared.uSun, uViewHeight: shared.uViewHeight, uLine: { value: line }, uFront: { value: new Vector4() }, uSee: seeOn, uSeeId: seeId, uWindTime: windTime },
     vertexShader: /* glsl */`
       ${BAND}
       ${MODEL}
+      ${WIND_VERTEX}
+      ${SEE_VERTEX}
       uniform vec3 uSun;
       uniform float uViewHeight;
       uniform vec4 uFront;
@@ -745,10 +789,12 @@ export function outlineMaterial(line, shared, { tones = false, screen = 0, front
         #ifdef TONES
         vLine = aLine;
         #endif
+        seeVertex();
         mat4 m = model();
-        vWorld = (m * vec4(position, 1.0)).xyz;
+        vec3 pos = POS;
+        vWorld = (m * vec4(pos, 1.0)).xyz;
         vec3 worldNormal = normalize(mat3(m) * _outline);
-        vec4 clip = projectionMatrix * viewMatrix * m * vec4(position, 1.0);
+        vec4 clip = projectionMatrix * viewMatrix * m * vec4(pos, 1.0);
         float units = mix(CONTOUR_SHADE, CONTOUR_LIT, smoothstep(-0.3, 0.6, dot(worldNormal, uSun)));
         float px = max(units * uViewHeight * projectionMatrix[1][1] / (2.0 * clip.w), LINE_MIN_PX);
         #ifdef SCREEN
@@ -760,6 +806,11 @@ export function outlineMaterial(line, shared, { tones = false, screen = 0, front
         #ifdef FRONT
         vec4 near = projectionMatrix * viewMatrix * vec4(uFront.xyz + normalize(cameraPosition - uFront.xyz) * uFront.w, 1.0);
         clip.z = near.z / near.w * clip.w;
+        #endif
+        #ifdef BACK
+        vec4 far = viewMatrix * m * vec4(pos, 1.0);
+        far = projectionMatrix * vec4(far.xyz * (1.0 + BACK / length(far.xyz)), 1.0);
+        clip.z = far.z / far.w * clip.w;
         #endif
         gl_Position = clip;
       }`,

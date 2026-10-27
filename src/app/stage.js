@@ -13,8 +13,9 @@ export const TARGET_PLAY = new THREE.Vector3(0, 0.9, 0);
 const CAM_MIN_Y = 0.3;      // the orbit can't take the camera lower than this
 const GROUND_LIT = new THREE.Color().setRGB(0.925, 0.902, 0.855, 'srgb');
 const GROUND_SHADE = new THREE.Color().setRGB(0.80, 0.78, 0.86, 'srgb');
-// Free play sun shadow: half size of the area, and the sun's distance from the area's centre.
-const SHADOW = { half: 25, sun: 20 };
+// Free play sun shadow: half size of the area, the sun's distance from the area's centre (above the
+// tallest tree top), and the depth bias (about 0.02 units).
+const SHADOW = { half: 25, sun: 45, bias: -0.0002 };
 
 export class Stage {
   // sun: the unit direction to the sun (asset.sun).
@@ -60,6 +61,7 @@ export class Stage {
       light.shadow.mapSize.set(config.shadowMap, config.shadowMap);
       const r = SHADOW.half;
       Object.assign(light.shadow.camera, { left: -r, right: r, top: r, bottom: -r, near: 1, far: 2 * SHADOW.sun });
+      light.shadow.bias = SHADOW.bias;
     }
     scene.add(light, light.target);
 

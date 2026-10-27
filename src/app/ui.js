@@ -10,7 +10,7 @@ import { MOVES } from '../moves.js';
 const ICONS = {
   Jump: '<path d="M11.8 3 3 10.7 5.3 14l6.5-5 7 4.9 1.3-3.2z"/><path d="M11.8 12.5 6.5 17l1 4 4.3-4 4.7 4 1.3-3z"/>',
   Peck: '<path d="M5 13a7 7 0 0 0 6 6v2a9 9 0 0 1-8-8zm16 0a9 9 0 0 1-8 8v-2a7 7 0 0 0 6-6zM11 5a7 7 0 0 0-6 6H3a9 9 0 0 1 8-8zm2-2a9 9 0 0 1 8 8h-2a7 7 0 0 0-6-6zm3 9a4 4 0 1 1-8 0 4 4 0 0 1 8 0"/>',
-  Squawk: '<ellipse cx="8" cy="19" rx="5" ry="4"/><path d="M13 19.5 10.5 17V3.5l11 4-2 4-5.5-4z"/>',
+  Squawk: '<ellipse fill="currentColor" cx="8" cy="19" rx="5" ry="4"/><path d="M13 19.5 10.5 17V3.5l11 4-2 4-5.5-4z"/>',
   Threat: '<path d="m8 1.7 7.7.9L14.6 15H9.7z"/><circle cx="12" cy="20" r="3.1"/>',
 };
 const icon = name => `<svg class="ico" viewBox="0 0 24 24" aria-hidden="true">${ICONS[name]}</svg>`;

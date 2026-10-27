@@ -13,17 +13,44 @@
 // stack.
 import { Backdrop } from '../world/backdrop.js';
 import { Fence } from '../world/fence.js';
+import { Plants } from '../world/plants.js';
 import { inPuddle } from '../world/puddle.js';
 import { Sky } from '../world/sky.js';
 import { PLAY, printOn, PROFILE, Street, streetHeight } from '../world/street.js';
 import { Tufts } from '../world/tufts.js';
 
+// Trees and shrubs (plants.js). Most in the far yards, behind the fence (z -27.1), in front of the
+// backdrop (z -42): gums at the back, bottlebrushes between them, shrubs along the fence. One street
+// tree on the near nature strip, down the street from the start, with a solid trunk and a miner on its perch branch,
+// and three shrubs on the same strip at the end of the play area.
+const PLANTED = [
+  { kind: 'bottlebrush', at: [20, 1.6], perch: [-1, -0.6] },
+  { kind: 'gum', at: [-21, -36] },
+  { kind: 'gum', at: [15, -37] },
+  { kind: 'gum', at: [40, -35] },
+  { kind: 'bottlebrush', at: [-4, -32] },
+  { kind: 'bottlebrush', at: [27, -31.5] },
+  { kind: 'bottlebrush', at: [-36, -32] },
+  { kind: 'shrub', at: [-14, -29], flowers: 'yellow' },
+  { kind: 'shrub', at: [-11.5, -29.6] },
+  { kind: 'shrub', at: [4, -29] },
+  { kind: 'shrub', at: [9, -29.4], flowers: 'pink' },
+  { kind: 'shrub', at: [19, -29] },
+  { kind: 'shrub', at: [32, -29.2], flowers: 'yellow' },
+  { kind: 'shrub', at: [-28, -29.3], flowers: 'pink' },
+  { kind: 'shrub', at: [-42, -29] },
+  { kind: 'shrub', at: [40, 0.8] },
+  { kind: 'shrub', at: [42.8, -1.2], flowers: 'yellow' },
+  { kind: 'shrub', at: [45.3, 1] },
+];
+
 export const STREET = {
   ground: { profile: PROFILE, height: (x, z) => streetHeight(z) },
   surface: (x, z) => (inPuddle(x, z) ? false : printOn(x, z)),   // pressed grass, dust; none in the puddle
   bounds: PLAY,
-  // The sky, the ground, the tufts, the trees, and a white post and wire fence round the play area.
-  scenery: (asset, physics) => [new Sky(asset.sun), new Street(asset.sun), new Tufts(), new Backdrop(), new Fence(asset, physics)],
+  // The sky, the ground, the tufts, the far trees, a white post and wire fence round the play area, and
+  // the trees and shrubs in the yards.
+  scenery: (asset, physics) => [new Sky(asset.sun), new Street(asset.sun), new Tufts(), new Backdrop(), new Fence(asset, physics), new Plants(asset, physics, PLANTED)],
   puddle: true,
 
   characters: [
@@ -31,11 +58,13 @@ export const STREET = {
   ],
 
   // Three noisy miners on the posts of the far fence, in front of the free play camera: two guard the
-  // part behind the small bin, one the part behind the stack of boxes.
+  // part behind the small bin, one the part behind the stack of boxes. One on the perch branch of the
+  // street tree: no post is near it.
   fliers: [
     { species: 'miner', home: [-10, -27], height: 4.5, radius: 5, dir: 1 },
     { species: 'miner', home: [-10, -27], height: 4, radius: 4, dir: -1 },
     { species: 'miner', home: [12, -27], height: 4.5, radius: 5, dir: 1 },
+    { species: 'miner', home: [20, 1.6], height: 4.5, radius: 5, dir: -1 },
   ],
 
   props: [

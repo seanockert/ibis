@@ -17,6 +17,7 @@ import { Character } from './ibis/motion/character.js';
 import { IbisSound } from './ibis/sound.js';
 import { STREET } from './levels/street.js';
 import { ARENA, MOVES, playScript, startMove } from './moves.js';
+import { renderFarShadow } from './world/farShadow.js';
 import { Level } from './world/level.js';
 import { seeOn } from './world/props.js';
 
@@ -62,6 +63,7 @@ else if (config.fly) {
     sun.shadow.camera.updateProjectionMatrix();
   }
 }
+if (config.env) renderFarShadow(stage.renderer, scene, asset.sun);   // the plants' shadows past the sun's map
 if (config.colliders && level.physics) await level.showColliders();
 const bird = level.player ?? level.ibises[0];
 const { physics, props, highlight, puddle, fx } = level;
