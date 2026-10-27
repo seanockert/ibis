@@ -17,7 +17,7 @@ export const SHAPE = {
   neckBase: new Vector3(0.0, 0.72, 0.20),   // body space
   nape: new Vector3(0.0, -0.06, -0.08),     // head space: the neck joins the back of the skull here
   // Neck end (the nape) and Bezier control point, upright and reaching down. Offsets from the neck base,
-  // except neckTipDown, which is in character space.
+  // except neckTipDown, which is in character space, above the lift.
   neckTipUp: new Vector3(0, 0.40, 0.0),
   neckTipDown: new Vector3(0, 1.12, 1.30),
   neckCtrlUp: new Vector3(0, 0.30, -0.10),
@@ -150,7 +150,8 @@ export function solveRig(P, S = SHAPE) {
   // The neck runs from its base to the nape, and the head turns about the nape.
   R.neckBase = toBody(S.neckBase.x, S.neckBase.y, S.neckBase.z);
   const tipUp = R.neckBase.clone().addScaledVector(S.neckTipUp, P.stretch).add(new Vector3(0, 0, P.headFwd));
-  R.neckTip = tipUp.lerp(S.neckTipDown, P.neck);
+  // The peck reaches down to the level the bird stands on (lift), as the feet do, not to y = 0.
+  R.neckTip = tipUp.lerp(S.neckTipDown.clone().setY(S.neckTipDown.y + P.lift), P.neck);
   R.neckCtrl = R.neckBase.clone().add(S.neckCtrlUp.clone().multiplyScalar(P.stretch).lerp(S.neckCtrlDown, P.neck));
   if (P.reach > 0) {
     R.neckTip.lerp(R.neckBase.clone().add(S.neckTipReach), P.reach);

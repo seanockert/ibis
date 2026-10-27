@@ -11,6 +11,10 @@
 // crashes, or the player squawks or hisses (hear()). Its noise (0 to 1) makes the alert distance longer
 // (SENTRY.wary), the patience run out faster (SENTRY.hurry) and the agitation higher, then fades
 // (SENTRY.quiet). The rules are fixed, so a player can learn them.
+// Snap: a peck of the player while a miner flies near its head (prey(), with a white outline) is a snap
+// at the miner (the 'snap' action). A miner near the head in the bite (bite()) is hurt: it tumbles away, takes
+// the free perch nearest to it that is out of the player's range as its new home, flies there and
+// lands. It does not go on alert or attack for SNAP.cool seconds.
 // If the perch moves or tips (a bin), it finds another perch near its home. A '?' shows over the head
 // in the alert, and a '!' for SENTRY.exclaim seconds as the attack starts (flier.mark). Random values
 // come from hash() with the seed.
@@ -18,7 +22,10 @@
 //   const sentry = new Sentry(seed);
 //   sentry.add(flier, home, perches);            // home: [x, z]. The flier sits on its perch at once
 //   sentry.update(player, dt, perches);          // every frame, before the fliers' update. Then
-//                                                // sentry.events: 'alert' { flier } as one goes on alert
+//                                                // sentry.events: 'alert' { flier } as one goes on alert,
+//                                                // 'hurt' { flier } as a snap hurts one
+//   sentry.bite();                               // the player's snap bites now ('bite' event)
+//   sentry.prey();                               // the miner a peck snaps at now (outlined), or null
 //   sentry.hear(at, loud);                       // a noise at a world point: loud, a kind of SENTRY.loud
 import { Vector3 } from 'three';
 import { clamp, hash } from '../ibis/motion/spring.js';
@@ -38,9 +45,15 @@ import { clamp, hash } from '../ibis/motion/spring.js';
 // this at full noise, and so does the leave distance. hurry: the patience runs out this many times faster at full noise, plus one.
 export const SENTRY = {
   home: 4, alert: 9, attack: 5, leave: 13, calm: 1, patience: 5, warn: 1.2,
-  chip: [2.2, 0.7], scold: [1.2, 2.5], wait: [1.2, 3], moved: 0.3, settle: 0.5, spot: 0.6, exclaim: 1.5,
+  chip: [3.5, 1.5], scold: [2.5, 4.5], wait: [1.2, 3], moved: 0.3, settle: 0.5, spot: 0.6, exclaim: 1.5,
   hear: 18, loud: { run: 0.35, slam: 0.8, call: 0.4 }, run: 1.6, quiet: 0.08, wary: 7, hurry: 2,
 };
+
+// Snap. range: a miner in the air is prey this near the head, where a snap now hits a dive (from about
+// 1.4 to 3.5). reach: a miner whose body is this near the head in the bite is hurt. window: seconds the
+// bite lasts from the 'bite' event. away: the new perch is at least this far from the player, on the
+// ground. cool: seconds with no alert and no attack after a hurt. All distances world units.
+export const SNAP = { range: 3.5, reach: 1.2, window: 0.2, away: 16, cool: 5 };
 
 export class Sentry {
   constructor(seed = 0) {
@@ -50,7 +63,8 @@ export class Sentry {
     this.wait = 0;      // seconds before the next dive
     this.next = 0;      // the guard that dives next
     this.head = new Vector3();
-    this.events = [];   // this update: 'alert' { flier }
+    this.events = [];   // this update: 'alert' { flier }, 'hurt' { flier }
+    this.biting = 0;    // seconds left of the player's bite
   }
 
   random(min = 0, max = 1) { return min + (max - min) * hash(this.seed * 7919 + this.draws++); }
@@ -59,7 +73,7 @@ export class Sentry {
   // world point, or null when it can't take a bird now) and optional face (a ground direction to land
   // along). It starts on its perch, or circles over its home when there is none.
   add(flier, home, perches) {
-    const G = { flier, home: new Vector3(home[0], 0, home[1]), perch: null, spot: new Vector3(), state: 'back', time: 0, wait: 0, fuse: 0, noise: 0 };
+    const G = { flier, home: new Vector3(home[0], 0, home[1]), perch: null, spot: new Vector3(), state: 'back', time: 0, wait: 0, fuse: 0, noise: 0, cool: 0 };
     this.guards.push(G);
     flier.flight.centre.copy(G.home);
     if (!this.pick(G, perches)) return;
@@ -89,6 +103,22 @@ export class Sentry {
     }
   }
 
+  // The player's snap bites now: for SNAP.window seconds, a miner near the head is hurt.
+  bite() { this.biting = SNAP.window; }
+
+  // The miner (Flier) that a peck of the player snaps at now, or null: the nearest one in the air within
+  // SNAP.range of the head.
+  prey() {
+    let best = null, near = SNAP.range;
+    for (const G of this.guards) {
+      const f = G.flier.flight;
+      if (f.perched || f.tumble) continue;
+      const d = G.flier.centre().distanceTo(this.head);
+      if (d < near) { best = G.flier; near = d; }
+    }
+    return best;
+  }
+
   // player: the Ibis that the miners guard against, or null.
   update(player, dt, perches = []) {
     this.events.length = 0;
@@ -101,6 +131,8 @@ export class Sentry {
       const f = G.flier.flight;
       G.time += dt;
       G.noise = Math.max(G.noise - SENTRY.quiet * dt, 0);
+      G.cool = Math.max(G.cool - dt, 0);
+      if (this.biting > 0 && !G.flier.flight.perched && !G.flier.flight.tumble && G.flier.centre().distanceTo(this.head) < SNAP.reach) this.hurt(G, at, perches);
       f.target.copy(this.head);
       // The perch moves or tips: leave it, and find another.
       if (G.perch) {
@@ -118,7 +150,37 @@ export class Sentry {
       else this.back(G, d, dt, perches);
       G.flier.mark = G.state === 'alert' ? '?' : G.state === 'attack' && G.time < SENTRY.exclaim ? '!' : null;
     }
+    this.biting = Math.max(this.biting - dt, 0);
     this.dive(dt);
+  }
+
+  // A snap hurts G: it tumbles away and takes a new home on the free perch nearest to it that is at
+  // least SNAP.away from the player (at). With none, a home that far, straight away from the player.
+  hurt(G, at, perches) {
+    const f = G.flier.flight, p = f.position;
+    f.hurt(this.head);
+    const taken = new Set(this.guards.map(g => g !== G && g.perch));
+    let best = null;
+    for (const perch of perches) {
+      const spot = !taken.has(perch) && perch.perch();
+      if (!spot || Math.hypot(spot.x - at.x, spot.z - at.z) < SNAP.away) continue;
+      const d = Math.hypot(spot.x - p.x, spot.z - p.z);
+      if (!best || d < best.d) best = { perch, spot, d };
+    }
+    if (best) {
+      G.perch = best.perch;
+      G.spot.copy(best.spot);
+      G.home.set(best.spot.x, 0, best.spot.z);
+    } else {
+      G.perch = null;
+      const away = new Vector3(p.x - at.x, 0, p.z - at.z);
+      if (away.lengthSq() < 1e-6) away.set(1, 0, 0);
+      G.home.set(at.x, 0, at.z).addScaledVector(away.normalize(), SNAP.away);
+    }
+    this.go(G, 'back');
+    G.cool = SNAP.cool;
+    G.noise = 0;
+    this.events.push({ type: 'hurt', flier: G.flier });
   }
 
   go(G, state) {
@@ -141,7 +203,7 @@ export class Sentry {
     const f = G.flier.flight;
     f.watch = null;
     f.agitation = Math.max(f.agitation - SENTRY.settle * dt, 0);
-    if (d < this.reach(G)) this.go(G, 'alert');
+    if (G.cool <= 0 && d < this.reach(G)) this.go(G, 'alert');
   }
 
   // On the perch, it faces the player and calls, faster and more agitated as the player comes nearer or
@@ -183,12 +245,12 @@ export class Sentry {
     const f = G.flier.flight;
     f.centre.copy(G.home);
     f.agitation = Math.max(f.agitation - SENTRY.settle * dt, 0);
-    if (d < SENTRY.attack && !f.landed) {
+    if (d < SENTRY.attack && !f.landed && G.cool <= 0) {
       f.takeOff();
       this.go(G, 'attack');
       return;
     }
-    if (f.landed) { this.go(G, d < SENTRY.alert ? 'alert' : 'watch'); return; }
+    if (f.landed) { this.go(G, d < SENTRY.alert && G.cool <= 0 ? 'alert' : 'watch'); return; }
     if (!f.circling) return;
     if (!G.perch && !this.pick(G, perches)) return;
     f.land(G.spot, G.perch.face ?? null);

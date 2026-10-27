@@ -68,6 +68,7 @@ export class Controller {
     this.faceTarget = null;          // heading to turn to on the spot, or null
     this.pivot = null;               // world { x, z } of the foot that carries the weight, from the animator
     this.shove = 0;                  // 0 to 1: a heavy thing just ahead of the head (src/world/physics.js)
+    this.duck = false;               // a heavy thing over the bird, lower than its head: duck, no jump (physics.js)
     this.carry = null;               // jaw opening round what the bill holds (src/world/physics.js), or null
     this.events = [];                // this step: { type: crouch | jump | land, ... }
     this.held = false;
@@ -137,7 +138,7 @@ export class Controller {
     this.held = jump;
     this.buffer = pressed ? JUMP.buffer : Math.max(this.buffer - dt, 0);
 
-    if (this.state === 'ground' && this.buffer > 0) {
+    if (this.state === 'ground' && this.buffer > 0 && !this.duck) {
       this.buffer = 0;
       this.enter('crouch');
     }

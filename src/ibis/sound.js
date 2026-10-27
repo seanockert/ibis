@@ -37,8 +37,9 @@ export const SOUND = {
     land: 1,            // landings
     thump: 1,           // thumps in actions (a sit, a fall)
     call: 0.9,          // the honk
-    chip: 0.7,          // the noisy miner's alert call
-    scold: 0.8,         // the noisy miner's attack call
+    chip: 0.4,          // the noisy miner's alert call
+    scold: 0.5,         // the noisy miner's attack call
+    yelp: 0.9,          // a hurt noisy miner: the chip, high and fast
     hiss: 0.35,         // the threat hiss
     clack: 1,           // the bill snaps shut
     pick: 0.8,          // the bill takes hold of a prop (a peck picks it up)
@@ -48,7 +49,10 @@ export const SOUND = {
   },
   runSpeed: 1.4,        // steps are louder above this speed
   honkPitch: 0.06,      // the honk's pitch changes by up to this part each time
-  minerPitch: 0.05,     // the same for the noisy miner's calls
+  minerPitch: 0.1,      // the same for the noisy miner's calls: more change, so the calls repeat less
+  minerGap: 0.7,        // seconds: a miner call this soon after the last one (of any miner) is skipped
+  minerTone: 3200,      // Hz: a lowpass on the miner's calls takes off the harsh top
+  yelpPitch: 1.5,       // the yelp's playback rate
 };
 
 // Puddle slosh: lumps of low noise, each [start (s), filter from (Hz), filter to (Hz), gain].
@@ -68,6 +72,7 @@ export class IbisSound {
     this.master.connect(this.ctx.destination);
     this.noise = this.makeNoise(2);
     this.samples = {};   // recordings by name
+    this.minerAt = -Infinity;   // ctx time of the last miner call (SOUND.minerGap)
     this.voices = 0;
     this.n = 0;
     this.off = false;
@@ -179,11 +184,15 @@ export class IbisSound {
     }
   }
 
-  // A noisy miner's call: e.kind is 'chip' or 'scold', a recording at a different pitch each time.
+  // A noisy miner's call: e.kind is 'chip' or 'scold', a recording at a different pitch each time, or
+  // 'yelp' (hurt): the chip, high and fast. A yelp always plays.
   minerCall(e, camera) {
-    if (this.ctx.state !== 'running') return;
+    const yelp = e.kind === 'yelp';
+    if (this.ctx.state !== 'running' || (!yelp && this.ctx.currentTime - this.minerAt < SOUND.minerGap)) return;
+    this.minerAt = this.ctx.currentTime;
     this.camera = camera;
-    this.sample(this.samples[e.kind], this.at.copy(e.at), L[e.kind] * this.vary(0.1), this.vary(SOUND.minerPitch));
+    const rate = (yelp ? SOUND.yelpPitch : 1) * this.vary(SOUND.minerPitch);
+    this.sample(this.samples[yelp ? 'chip' : e.kind], this.at.copy(e.at), L[e.kind] * this.vary(0.1), rate, SOUND.minerTone);
   }
 
   // ---- the sounds ----
@@ -228,14 +237,20 @@ export class IbisSound {
   }
 
   // A recording at a place, at a gain and a playback rate. Nothing until it has loaded.
-  sample(buffer, place, gain, rate) {
+  // lowpass: a cut-off in Hz, or 0 for none.
+  sample(buffer, place, gain, rate, lowpass = 0) {
     if (!buffer) return;
     const v = this.voice(place, gain);
     if (!v) return;
     const src = this.ctx.createBufferSource();
     src.buffer = buffer;
     src.playbackRate.value = rate;
-    src.connect(v.node);
+    if (lowpass) {
+      const f = this.ctx.createBiquadFilter();
+      f.type = 'lowpass';
+      f.frequency.value = lowpass;
+      src.connect(f).connect(v.node);
+    } else src.connect(v.node);
     this.end(v, src);
     src.start(v.t);
   }

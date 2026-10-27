@@ -83,7 +83,12 @@ export const BIRD = {
   reach: [[[0, 0, 0], 0.22], [[0, -0.11, 0.53], 0.06], [[0, -0.24, 0.71], 0.04], [[0, -0.42, 0.86], 0.02]],
   clear: 0.02,                 // feet stand this far above a prop's top, as the mesh is not exact
   teleport: 0.5,               // a root move longer than this in one sub step jumps, with no sweep
-  upright: 0.35,               // a hollow prop tipped less than this (radians) can hold the bird inside
+  cap: 0.1,                    // thickness of the cap over a hollow prop's open top (addHollowBox)
+  capTilt: 0.6,                // the cap is there only while the prop is tipped less than this (radians)
+  // Duck: rays up from these points (character z) find a heavy thing over the bird lower than head
+  // (above the root): controller.duck. Inside the solid's radius, and a ray that starts in a solid goes
+  // through it (groundSettings), so a wall beside the bird is not a ceiling.
+  duck: { ahead: [0, 0.4], from: 0.3, head: 2.1 },
   backSpeed: 8,                // fastest step back for room, units per second
   room: 600,                   // push on the prop in N for each unit of overlap,
   roomSpeed: 1,                // up to this speed of the prop where the head is
@@ -122,11 +127,12 @@ export class Physics {
     // and ramps; the bird walks on them. heavy: blocks the bird. light: the feet and head move it too.
     // limb: the bird's kinematic spheres. bird: each bird's solid; it collides with nothing, but the
     // sweeps of the other birds stop at it. ghost: a held prop; it touches nothing. flier: the sphere of
-    // a flying bird; it knocks light props.
+    // a flying bird; it knocks light props. cap: the top of a hollow prop to the bird alone; it collides
+    // with nothing, but the bird's sweep and feet stop at it.
     this.layers = {
       fixed: addObjectLayer(s, still), fence: addObjectLayer(s, still), terrain: addObjectLayer(s, still), heavy: addObjectLayer(s, moving),
       light: addObjectLayer(s, moving), limb: addObjectLayer(s, moving), bird: addObjectLayer(s, moving), ghost: addObjectLayer(s, moving),
-      flier: addObjectLayer(s, moving),
+      flier: addObjectLayer(s, moving), cap: addObjectLayer(s, moving),
     };
     const L = this.layers;
     const pairs = [['heavy', 'fixed'], ['heavy', 'terrain'], ['light', 'terrain'], ['heavy', 'heavy'], ['heavy', 'light'], ['light', 'fixed'], ['light', 'fence'], ['light', 'light'], ['limb', 'light'], ['flier', 'light']];
@@ -148,10 +154,12 @@ export class Physics {
     this.birds = [];
     this.fliers = [];   // { flier, body, placed }
     this.heavyFilter = filter.create(this.world.settings.layers);
-    for (const layer of [L.fixed, L.fence, L.terrain, L.light, L.limb, L.bird, L.ghost, L.flier]) this.heavyFilter.enabledObjectLayers[layer] = 0;
-    // Ground rays: the ground, terrain and heavy props.
+    for (const layer of [L.fixed, L.fence, L.terrain, L.light, L.limb, L.bird, L.ghost, L.flier, L.cap]) this.heavyFilter.enabledObjectLayers[layer] = 0;
+    // Ground rays: the ground, terrain and heavy props. The bird's feet also stand on the caps.
     this.groundFilter = filter.create(this.world.settings.layers);
-    for (const layer of [L.fence, L.light, L.limb, L.bird, L.ghost, L.flier]) this.groundFilter.enabledObjectLayers[layer] = 0;
+    for (const layer of [L.fence, L.light, L.limb, L.bird, L.ghost, L.flier, L.cap]) this.groundFilter.enabledObjectLayers[layer] = 0;
+    this.feetFilter = filter.create(this.world.settings.layers);
+    for (const layer of [L.fence, L.light, L.limb, L.bird, L.ghost, L.flier]) this.feetFilter.enabledObjectLayers[layer] = 0;
     this.ray = createClosestCastRayCollector();
     this.raySettings = createDefaultCastRaySettings();
     this.groundSettings = { ...createDefaultCastRaySettings(), treatConvexAsSolid: false };
@@ -217,8 +225,14 @@ export class Physics {
     ] });
     shape = offsetCenterOfMass.create({ shape, offset: [-shape.centerOfMass[0], com - shape.centerOfMass[1], -shape.centerOfMass[2]] });
     const id = this.addDynamic(shape, options);
-    // The inside, from the middle of the box: half sizes across, and the floor and the rim heights.
-    (this.hollow ??= new Map()).set(id, { half: [w / 2 - wall, d / 2 - wall], floor: -h / 2 + floor, rim: h / 2 });
+    // A cap over the open top that only the bird touches (kinematic, on the cap layer, moved with the box
+    // in step()), so the bird can't get in from above. A ball still falls in. On its side the prop has
+    // no cap: the bird can duck into it (duckUnder()).
+    const cap = rigidBody.create(this.world, {
+      motionType: MotionType.KINEMATIC, objectLayer: this.layers.cap,
+      shape: box.create({ halfExtents: [w / 2, BIRD.cap / 2, d / 2], convexRadius: 0.02 }), position: options.position,
+    }).id;
+    (this.caps ??= []).push({ box: id, cap, y: h / 2 - BIRD.cap / 2, placed: false });
     return id;
   }
 
@@ -288,10 +302,10 @@ export class Physics {
     const limb = r => rigidBody.create(this.world, {
       motionType: MotionType.KINEMATIC, objectLayer: L.limb, shape: sphere.create({ radius: r }), position: [0, -10, 0],
     }).id;
-    const bird = { ibis, kcc: k, limbs: [limb(BIRD.foot), limb(BIRD.foot), limb(BIRD.peck)], held: null, placed: false, touching: false, under: null, inside: null, nudge: [0, 0] };
+    const bird = { ibis, kcc: k, limbs: [limb(BIRD.foot), limb(BIRD.foot), limb(BIRD.peck)], held: null, placed: false, touching: false, over: null, nudge: [0, 0] };
     this.birds.push(bird);
     c.collide = (controller, dt) => this.moveBird(bird, controller, dt);
-    c.controller.groundAt = (x, z, out) => this.groundAt(x, z, c.position.y + GROUND.stepUp, out);
+    c.controller.groundAt = (x, z, out) => this.groundAt(x, z, c.position.y + GROUND.stepUp, out, this.feetFilter);
   }
 
   // Gives a flying bird (src/miner/flier.js) its sphere. It follows flier.centre() each step.
@@ -305,21 +319,10 @@ export class Physics {
 
   // One controller sub step: sweep the solid from where it was to where the controller put it. It turns
   // with the heading without a sweep, and the next sweep pushes it back out of what the turn hit.
-  // Inside a hollow prop (an upright box with its flaps open), the bird stands on its floor: the walls
-  // round it are not a prop to push. Without this, the shove rays and the room check found the wall
-  // ahead, the bird pushed the box it stood in and followed it, and the box ran away with the bird.
-  // So while inside, the bird's sweep and rays skip that body, and the bird stays inside its walls
-  // (inner half size less the solid's radius) until it jumps out: a jump from inside keeps the walls
-  // skipped until the feet are over the rim, or the solid hit the wall and tipped the box, and the
-  // rising rim caught the bird and put it back in.
   moveBird(bird, c, dt) {
     this.takeNudge(bird, c);
     this.nudgeBirds(bird, c);
-    const inside = bird.inside = c.grounded ? this.insideOf(bird, c) : bird.inside && this.stillIn(bird.inside, c);
-    const skip = inside ? body => body.id !== inside.id : undefined;
-    this.birdFilter.bodyFilter = this.heavyFilter.bodyFilter = skip;
-    this.moveBirdIn(bird, c, dt, inside);
-    this.birdFilter.bodyFilter = this.heavyFilter.bodyFilter = undefined;
+    this.moveBirdIn(bird, c, dt);
   }
 
   // Pushes the other birds that this sub step moves the bird into: each takes BIRD.nudge.share of the
@@ -355,29 +358,7 @@ export class Physics {
     bird.nudge[0] = bird.nudge[1] = 0;
   }
 
-  // The hollow prop the bird stands inside, as { id, body, info }, or null.
-  insideOf(bird, c) {
-    const id = bird.under, info = id !== null && this.hollow?.get(id);
-    if (!info) return null;
-    const body = rigidBody.get(this.world, id);
-    if (!body || tiltAngle(body.quaternion) > BIRD.upright) return null;
-    const local = this.toLocal(body, c.position);
-    if (local.y > info.rim || Math.abs(local.x) > info.half[0] || Math.abs(local.z) > info.half[1]) return null;
-    return { id, body, info };
-  }
-
-  // In the air after a jump from inside: still inside until the feet are over the rim.
-  stillIn(inside, c) {
-    const body = rigidBody.get(this.world, inside.id);
-    if (!body || c.position.y > body.position[1] + inside.info.rim + BIRD.clear) return null;
-    return { ...inside, body };
-  }
-
-  toLocal(body, p) {
-    return new Vector3(p.x, p.y, p.z).sub(new Vector3().fromArray(body.position)).applyQuaternion(new Quaternion().fromArray(body.quaternion).invert());
-  }
-
-  moveBirdIn(bird, c, dt, inside) {
+  moveBirdIn(bird, c, dt) {
     const k = bird.kcc;
     k.position[1] = c.position.y;
     kcc.setQuaternion(this.world, k, yaw(c.heading));
@@ -392,27 +373,27 @@ export class Physics {
     kcc.update(this.world, k, dt, this.gravity, this.birdUpdate, undefined, this.birdFilter);
     c.position.x = k.position[0];
     c.position.z = k.position[2];
-    if (inside) {
-      // Keep the solid inside the walls, and nothing to push.
-      const { body, info } = inside, r = BIRD.solid.radius, local = this.toLocal(body, c.position);
-      local.x = Math.min(Math.max(local.x, -Math.max(info.half[0] - r, 0)), Math.max(info.half[0] - r, 0));
-      local.z = Math.min(Math.max(local.z, -Math.max(info.half[1] - r, 0)), Math.max(info.half[1] - r, 0));
-      local.applyQuaternion(new Quaternion().fromArray(body.quaternion)).add(new Vector3().fromArray(body.position));
-      c.position.x = local.x;
-      c.position.z = local.z;
-      kcc.setPosition(this.world, k, [c.position.x, c.position.y, c.position.z]);
-      this.feetGround(bird, c);
-      c.shove = 0;
-      bird.touching = false;
-      return;
-    }
     this.feetGround(bird, c);
+    this.duckUnder(bird, c);
     // Whatever stops the bird (the forehead, or the bill in an action or at a run) takes the push. In
     // the air the bird has nothing to push from: no brace and no push, so it can land on a prop.
     const forehead = this.shove(c), room = this.makeRoom(bird, c, dt);
     const contact = forehead ?? room;
     if (!c.grounded) c.shove = 0;
     this.push(bird, c, c.grounded ? contact : null, dt);
+  }
+
+  // A heavy thing over the bird, lower than its head (a fallen bin it walks into): controller.duck, and
+  // bird.over, the body, which the bird does not push (so it can't stand up the bin it is in).
+  duckUnder(bird, c) {
+    const { ahead, from, head } = BIRD.duck, sn = Math.sin(c.heading), cs = Math.cos(c.heading);
+    bird.over = null;
+    for (const z of ahead) {
+      this.ray.reset();
+      castRay(this.world, this.ray, this.groundSettings, [c.position.x + z * sn, c.position.y + from, c.position.z + z * cs], [0, 1, 0], head - from, this.heavyFilter);
+      if (this.ray.hit.status === CastRayStatus.COLLIDING) bird.over = this.ray.hit.bodyIdB;
+    }
+    c.duck = bird.over !== null;
   }
 
   // Pushes the prop the bird is against: one bump for each approach (none again until the bird backs
@@ -422,7 +403,7 @@ export class Physics {
     const bump = contact !== null && !bird.touching;
     if (contact) bird.touching = true;
     else if (c.shove === 0) bird.touching = false;
-    if (!contact || c.speed <= 0) return;
+    if (!contact || c.speed <= 0 || contact.id === bird.over) return;
     const { id, dir } = contact;
     // At forehead height, whatever touched: a low push (the bill at a run) slides the bin, not tips it.
     // On a short prop (a box), the bump goes no higher than BIRD.pushAt[0] of its height and the steady
@@ -477,16 +458,17 @@ export class Physics {
     const back = Math.min(worst, BIRD.backSpeed * dt);
     c.position.x -= away[0] * back;
     c.position.z -= away[2] * back;
-    this.pushUpTo(hit.id, hit.at, away, BIRD.roomSpeed, BIRD.room * worst * dt);
+    if (hit.id !== bird.over) this.pushUpTo(hit.id, hit.at, away, BIRD.roomSpeed, BIRD.room * worst * dt);
     return { ...hit, dir: away };
   }
 
   // Ground under a world point, from a ray down from top: out.y the height, out.n the normal (a
-  // Vector3). A prop top gets BIRD.clear. A miss (off the ground) is y = 0.
-  groundAt(x, z, top, out) {
+  // Vector3). A prop top (or a cap) gets BIRD.clear. A miss (off the ground) is y = 0. ground: the
+  // filter; the bird's feet use feetFilter, which has the caps.
+  groundAt(x, z, top, out, ground = this.groundFilter) {
     const length = top + GROUND_DEPTH;
     this.ray.reset();
-    castRay(this.world, this.ray, this.groundSettings, [x, top, z], [0, -1, 0], length, this.groundFilter);
+    castRay(this.world, this.ray, this.groundSettings, [x, top, z], [0, -1, 0], length, ground);
     if (this.ray.hit.status !== CastRayStatus.COLLIDING) {
       out.y = 0;
       out.n.set(0, 1, 0);
@@ -495,9 +477,8 @@ export class Physics {
     const y = top - this.ray.hit.fraction * length, hit = this.hit, body = rigidBody.get(this.world, this.ray.hit.bodyIdB);
     hit[0] = x; hit[1] = y; hit[2] = z;
     rigidBody.getSurfaceNormal(hit, body, hit, this.ray.hit.subShapeId);
-    out.y = y + (body.motionType === MotionType.DYNAMIC ? BIRD.clear : 0);
+    out.y = y + (body.motionType === MotionType.STATIC ? 0 : BIRD.clear);
     out.n.fromArray(hit);
-    out.body = body.motionType === MotionType.DYNAMIC ? body.id : null;
     return out;
   }
 
@@ -506,20 +487,16 @@ export class Physics {
   feetGround(bird, c) {
     const R = bird.ibis.rig, sn = Math.sin(c.heading), cs = Math.cos(c.heading), top = c.position.y + GROUND.stepUp;
     const probe = this.probe;
-    let under = null, high = -Infinity;
     [R.footL, R.footR].forEach((foot, i) => {
       const out = c.feet[i];
       out.y = -Infinity;
       for (const ahead of [0, GROUND.toes]) {
         const x = foot.x, z = foot.z + ahead;
-        probe.body = null;
-        this.groundAt(c.position.x + x * cs + z * sn, c.position.z - x * sn + z * cs, top, probe);
+        this.groundAt(c.position.x + x * cs + z * sn, c.position.z - x * sn + z * cs, top, probe, this.feetFilter);
         if (probe.y > out.y) { out.y = probe.y; out.n.copy(probe.n); }
-        if (probe.y > high) { high = probe.y; under = probe.body ?? null; }
       }
     });
     c.floor = Math.max(c.feet[0].y, c.feet[1].y);
-    bird.under = under;   // the prop the feet stand on, or null
   }
 
   // Finds a heavy prop ahead of the head, sets controller.shove, and moves the bird back if the prop
@@ -563,9 +540,24 @@ export class Physics {
       else rigidBody.moveKinematic(body, to, body.quaternion, dt);
       f.placed = true;
     }
+    this.placeCaps(dt);
     const n = Math.max(1, Math.ceil(dt / STEP - 1e-6));
     for (let i = 0; i < n; i++) updateWorld(this.world, undefined, dt / n);
     for (const bird of this.birds) bird.placed = true;
+  }
+
+  // Each cap goes to the top of its hollow prop, turned with it. moveKinematic, so a bird on it rides.
+  // A prop tipped past BIRD.capTilt puts its cap far below the ground.
+  placeCaps(dt) {
+    for (const c of this.caps ?? []) {
+      const box = rigidBody.get(this.world, c.box), cap = rigidBody.get(this.world, c.cap);
+      const on = tiltAngle(box.quaternion) < BIRD.capTilt;
+      const to = on ? new Vector3(0, c.y, 0).applyQuaternion(new Quaternion().fromArray(box.quaternion)).add(new Vector3().fromArray(box.position)).toArray() : [box.position[0], -10, box.position[2]];
+      if (!c.placed || on !== c.on) rigidBody.setTransform(this.world, cap, to, box.quaternion, false);
+      else rigidBody.moveKinematic(cap, to, box.quaternion, dt);
+      c.placed = true;
+      c.on = on;
+    }
   }
 
   // The ibis lets go of what its bill holds, as a blow knocks it out.

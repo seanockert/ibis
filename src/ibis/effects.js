@@ -60,6 +60,8 @@ const ANGER = { angles: [0.65, 1.35, 2.05], inner: 0.38, outer: 0.6, width: 0.04
 
 // Hit lines: as the anger lines, more of them and shakier. hold: seconds at full size before they shrink
 // away.
+// Impact puffs (impact()): how many, their size, speed out and up (world units), and life (dust times).
+const IMPACT = { count: 12, size: 0.12, speed: 2.2, up: 1.6, life: 0.7 };
 const HIT = { angles: [0.3, 0.92, 1.57, 2.22, 2.84], inner: 0.38, outer: 0.6, width: 0.045, shake: 0.4, sway: 0.08, hold: 0.18 };
 
 // Alert marks. size: the height of a mark, world units. over: its foot is this far above the head.
@@ -468,16 +470,29 @@ export class IbisEffects {
     if (a.group.visible && ibis.rig) this.placeStrokes(a, ANGER, ibis, camera, pop);
   }
 
-  // A blow on the head (a miner's dive): a burst of hit lines over it. The mark ink, so the backdrop
-  // trees don't cover them.
-  hit(ibis) {
+  // A blow on the head (a miner's dive, a snap at a miner): a burst of hit lines over it. The mark ink,
+  // so the backdrop trees don't cover them. size: times the bird's scale (a small miner needs more).
+  // hold: seconds before they shrink away.
+  hit(ibis, size = 1, hold = HIT.hold) {
     let h = this.hits.get(ibis);
     if (!h) {
       h = { ...this.strokeSet(HIT, this.markInk, 5), pop: new Spring(0, 6, 0.4), t: Infinity };
       this.hits.set(ibis, h);
     }
     h.t = 0;
+    h.size = size;
+    h.hold = hold;
     h.pop.value = h.pop.velocity = 0;
+  }
+
+  // A hard blow in the air (a snap that hurts a miner): puffs burst out all round the point (world).
+  impact(at) {
+    this.mudNow = 0;
+    for (let i = 0; i < IMPACT.count; i++) {
+      const a = (i + this.rand()) / IMPACT.count * Math.PI * 2, dir = new Vector3(Math.sin(a), 0, Math.cos(a));
+      this.puff(at, dir, { size: IMPACT.size * (0.7 + 0.6 * this.rand()), speed: IMPACT.speed * (0.6 + 0.8 * this.rand()),
+        up: IMPACT.up * (this.rand() - 0.35), life: IMPACT.life, fall: 0.5, drag: 3 });
+    }
   }
 
   // The hit lines: they burst out with an overshoot, shake hard, hold, then shrink away.
@@ -485,9 +500,9 @@ export class IbisEffects {
     const h = this.hits.get(ibis);
     if (!h) return;
     h.t += dt;
-    const pop = h.pop.update(dt, h.t < HIT.hold ? 1 : 0);
-    h.group.visible = h.t < HIT.hold || pop > 0.02;
-    if (h.group.visible && ibis.rig) this.placeStrokes(h, HIT, ibis, camera, pop);
+    const pop = h.pop.update(dt, h.t < h.hold ? 1 : 0);
+    h.group.visible = h.t < h.hold || pop > 0.02;
+    if (h.group.visible && ibis.rig) this.placeStrokes(h, HIT, ibis, camera, pop * h.size);
   }
 
   // A group of strokes, one for each of lines.angles (ANGER, HIT), drawn after renderOrder order.
@@ -502,7 +517,7 @@ export class IbisEffects {
   placeStrokes({ group, strokes }, lines, ibis, camera, pop) {
     const head = ibis.rig.head.clone().applyMatrix4(ibis.object.matrixWorld);
     const toCamera = camera.position.clone().sub(head).normalize();
-    group.position.copy(head).addScaledVector(toCamera, 0.3);
+    group.position.copy(head).addScaledVector(toCamera, 0.3 * ibis.object.scale.x);
     group.quaternion.copy(camera.quaternion);
     group.scale.setScalar(Math.max(pop, 0) * ibis.object.scale.x);
     strokes.forEach((m, i) => {

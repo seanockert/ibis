@@ -71,8 +71,8 @@ export class Input {
 
   // On the player, a prod; on the ground in bounds, walk there.
   tap(e) {
-    const bird = this.level.player, ray = new THREE.Raycaster();
-    ray.setFromCamera(new THREE.Vector2(e.clientX / innerWidth * 2 - 1, 1 - e.clientY / innerHeight * 2), this.stage.camera);
+    const bird = this.level.player, ray = new THREE.Raycaster(), r = this.stage.renderer.domElement.getBoundingClientRect();
+    ray.setFromCamera(new THREE.Vector2((e.clientX - r.left) / r.width * 2 - 1, 1 - (e.clientY - r.top) / r.height * 2), this.stage.camera);
     bird.object.updateMatrixWorld();
     const d = bird.hit(ray.ray);
     if (d !== null) { bird.prod(ray.ray.at(d, new THREE.Vector3())); return; }

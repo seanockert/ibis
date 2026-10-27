@@ -25,6 +25,9 @@ const WEATHER_RATE = 0.5;   // mud and wet change per second toward their target
 const PROP_FENCE = 0.5;     // the walls that stop light props are this far outside the bounds
 const BRAINS = { wander: (seed, at, bounds) => new Wander(seed, at, bounds) };
 const NOTICE_LOOK = 1.5;    // seconds the player looks at a miner that goes on alert
+// A snap that hurts a miner: the hit-stop (seconds, and the time rate in it), and the size and hold
+// (seconds) of its hit lines. The camera shakes too (Follow.shake(), in main.js).
+const HURT = { freeze: 0.12, rate: 0.05, lines: 2.2, hold: 0.6 };
 
 export class Level {
   // asset: the ibis asset (loadIbis()), for the shared uniforms. birds: the bird assets by species.
@@ -37,6 +40,7 @@ export class Level {
     this.bounds = def.bounds;
     this.ibises = [];
     this.fliers = [];            // birds in the air (src/miner/flier.js)
+    this.freeze = 0;             // seconds left of a hit-stop (HURT)
     this.sentry = null;          // their brain: guard a perch, call, dive at the player's head
     this.perches = [];           // what they can land on (Sentry)
     this.player = null;
@@ -134,6 +138,8 @@ export class Level {
   // move script) must be set before.
   update(dt, camera) {
     const { fx, sound } = this;
+    // Hit-stop: the world almost stops for a moment as a snap hurts a miner.
+    if (this.freeze > 0) { this.freeze -= dt; dt *= HURT.rate; }
     for (const ibis of this.ibises) {
       this.brains.get(ibis)?.update(ibis.character, dt);
       const target = this.targets.get(ibis), step = WEATHER_RATE * dt;
@@ -150,11 +156,26 @@ export class Level {
     // makes it drop what it holds and stumble.
     // A squawk or a hiss of the player is a noise that the miners hear.
     if (this.sentry && this.player?.character.events.some(e => e.type === 'call' || e.type === 'hiss')) this.sentry.hear(this.player.object.position, SENTRY.loud.call);
+    // The player's peck at a miner (a snap) bites: a miner near the head is hurt and flies off.
+    if (this.sentry && this.player?.character.events.some(e => e.type === 'bite')) this.sentry.bite();
     this.sentry?.update(this.player, dt, this.perches);
-    // The player turns its head to a miner that goes on alert.
     for (const e of this.sentry?.events ?? []) {
-      const p = this.player.object.position, m = e.flier.object.position;
-      this.player.character.animator.lookAt(Math.atan2(m.x - p.x, m.z - p.z), NOTICE_LOOK);
+      // The player turns its head to a miner that goes on alert.
+      if (e.type === 'alert') {
+        const p = this.player.object.position, m = e.flier.object.position;
+        this.player.character.animator.lookAt(Math.atan2(m.x - p.x, m.z - p.z), NOTICE_LOOK);
+      }
+      if (e.type === 'hurt') {
+        fx.hit(e.flier, HURT.lines, HURT.hold);
+        fx.impact(e.flier.centre());
+        this.freeze = HURT.freeze;
+      }
+    }
+    // The next peck snaps at this miner, which shows a white outline.
+    if (this.player && this.sentry) {
+      const prey = this.sentry.prey();
+      this.player.character.snapAt = prey?.centre() ?? null;
+      for (const flier of this.fliers) flier.glow = flier === prey ? 1 : 0;
     }
     for (const flier of this.fliers) {
       flier.update(dt);
@@ -191,6 +212,7 @@ export class Level {
       this.collidersView?.update();
     }
     fx.update(dt, this.ibises, camera);
+    for (const flier of this.fliers) fx.hitLines(flier, dt, camera);
     fx.alertMarks(this.fliers, dt, camera);
     sound?.update(this.ibises, camera);
   }

@@ -2,15 +2,16 @@
 // centre together, so a drag still orbits and the zoom stays. As the bird moves, the view swings behind
 // it. A drag that turns the view stops the swing for a time. A glance turns and moves the view part of
 // the way toward a point out of view (a miner that goes on alert), tilts up to a high point, holds, and
-// comes back.
+// comes back. A shake jolts the camera and its orbit centre for a moment (a hit), and dies away.
 //
 //   const follow = new Follow(camera, controls, 0.9);
 //   follow.update(dt, character);   // every frame
 //   follow.recentre();              // turn the view behind the bird
 //   follow.glance(point);           // a point, world: a glance toward it if it is out of view
+//   follow.shake();                 // a jolt, as a snap hurts a miner
 import { Spherical, Vector3 } from 'three';
 import { MOVE } from '../ibis/motion/controller.js';
-import { Spring, clamp, damp, smoothstep, wrapAngle } from '../ibis/motion/spring.js';
+import { Spring, TAU, clamp, damp, smoothstep, wrapAngle } from '../ibis/motion/spring.js';
 
 // The orbit centre follows the point on critically damped springs (no overshoot), so the camera trails
 // the bird as it starts to move, then overtakes it and shows where it goes. The look-ahead builds and
@@ -38,6 +39,8 @@ export const CAMERA = {
   // top: the view tilts up (the camera orbits lower) until the point is no higher than this part of the
   // half height of the view above the middle, at most maxTilt radians. Low enough that the mark over a
   // miner's head (effects.js) stays in view too.
+  // Shake: seconds, the size at the start (units), and its rates on x, y and z (Hz).
+  shake: { time: 0.35, size: 0.12, rate: [23, 29, 19] },
   glance: { in: 0.5, hold: 0.9, out: 0.8, turn: 0.7, maxTurn: 1.0, move: 0.25, maxMove: 4, view: 0.75, top: 0.3, maxTilt: 0.6 },
 };
 
@@ -61,6 +64,8 @@ export class Follow {
     this.turned = 0;       // the turn, the tilt and the move of the glance in the view now
     this.tilted = 0;
     this.moved = new Vector3();
+    this.shaken = Infinity;      // seconds since the last shake
+    this.jolt = new Vector3();   // the shake offset now, on the camera and the orbit centre
     // A drag stops the turns while it lasts. When it turned the view, the swing waits. A tap does not.
     this.from = null;   // azimuth and polar angle at the start of a drag, or null
     controls.addEventListener('start', () => { this.from = [controls.getAzimuthalAngle(), controls.getPolarAngle()]; });
@@ -73,6 +78,8 @@ export class Follow {
       this.from = null;
     });
   }
+
+  shake() { this.shaken = 0; }
 
   recentre() {
     this.recentring = true;
@@ -143,6 +150,9 @@ export class Follow {
 
   update(dt, character) {
     const c = character.controller, p = c.position;
+    // Take off the last shake, so the follow works from the true view.
+    this.controls.target.sub(this.jolt);
+    this.camera.position.sub(this.jolt);
     // Look ahead along the velocity on the ground.
     const k = Math.min(CAMERA.lead, CAMERA.maxLead / Math.max(Math.abs(c.speed), 1e-3));
     const tx = Math.sin(c.heading) * c.speed * k, tz = Math.cos(c.heading) * c.speed * k;
@@ -183,6 +193,12 @@ export class Follow {
     this.orbit(turn, tilt);
     this.turned = turn;
     this.tilted = tilt;
+    // Shake: a jolt that falls to nothing.
+    const S = CAMERA.shake, t = this.shaken += dt, size = S.size * Math.max(1 - t / S.time, 0) ** 2;
+    if (size > 0) this.jolt.set(...S.rate.map((r, i) => size * Math.sin(TAU * r * t + i * 2.1)));
+    else this.jolt.set(0, 0, 0);
+    this.controls.target.add(this.jolt);
+    this.camera.position.add(this.jolt);
     this.controls.update();
   }
 }

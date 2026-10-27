@@ -26,6 +26,7 @@ export class Character {
     // (controller, dt) => void, or null. Runs after each controller sub step, and can move the root
     // back out of solid things (src/world/physics.js).
     this.collide = null;
+    this.snapAt = null;   // a miner that a peck snaps at now (world point, from sentry.js), or null
   }
 
   get input() { return this.controller.input; }
@@ -34,8 +35,17 @@ export class Character {
   get pose() { return this.animator.pose; }
   get action() { return this.animator.action; }
 
-  // A peck with a prop in the bill drops it.
-  act(name, options) { this.animator.play(name === 'peck' && this.controller.carry !== null ? 'drop' : name, options); }
+  // A peck with a prop in the bill drops it. With a miner to snap at (snapAt), a peck is a snap at it,
+  // with the head turned to it.
+  act(name, options) {
+    if (name === 'peck' && this.controller.carry !== null) name = 'drop';
+    else if (name === 'peck' && this.snapAt) {
+      name = 'snap';
+      const p = this.position, m = this.snapAt;
+      this.animator.lookAt(Math.atan2(m.x - p.x, m.z - p.z), 0.6);
+    }
+    this.animator.play(name, options);
+  }
   turnTo(heading) { this.controller.turnTo(heading); }
 
   // A prod (a click or a tap) at a point in character space. Each prod soon after the last one annoys

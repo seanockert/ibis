@@ -4,7 +4,8 @@
 // gets missed. Then it flaps hard and climbs back up in an arc. On land() it comes down in an arc onto a
 // point (the top of a bin), flares and stands there. On takeOff() it jumps up and flies back to its circle.
 // settle() puts it on a perch at once. On a perch it turns to face watch, and agitation makes it bob,
-// flick its wings and glare. call() opens the bill and sends a 'call' event.
+// flick its wings and glare. call() opens the bill and sends a 'call' event. hurt() (a snap of the ibis)
+// stops all that: it tumbles away with a yelp, then flies on.
 // It owns the root in the air, as the Controller does on the ground, and makes a Pose for the rig.
 // position is the root (the feet at rest) in world units. The Pose is in character units: the bird is
 // scaled by MINER_SCALE.
@@ -19,6 +20,7 @@
 //   f.watch = head;           // on a perch: turn to it and look at it. null: look round
 //   f.agitation = 1;          // 0 calm to 1: bobs, wing flicks and an angry face on a perch
 //   f.call('chip');           // the bill opens, and a 'call' event with this kind
+//   f.hurt(from);             // knocked away from a world point: a tumble, then it circles
 //   const pose = f.update(dt);   // then f.position and f.heading place the bird. f.events: 'dive', 'hit', 'call'
 import { Vector3 } from 'three';
 import { clipPose, mixPose, restPose } from '../ibis/rig.js';
@@ -40,6 +42,7 @@ export const FLIGHT = {
   fold: { base: 0.05, amp: 0.02, freq: 3, sweep: 0 },
   flare: { base: 1.3, amp: 0.6, freq: 9, sweep: 0.3 },
   rest: { base: 0.03, amp: 0.02, freq: 0.4, sweep: 0 },
+  flail: { base: 1.2, amp: 0.8, freq: 11, sweep: 0.3 },
   burst: [1.4, 1.0],  // seconds of flaps, then of glide, in the circle
   // Dive. turnRate: the turn toward the target first, radians per second. lined: it dives when it heads
   // this near the target (radians), or after lineUp seconds. speed: at the bottom, units per second (it
@@ -56,6 +59,9 @@ export const FLIGHT = {
   // (radians) off, and stops when it is less than face / 8. call: seconds the bill is open for a call,
   // also in the air.
   sit: { turnRate: 6, face: 0.5, call: 0.45 },
+  // Hurt: seconds of the tumble, the speed away and up at the start (units per second), the fall
+  // (units per second²), the rolls in the tumble, and the lowest height.
+  hurt: { time: 1.4, speed: 9, up: 5, fall: 11, rolls: 2, floor: 0.6 },
   centre: 0.2,        // the middle of the body above the root, world units
   // Legs tucked back under the body in flight, character space (left foot; the right is mirrored), with
   // the toes turned back.
@@ -90,6 +96,7 @@ export class Flight {
     this.phase = 0;
     this.dived = null;      // the dive now, or null
     this.perched = null;    // the perch now (the way in, on it, the take off), or null
+    this.tumble = null;     // the tumble of a hurt, { t }, or null
     this.stand = 0;         // 0 the flight pose, 1 standing: the legs, the body and the head
     this.lift = 0;          // the Pose lift, character units: the close views lift the bird off the ground
     this.watch = null;      // on a perch: a world point it faces and looks at, or null
@@ -102,7 +109,7 @@ export class Flight {
   }
 
   get diving() { return this.dived !== null; }
-  get circling() { return this.dived === null && this.perched === null; }
+  get circling() { return this.dived === null && this.perched === null && this.tumble === null; }
   get landed() { return this.perched?.phase === 'sit'; }
 
   // The turn from the heading to watch, radians.
@@ -137,6 +144,18 @@ export class Flight {
     Object.assign(pe, { phase: 'out', t: 0, from: this.position.clone() });
   }
 
+  // Hurt by a snap from a point (world): it stops a dive or a perch, and tumbles away from the point and
+  // up with the wings flailing and a yelp. Then it circles (land() can take it to a perch).
+  hurt(from) {
+    const H = FLIGHT.hurt, away = new Vector3(this.position.x - from.x, 0, this.position.z - from.z);
+    if (away.lengthSq() < 1e-6) away.set(-Math.sin(this.heading), 0, -Math.cos(this.heading));
+    this.dived = this.perched = null;
+    this.stand = 0;
+    this.velocity.copy(away.normalize()).multiplyScalar(H.speed).setY(H.up);
+    this.tumble = { t: 0 };
+    this.call('yelp');
+  }
+
   // Starts a dive at target from where the bird is now. Phases: 'line' (turn toward the target), 'down'
   // (the straight dive at the aim), 'up' (the climb). t: seconds in the phase.
   dive() {
@@ -160,7 +179,8 @@ export class Flight {
     this.time += dt;
     this.called += dt;
     const before = this.heading;
-    if (this.dived) this.diveStep(dt);
+    if (this.tumble) this.tumbleStep(dt);
+    else if (this.dived) this.diveStep(dt);
     else if (this.perched) this.perchStep(dt);
     else this.circleStep(dt);
     this.turn += (wrapAngle(this.heading - before) / dt - this.turn) * damp(0.15, dt);
@@ -170,7 +190,7 @@ export class Flight {
     this.anger += ((phase === 'line' || phase === 'down' ? 1 : 0) - this.anger) * damp(0.06, dt);
     // Wings: ease toward the beat of the moment.
     const flare = pe?.phase === 'in' && pe.t > pe.time * (1 - FLIGHT.perch.flare);
-    const want = phase === 'down' ? FLIGHT.fold : phase === 'up' || pe?.phase === 'out' ? FLIGHT.pump
+    const want = this.tumble ? FLIGHT.flail : phase === 'down' ? FLIGHT.fold : phase === 'up' || pe?.phase === 'out' ? FLIGHT.pump
       : pe?.phase === 'sit' ? FLIGHT.rest : flare ? FLIGHT.flare : pe ? FLIGHT.glide
       : phase === 'line' || this.position.y < this.height - 0.3 || (this.time % (FLIGHT.burst[0] + FLIGHT.burst[1])) < FLIGHT.burst[0] ? FLIGHT.flap : FLIGHT.glide;
     const k = damp(0.08, dt);
@@ -235,6 +255,17 @@ export class Flight {
     }
   }
 
+  // Knocked away: it flies on with the speed of the hit, falls a little, and faces where it goes.
+  tumbleStep(dt) {
+    const H = FLIGHT.hurt, p = this.position, v = this.velocity;
+    this.tumble.t += dt;
+    v.y -= H.fall * dt;
+    p.addScaledVector(v, dt);
+    if (p.y < H.floor) { p.y = H.floor; v.y = Math.max(v.y, 0); }
+    if (Math.hypot(v.x, v.z) > 1e-3) this.heading = Math.atan2(v.x, v.z);
+    if (this.tumble.t >= H.time) this.tumble = null;
+  }
+
   // The way in, the perch and the take off.
   perchStep(dt) {
     const pe = this.perched, L = FLIGHT.perch, p = this.position, v = this.velocity;
@@ -295,10 +326,21 @@ export class Flight {
     P.lowLid = 0.2 * dive;
     P.jaw = 0.2 * dive;
     if (this.stand > 0) this.standPose(beat);
+    if (this.tumble) this.tumblePose();
     // A call opens the bill and lifts the head.
     const open = window4(0, 0.03, FLIGHT.sit.call - 0.12, FLIGHT.sit.call, this.called);
     P.jaw = Math.max(P.jaw, 0.35 * open);
     P.headPitch -= 0.25 * open;
+  }
+
+  // The tumble: a roll over, dazed eyes that roll, the bill open in the yelp.
+  tumblePose() {
+    const P = this.pose, H = FLIGHT.hurt, s = this.tumble.t / H.time;
+    P.roll += TAU * H.rolls * smoothstep(0, 0.7, s);
+    P.headRoll = 0.4 * Math.sin(TAU * 3 * s);
+    Object.assign(P, { lid: 0.35, lidTilt: 0, lowLid: 0.15, pupil: 0.75 });
+    P.look.set(0.7 * Math.cos(TAU * 2.5 * s), 0.6 * Math.sin(TAU * 2.5 * s));
+    P.jaw = Math.max(P.jaw, 0.4 * (1 - smoothstep(0.2, 0.5, s)));
   }
 
   // Blends toward standing: the idle clip of the ibis rig, with a dip at touch down and a crouch before

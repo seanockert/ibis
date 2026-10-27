@@ -42,6 +42,9 @@ const LOOK = {
 };
 
 const BLINK_TIME = 0.16;
+// Duck (controller.duck, under a fallen bin): the neck straight out and low (reach), the head level, the
+// body lower and the wings shut, so the head fits under about 1.3.
+const DUCK = { headPitch: 0.1, pitch: 0.35, bob: -0.1, stretch: 0.9, wing: 0.1 };
 // Wing beats, for sound. A beat turns when the wings move back this far from the top or the bottom. A
 // beat this high or more gives a 'flap' event (the run flap and the walk swing are less).
 const BEAT = { turn: 0.03, min: 0.3 };
@@ -82,6 +85,7 @@ export class Animator {
     this.bank = new Spring(0, 2.5, 0.6);   // roll into turns
     this.squash = new Spring(0, 3.2, 0.4); // more than 0 squash, less than 0 stretch
     this.brace = new Spring(0, 7, 0.9);   // shove pose: head down, forehead forward
+    this.ducking = new Spring(0, 8, 1);   // duck pose (DUCK)
     this.grip = new Spring(0, 14, 1);     // bill open round a held prop
     this.gripJaw = 0;                     // how far: controller.carry, kept while the bill shuts after a drop
     this.slope = new Spring(0, 2, 1);     // body pitch from the slope
@@ -447,6 +451,18 @@ export class Animator {
     P.stretch *= 1 - 0.25 * brace;
     P.pitch += 0.2 * brace;
     P.bob -= 0.06 * brace;
+
+    // Duck: under something low, the head goes out and down. After the actions, so none lifts it.
+    const duck = clamp(this.ducking.update(dt, c.duck ? 1 : 0), 0, 1);
+    if (duck > 0) {
+      P.reach = mix(P.reach, 1, duck);
+      P.headPitch = mix(P.headPitch, DUCK.headPitch, duck);
+      P.pitch = mix(P.pitch, DUCK.pitch, duck);
+      P.bob += DUCK.bob * duck;
+      P.stretch = mix(P.stretch, DUCK.stretch, duck);
+      P.wingL = mix(P.wingL, Math.min(P.wingL, DUCK.wing), duck);
+      P.wingR = mix(P.wingR, Math.min(P.wingR, DUCK.wing), duck);
+    }
 
     // Something held in the bill keeps it open.
     this.gripJaw = c.carry ?? this.gripJaw;

@@ -8,8 +8,8 @@ import { MOVES } from '../moves.js';
 
 // Icons: 24 by 24 SVG, filled shapes and lines (class s) with a little bow in the edges, so they look hand drawn.
 const ICONS = {
-  Jump: '<path d="M7.7 5.1 3.4 9.4l2.3 3.2 6-4 7.4 4 1.5-3.2-9.2-7.7zM14.9 17.1H9.7l-.6 4.6h6.3z"/><path d="M14.9 15.4H9.7l.3-3.7 1.7-1.1 2.6.8z"/>',
-  Peck: '<path d="M22 18.1C21 .6 8 3.1 2.5 3.1c0 2.5-.5 8-.5 10.5 3.5-.5 6.5 3 11.5 8C13 15.1 11 15.1 8 10.1c5 .5 10 1.5 14 8"/><circle cx="17.5" cy="19.1" r="3" />',
+  Jump: '<path d="M11.8 3 3 10.7 5.3 14l6.5-5 7 4.9 1.3-3.2z"/><path d="M11.8 12.5 6.5 17l1 4 4.3-4 4.7 4 1.3-3z"/>',
+  Peck: '<path d="M5 13a7 7 0 0 0 6 6v2a9 9 0 0 1-8-8zm16 0a9 9 0 0 1-8 8v-2a7 7 0 0 0 6-6zM11 5a7 7 0 0 0-6 6H3a9 9 0 0 1 8-8zm2-2a9 9 0 0 1 8 8h-2a7 7 0 0 0-6-6zm3 9a4 4 0 1 1-8 0 4 4 0 0 1 8 0"/>',
   Squawk: '<ellipse cx="8" cy="19" rx="5" ry="4"/><path d="M13 19.5 10.5 17V3.5l11 4-2 4-5.5-4z"/>',
   Threat: '<path d="m8 1.7 7.7.9L14.6 15H9.7z"/><circle cx="12" cy="20" r="3.1"/>',
 };
@@ -59,11 +59,11 @@ export class Ui {
       const b = document.createElement('button');
       b.textContent = move.name;
       b.setAttribute('aria-pressed', String(i === anim - 1 && (move.loop || !play)));
-      b.onclick = () => {
+      onPress(b, () => {
         if (play) { move.press(bird.character); return; }
         onMove(i);
         this.setPressed(i);
-      };
+      });
       (play ? topActions : bar).appendChild(b);
       this.buttons[i] = b;
     }
@@ -71,7 +71,7 @@ export class Ui {
     // off), then in free play the other actions. Mud comes from the puddle.
     const wet = this.wet = document.createElement('button');
     wet.textContent = 'Wet';
-    wet.onclick = () => level.setWet(!this.wetOn());
+    onPress(wet, () => level.setWet(!this.wetOn()));
     this.update();
     document.getElementById('weather').append(wet, topActions);
   }
@@ -88,6 +88,14 @@ export class Ui {
 
   // i: the move button to show pressed, or -1 for none.
   setPressed(i) { this.buttons.forEach((x, j) => x?.setAttribute('aria-pressed', String(j === i))); }
+}
+
+// Acts at once on a touch or pen, and on a click from a mouse or a key. A touch gives no click (lockScreen()
+// in screen.js stops it), but a pen can: skip a click just after a press.
+function onPress(b, fn) {
+  let pressed = -Infinity;
+  b.addEventListener('pointerdown', e => { if (e.pointerType !== 'mouse') { pressed = e.timeStamp; fn(); } });
+  b.addEventListener('click', e => { if (e.timeStamp - pressed > 1000) fn(); });
 }
 
 // On while a pointer holds it.

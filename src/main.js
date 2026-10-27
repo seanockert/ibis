@@ -5,6 +5,7 @@ import * as THREE from 'three';
 import { readConfig } from './app/config.js';
 import { Follow } from './app/follow.js';
 import { Input } from './app/input.js';
+import { lockScreen } from './app/screen.js';
 import { Stage, TARGET_PLAY } from './app/stage.js';
 import { hideUi, Ui } from './app/ui.js';
 import { IBIS } from './ibis/bird.js';
@@ -22,6 +23,9 @@ import { seeOn } from './world/props.js';
 const config = readConfig();
 const { play, count, anim, fixedTime } = config;
 if (!config.ui) hideUi();
+lockScreen();
+// The built game starts offline (src/sw.js). Not in the dev server, so the tools always get fresh files.
+if (import.meta.env.PROD && 'serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js');
 
 // The meshes of the birds, by species. They share the sun.
 const asset = await loadIbis(IBIS);
@@ -109,7 +113,9 @@ function frame() {
   stage.keepAbove();
   if (follow) {
     // A miner that goes on alert out of view: the camera glances toward its head.
-    for (const e of level.sentry?.events ?? []) follow.glance(e.flier.rig.head.clone().applyMatrix4(e.flier.object.matrixWorld));
+    // A snap that hurts a miner shakes the view.
+    if (level.sentry?.events.some(e => e.type === 'hurt')) follow.shake();
+    for (const e of level.sentry?.events ?? []) if (e.type === 'alert') follow.glance(e.flier.rig.head.clone().applyMatrix4(e.flier.object.matrixWorld));
     follow.update(dt, bird.character);
     stage.shadowTo(controls.target);
   }

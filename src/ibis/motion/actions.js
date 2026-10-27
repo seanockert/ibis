@@ -15,7 +15,7 @@
 //                     'thump' { amount } kicks the squash spring. dust: 'rump' or 'feet' makes a puff there.
 //                     Sound only (sound.js): 'call' { pitch, gain } a honk, 'hiss' { length }, 'clack'
 //                     { amount } the bill snaps shut, 'stamp' a foot hits the ground. 'grab' (physics.js)
-//                     picks up a prop in the bill, 'drop' lets it go
+//                     picks up a prop in the bill, 'drop' lets it go. 'bite' (sentry.js) can hurt a miner
 //   anger             0 to 1: comic anger lines round the head while the action plays (effects.js)
 import { Vector3 } from 'three';
 import { clipPose } from '../rig.js';
@@ -146,6 +146,22 @@ export const ACTIONS = {
     length: 0.4, fadeIn: 0.02, fadeOut: 0.15, mask: { jaw: 1 },
     events: [{ at: 0.06, type: 'drop' }],
     apply(P, t) { P.jaw = Math.max(P.jaw, GRIP.drop * window4(0, 0.06, 0.2, 0.4, t)); },
+  },
+  // A peck at a noisy miner in the air (Character.act with snapAt): the head shoots up and forward with
+  // the bill wide, and the bill shuts hard. 'bite' (sentry.js): a miner near the head in the next
+  // SNAP.window seconds is hurt.
+  snap: {
+    length: 0.55, fadeIn: 0.03, fadeOut: 0.2, mask: UPPER, face: 'angry', anger: 0.6,
+    events: [{ at: 0.06, type: 'bite' }, { at: 0.13, type: 'clack', amount: 1 }],
+    apply(P, t) {
+      const up = window4(0, 0.07, 0.25, 0.55, t);
+      P.stretch = mix(P.stretch, 1.3, up);
+      P.headFwd = mix(P.headFwd, 0.1, up);
+      P.headPitch = mix(P.headPitch, -0.5, up);
+      P.pitch -= 0.12 * up;
+      P.jaw = Math.max(P.jaw, 0.6 * window4(0, 0.04, 0.09, 0.13, t));
+      P.wingL = P.wingR = mix(P.wingL, 0.3, up);
+    },
   },
   // A honk at each jaw beat.
   squawk: clipAction('squawk', 1.5, [0.08, 0.58, 1.08].map((at, i) => ({ at, type: 'call', pitch: [1, 0.96, 0.92][i] }))),

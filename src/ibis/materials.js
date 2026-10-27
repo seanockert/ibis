@@ -13,6 +13,7 @@ const float LINE_INNER = 0.01;     // material lines
 const float CONTOUR_LIT = 0.01;    // outline on the lit side
 const float CONTOUR_SHADE = 0.023; // outline on the shadow side
 const float LINE_MIN_PX = 1.0;
+const float GLOW = 0.005;   // the glow contour's added width, a part of the view height (4 px at 800)
 
 `;
 
@@ -394,7 +395,7 @@ export function hullMaterial(palette, shared, body, kind, bird) {
     name: bird.name + '-hull-' + kind,
     side: BackSide,
     defines: { CONTOUR: kind === 'contour' ? 1 : 0 },
-    uniforms: { ...shared, uHeadInv: { value: c.headInv }, uLine: { value: line }, gBlink: body.uniforms.gBlink, gExpr: body.uniforms.gExpr },
+    uniforms: { ...shared, uHeadInv: { value: c.headInv }, uLine: { value: line }, uGlow: { value: 0 }, gBlink: body.uniforms.gBlink, gExpr: body.uniforms.gExpr },
     vertexShader: /* glsl */`
       #include <common>
       #include <skinning_pars_vertex>
@@ -406,6 +407,7 @@ export function hullMaterial(palette, shared, body, kind, bird) {
       attribute float _group;
       attribute float _line;
       attribute vec3 _outline;   // smooth normal for the push out
+      uniform float uGlow;       // 0 to 1: the contour goes white and wider (GLOW), as a highlight
       varying float vMat;
       varying vec4 vEye;
       void main() {
@@ -438,6 +440,9 @@ export function hullMaterial(palette, shared, body, kind, bird) {
         vec4 clip = projectionMatrix * modelViewMatrix * vec4(transformed, 1.0);
         vec2 dir = normalize(mat3(viewMatrix) * worldNormal).xy;
         float px = max(units * pixelsPerUnit(clip.w), LINE_MIN_PX) * _line;
+      #if CONTOUR
+        px += uGlow * GLOW * uViewHeight;
+      #endif
         clip.xy += normalize(dir + 1e-6) * px * ndcPerPixel() * clip.w;
         gl_Position = clip;
       }`,
@@ -446,12 +451,13 @@ export function hullMaterial(palette, shared, body, kind, bird) {
       ${SHARED}
       ${c.lid}
       uniform vec3 uLine[${c.count}];
+      uniform float uGlow;
       varying float vMat;
       varying vec4 vEye;
       void main() {
         int id = int(vMat + 0.5);
         if (id == ID_LID && lidCover(vEye.xyz, gExpr, gBlink) < 0.0) discard;
-        gl_FragColor = vec4(uLine[id], 1.0);
+        gl_FragColor = vec4(mix(uLine[id], vec3(1.0), uGlow), 1.0);
         #include <colorspace_fragment>
       }`,
   });

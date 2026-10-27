@@ -30,6 +30,7 @@ Spaces, materials, colours, light, lines, mud and wet on the ibis.
 - Groups (`_group` attribute): 0 torso and head, 1 jaw, 2 wings, 3 legs, 4 scarf, 5 head of the miner (`headGroup` in its `bird.js`). They are set in `PARTS` in `bake.js` and used for stencil values in `Ibis.js`.
 - Line types:
   - Contour hull: wide inverted hull for the silhouette.
+    - `uGlow` (0 to 1, each bird's own contour material, `ibis.glow`): the contour goes white and `GLOW` (a part of the view height) wider. A highlight for the miner that a peck would snap at. At 0 the bird is as before (pixel diff).
   - Inner hull: thin inverted hull where one group lies near another. It is off for the wings and the scarf.
   - Border lines: a quad on each mesh edge where two materials meet. They are built at load time in `borderLines()`.
   - Body shader lines: the torso tests the wing and scarf SDFs, and the wings test the body SDF. `overLine()` and the `lineMask(d, ...)` call in `materials.js`.

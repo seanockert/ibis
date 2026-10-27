@@ -75,6 +75,7 @@ export class Ibis {
     this.contour = this.attach(this.body.geometry, byGroup(i =>
       i === WING_GROUP || i === SCARF_GROUP ? stencilled(contour, TORSO_GROUP + 1, NotEqualStencilFunc, KeepStencilOp) : contour));
     this.contour.renderOrder = 1;   // after every body has drawn its stencil
+    this.glowUniform = contour.uniforms.uGlow;
     const inner = hullMaterial(asset.palette, asset.uniforms, body, 'inner', this.bird);
     this.inner = this.attach(this.body.geometry, byGroup(i => stencilled(inner, i + 1, NotEqualStencilFunc, KeepStencilOp)));
     this.inner.renderOrder = 1;   // after every body has drawn its stencil
@@ -149,6 +150,10 @@ export class Ibis {
   strike(point) { this.character.strike(this.object.worldToLocal(point.clone())); }
 
   // Mud from 0 (clean) to 1 (mud up to the belly), with splashes above the mud line.
+  // 0 to 1: the contour goes white and wider, as a highlight (a miner that a peck would snap at).
+  get glow() { return this.glowUniform.value; }
+  set glow(value) { this.glowUniform.value = value; }
+
   get mud() { return this.uniforms.uMud.value; }
   set mud(value) { this.uniforms.uMud.value = value; }
 

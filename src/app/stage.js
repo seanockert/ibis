@@ -25,13 +25,16 @@ export class Stage {
     // With the street, Grade draws into its own multisampled target: the canvas gets only a full-screen quad.
     const renderer = this.renderer = new THREE.WebGLRenderer({ canvas, antialias: !env, stencil: true });
     renderer.setPixelRatio(config.scale);
-    renderer.setSize(innerWidth, innerHeight, false);
+    // The canvas CSS sets the size (the large viewport on phones), not innerWidth and innerHeight.
+    const size = () => [canvas.clientWidth || innerWidth, canvas.clientHeight || innerHeight];
+    let [w, h] = size();
+    renderer.setSize(w, h, false);
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFShadowMap;
 
     const scene = this.scene = new THREE.Scene();
     scene.background = GROUND_LIT;
-    const camera = this.camera = new THREE.PerspectiveCamera(2 * Math.atan(1 / FOCAL) * 180 / Math.PI, innerWidth / innerHeight, 0.1, env ? 800 : 100);
+    const camera = this.camera = new THREE.PerspectiveCamera(2 * Math.atan(1 / FOCAL) * 180 / Math.PI, w / h, 0.1, env ? 800 : 100);
     const yaw = config.yaw ?? -0.8;
     const pitch = config.pitch !== null ? -0.05 + 1.15 * config.pitch : play ? 0.25 : 0.22;
     // Close camera, as in the SDF view (view of the bird): screenshots and the grid.
@@ -64,12 +67,15 @@ export class Stage {
     this.grade = env ? new Grade(renderer, scene, camera) : null;
     if (!env) scene.add(plainGround());
 
-    addEventListener('resize', () => {
-      renderer.setSize(innerWidth, innerHeight, false);
-      this.grade?.setSize(innerWidth, innerHeight);
-      camera.aspect = innerWidth / innerHeight;
+    new ResizeObserver(() => {
+      const [nw, nh] = size();
+      if (nw === w && nh === h) return;
+      [w, h] = [nw, nh];
+      renderer.setSize(w, h, false);
+      this.grade?.setSize(w, h);
+      camera.aspect = w / h;
       camera.updateProjectionMatrix();
-    });
+    }).observe(canvas);
   }
 
   render() { this.grade ? this.grade.render() : this.renderer.render(this.scene, this.camera); }
