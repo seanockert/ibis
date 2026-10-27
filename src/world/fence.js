@@ -12,7 +12,7 @@
 // of grade.js, no sorting). Far away, where a diamond is a few pixels, the lines blend to a flat tint.
 import { DoubleSide, Float32BufferAttribute, BufferGeometry, InstancedMesh, Matrix4, Mesh, Quaternion, ShaderMaterial, Vector3 } from 'three';
 import { lightUniforms, TOON, TOON_VERTEX } from '../ibis/materials.js';
-import { outlineMaterial, smoothNormals, toonMaterial } from './props.js';
+import { outlineMaterial, SEE_THROUGH, seeOn, smoothNormals, toonMaterial } from './props.js';
 import { PLAY, streetHeight } from './street.js';
 import { srgb, f } from './util.js';
 
@@ -75,7 +75,7 @@ export class Fence {
     this.rails = rails;
   }
 
-  // Perches for the flying miners (src/characters/swoop.js), as perch() on a prop: the top of each post,
+  // Perches for the flying miners (src/characters/sentry.js), as perch() on a prop: the top of each post,
   // and the middle of the top of each rail, where a bird stands across the rail (face: across the run).
   perches() {
     const post = FENCE.post[1], rail = FENCE.rail[0];
@@ -193,20 +193,24 @@ function wireMaterial(sun) {
     lights: true,
     side: DoubleSide,
     alphaToCoverage: true,
-    uniforms: { ...lightUniforms(), uSun: { value: sun }, uLit: { value: lit }, uShade: { value: shade } },
+    uniforms: { ...lightUniforms(), uSun: { value: sun }, uLit: { value: lit }, uShade: { value: shade }, uSee: seeOn },
     vertexShader: /* glsl */`
       ${TOON_VERTEX}
       varying vec2 vUv;
+      varying vec3 vWorld;
       void main() {
         vUv = uv;
         vec4 world = modelMatrix * vec4(position, 1.0);
+        vWorld = world.xyz;
         gl_Position = projectionMatrix * viewMatrix * world;
         toonShadowCoord(world, vec3(0, 1, 0));
       }`,
     fragmentShader: /* glsl */`
       ${TOON}
+      ${SEE_THROUGH}
       uniform vec3 uLit, uShade;
       varying vec2 vUv;
+      varying vec3 vWorld;
       // Cover of one set of diagonal wires, a in cells. Far away, where a cell is a few pixels, it
       // blends to the mean cover, so the mesh does not shimmer.
       float wires(float a) {
@@ -217,7 +221,7 @@ function wireMaterial(sun) {
       }
       void main() {
         vec2 c = vUv / vec2(${f(cell[0])}, ${f(cell[1])});
-        float cover = max(wires(c.x + c.y), wires(c.x - c.y));
+        float cover = max(wires(c.x + c.y), wires(c.x - c.y)) * seeThrough(vWorld);
         if (cover < 0.02) discard;
         gl_FragColor = vec4(mix(uShade, uLit, sunShadow()), cover);
         #include <colorspace_fragment>

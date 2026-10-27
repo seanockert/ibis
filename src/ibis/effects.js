@@ -9,7 +9,9 @@
 // field (the startle sit, the stumble). It is mud brown when the bird is muddy. Footprints: where each
 // foot lands, in the colour of the feet (dusty, wet or muddy), fading away slowly. Anger lines: sharp
 // strokes round the head while an action with anger plays (head shake, glare, threat): three short
-// bars in an arc, like a comic.
+// bars in an arc, like a comic. Alert marks: a question mark or an exclamation mark over the head of a
+// flying bird with a mark (alertMarks()). Hit lines: a burst of longer strokes over the head when a
+// diving bird hits it (hit()), in the same style as the anger lines.
 import {
   BackSide, BufferGeometry, Color, DoubleSide, Float32BufferAttribute, Group, IcosahedronGeometry, InstancedBufferAttribute, InstancedMesh, LessDepth,
   Matrix4, Mesh, MeshBasicMaterial, Quaternion, ShaderMaterial, Vector3,
@@ -52,8 +54,17 @@ const PRINT_MUD = [new Color().setRGB(0.42, 0.31, 0.22, 'srgb'), 0.85];
 const PRINT_MUD_SHADE = new Color().setRGB(0.30, 0.25, 0.27, 'srgb');
 
 // Anger lines: angles (radians, 0 is to the right of the head on screen) round the top of the head.
-const ANGER_ANGLES = [0.65, 1.35, 2.05];
-const ANGER_INNER = 0.38, ANGER_OUTER = 0.6, ANGER_WIDTH = 0.045;
+// inner, outer: radii of the strokes, width: their width. shake: how much their length quivers. sway:
+// how much their angle quivers (radians).
+const ANGER = { angles: [0.65, 1.35, 2.05], inner: 0.38, outer: 0.6, width: 0.045, shake: 0.3, sway: 0 };
+
+// Hit lines: as the anger lines, more of them and shakier. hold: seconds at full size before they shrink
+// away.
+const HIT = { angles: [0.3, 0.92, 1.57, 2.22, 2.84], inner: 0.38, outer: 0.6, width: 0.045, shake: 0.4, sway: 0.08, hold: 0.18 };
+
+// Alert marks. size: the height of a mark, world units. over: its foot is this far above the head.
+// shake: the rock of a '?' (radians) when calm and when fully agitated, and of a '!'. rate: rocks per second.
+const MARK = { size: 0.6, over: 0.3, shake: [0.1, 0.3, 0.35], rate: 2.6 };
 
 // Two-band toon shading, as on the ibis, for an instanced mesh. The hull pass draws the back faces
 // pushed out, in the line colour. aFade (per puff) dissolves it, as smoke does in toon games: first the
@@ -171,6 +182,48 @@ function strokeGeometry() {
   return g;
 }
 
+// A thick line along points [x, y], width w, as triangles into position and index.
+function thickLine(points, w, position, index) {
+  const first = position.length / 3;
+  points.forEach(([x, y], i) => {
+    const [ax, ay] = points[Math.max(i - 1, 0)], [bx, by] = points[Math.min(i + 1, points.length - 1)];
+    const l = Math.hypot(bx - ax, by - ay), nx = -(by - ay) / l * w / 2, ny = (bx - ax) / l * w / 2;
+    position.push(x + nx, y + ny, 0, x - nx, y - ny, 0);
+    if (i > 0) { const k = first + 2 * i; index.push(k - 2, k - 1, k, k - 1, k + 1, k); }
+  });
+}
+
+// A disc at [x, y], radius r.
+function disc(x, y, r, position, index) {
+  const first = position.length / 3, n = 12;
+  position.push(x, y, 0);
+  for (let i = 0; i < n; i++) position.push(x + r * Math.cos(i / n * 2 * Math.PI), y + r * Math.sin(i / n * 2 * Math.PI), 0);
+  for (let i = 0; i < n; i++) index.push(first, first + 1 + i, first + 1 + (i + 1) % n);
+}
+
+// A '?' or a '!', 1 high, with its foot at the origin.
+function markGeometry(kind) {
+  const position = [], index = [];
+  if (kind === '!') {
+    position.push(-0.1, 1, 0, 0.1, 1, 0, 0.06, 0.32, 0, -0.06, 0.32, 0);
+    index.push(0, 2, 1, 0, 3, 2);
+  } else {
+    // The hook: from the left, over the top and round to the middle, then the stem down.
+    const hook = [];
+    for (let i = 0; i <= 16; i++) {
+      const a = (150 - 240 * i / 16) * Math.PI / 180;
+      hook.push([0.2 * Math.cos(a), 0.72 + 0.2 * Math.sin(a)]);
+    }
+    hook.push([0, 0.33]);
+    thickLine(hook, 0.13, position, index);
+  }
+  disc(0, 0.11, 0.09, position, index);
+  const g = new BufferGeometry();
+  g.setAttribute('position', new Float32BufferAttribute(position, 3));
+  g.setIndex(index);
+  return g;
+}
+
 export class IbisEffects {
   constructor(asset) {
     this.object = new Group();
@@ -192,6 +245,11 @@ export class IbisEffects {
     this.stroke = strokeGeometry();
     this.ink = new MeshBasicMaterial({ color: INK, side: DoubleSide, depthTest: false });
     this.anger = new Map();   // ibis -> { group, strokes, pop }
+    this.markShapes = { '?': markGeometry('?'), '!': markGeometry('!') };
+    // Transparent, so it draws after the backdrop trees (transparent too), which would cover it.
+    this.markInk = new MeshBasicMaterial({ color: INK, side: DoubleSide, depthTest: false, transparent: true });
+    this.marks = new Map();   // bird -> { mesh, kind, pop }
+    this.hits = new Map();    // ibis -> { group, strokes, pop, t }
     this.skidClock = new Map();
     this.runClock = new Map();   // ibis -> distance since the last run puff
     // Footprints: one instanced mesh for each foot, as the left and right prints are mirrored.
@@ -286,7 +344,7 @@ export class IbisEffects {
 
   update(dt, ibises, camera) {
     this.time += dt;
-    for (const ibis of ibises) { this.spawn(ibis, dt); this.angerLines(ibis, dt, camera); }
+    for (const ibis of ibises) { this.spawn(ibis, dt); this.angerLines(ibis, dt, camera); this.hitLines(ibis, dt, camera); }
     this.puffs = this.puffs.filter(p => (p.age += dt) < p.life && !(p.pos.y < p.floor && p.vel.y < 0));
     const m = MATRIX, s = SCALE;
     this.puffs.forEach((p, i) => {
@@ -401,28 +459,90 @@ export class IbisEffects {
   angerLines(ibis, dt, camera) {
     let a = this.anger.get(ibis);
     if (!a) {
-      const group = new Group();
-      const strokes = ANGER_ANGLES.map(() => { const m = new Mesh(this.stroke, this.ink); m.renderOrder = 3; group.add(m); return m; });
-      a = { group, strokes, pop: new Spring(0, 3.5, 0.45) };
-      this.object.add(group);
+      a = { ...this.strokeSet(ANGER, this.ink, 3), pop: new Spring(0, 3.5, 0.45) };
       this.anger.set(ibis, a);
     }
     const target = ibis.character.animator.anger > 0.3 ? 1 : 0;
     const pop = dt > 0 ? a.pop.update(dt, target) : (a.pop.value = target);
     a.group.visible = pop > 0.02;
-    if (!a.group.visible || !ibis.rig) return;
+    if (a.group.visible && ibis.rig) this.placeStrokes(a, ANGER, ibis, camera, pop);
+  }
+
+  // A blow on the head (a miner's dive): a burst of hit lines over it. The mark ink, so the backdrop
+  // trees don't cover them.
+  hit(ibis) {
+    let h = this.hits.get(ibis);
+    if (!h) {
+      h = { ...this.strokeSet(HIT, this.markInk, 5), pop: new Spring(0, 6, 0.4), t: Infinity };
+      this.hits.set(ibis, h);
+    }
+    h.t = 0;
+    h.pop.value = h.pop.velocity = 0;
+  }
+
+  // The hit lines: they burst out with an overshoot, shake hard, hold, then shrink away.
+  hitLines(ibis, dt, camera) {
+    const h = this.hits.get(ibis);
+    if (!h) return;
+    h.t += dt;
+    const pop = h.pop.update(dt, h.t < HIT.hold ? 1 : 0);
+    h.group.visible = h.t < HIT.hold || pop > 0.02;
+    if (h.group.visible && ibis.rig) this.placeStrokes(h, HIT, ibis, camera, pop);
+  }
+
+  // A group of strokes, one for each of lines.angles (ANGER, HIT), drawn after renderOrder order.
+  strokeSet(lines, material, order) {
+    const group = new Group();
+    const strokes = lines.angles.map(() => { const m = new Mesh(this.stroke, material); m.renderOrder = order; group.add(m); return m; });
+    this.object.add(group);
+    return { group, strokes };
+  }
+
+  // Strokes in an arc round the head, turned to the camera, at size pop. They quiver.
+  placeStrokes({ group, strokes }, lines, ibis, camera, pop) {
     const head = ibis.rig.head.clone().applyMatrix4(ibis.object.matrixWorld);
     const toCamera = camera.position.clone().sub(head).normalize();
-    a.group.position.copy(head).addScaledVector(toCamera, 0.3);
-    a.group.quaternion.copy(camera.quaternion);
-    a.group.scale.setScalar(Math.max(pop, 0) * ibis.object.scale.x);
-    a.strokes.forEach((m, i) => {
-      const angle = ANGER_ANGLES[i];
-      const quiver = 0.85 + 0.3 * Math.abs(Math.sin(this.time * 17 + i * 1.9));
-      const inner = ANGER_INNER + 0.03 * Math.sin(this.time * 23 + i);
+    group.position.copy(head).addScaledVector(toCamera, 0.3);
+    group.quaternion.copy(camera.quaternion);
+    group.scale.setScalar(Math.max(pop, 0) * ibis.object.scale.x);
+    strokes.forEach((m, i) => {
+      const angle = lines.angles[i] + lines.sway * Math.sin(this.time * 31 + i * 2.3);
+      const quiver = 1 - lines.shake / 2 + lines.shake * Math.abs(Math.sin(this.time * 17 + i * 1.9));
+      const inner = lines.inner + lines.shake / 10 * Math.sin(this.time * 23 + i);
       m.position.set(Math.cos(angle) * inner, Math.sin(angle) * inner, 0);
       m.rotation.set(0, 0, angle);
-      m.scale.set((ANGER_OUTER - ANGER_INNER) * quiver, ANGER_WIDTH * clamp(quiver, 0.9, 1.2), 1);
+      m.scale.set((lines.outer - lines.inner) * quiver, lines.width * clamp(quiver, 0.9, 1.2), 1);
     });
+  }
+
+  // A mark over the head of each bird with mark '?' or '!' (Flier, src/miner/flier.js), turned to the
+  // camera. It pops in with an overshoot and rocks: a '?' more as flight.agitation grows. A new mark pops
+  // in again. Call it every frame, after the birds' update.
+  alertMarks(birds, dt, camera) {
+    for (const bird of birds) {
+      let m = this.marks.get(bird);
+      if (!m) {
+        const mesh = new Mesh(this.markShapes['?'], this.markInk);
+        mesh.renderOrder = 5;   // after the backdrop and the glass
+        this.object.add(mesh);
+        m = { mesh, kind: null, pop: new Spring(0, 3.5, 0.45) };
+        this.marks.set(bird, m);
+      }
+      if (bird.mark && bird.mark !== m.kind) {
+        m.kind = bird.mark;
+        m.mesh.geometry = this.markShapes[m.kind];
+        m.pop.value = m.pop.velocity = 0;
+      }
+      const pop = m.pop.update(dt, bird.mark ? 1 : 0);
+      m.mesh.visible = pop > 0.02;
+      if (!m.mesh.visible) continue;
+      const S = MARK, up = new Vector3(0, 1, 0).applyQuaternion(camera.quaternion);
+      const head = bird.rig.head.clone().applyMatrix4(bird.object.matrixWorld);
+      m.mesh.position.copy(head).addScaledVector(up, S.over);
+      m.mesh.quaternion.copy(camera.quaternion);
+      const shake = m.kind === '!' ? S.shake[2] : S.shake[0] + (S.shake[1] - S.shake[0]) * bird.flight.agitation;
+      m.mesh.rotateZ(shake * Math.sin(2 * Math.PI * S.rate * this.time));
+      m.mesh.scale.setScalar(Math.max(pop, 0) * S.size);
+    }
   }
 }

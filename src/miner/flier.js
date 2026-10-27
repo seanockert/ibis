@@ -14,6 +14,7 @@ export class Flier extends Ibis {
   constructor(asset, { seed = 0, scale = MINER_SCALE, ...flight } = {}) {
     super(asset, { seed, scale });
     this.flight = new Flight({ seed, ...flight });
+    this.mark = null;   // '?' or '!' over the head (alertMarks() in effects.js), or null
     this.update(0);
   }
 

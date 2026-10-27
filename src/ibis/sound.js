@@ -2,15 +2,18 @@
 // does, so the game only calls update().
 //
 //   const sound = new IbisSound();
-//   sound.load('/sfx/honk.m4a');
+//   sound.load('honk', '/sfx/honk.m4a');   // also 'chip' and 'scold', the noisy miner's calls
 //   sound.update(ibises, camera);   // every frame, after ibis.update(dt)
 //   sound.slam(event, camera);      // a 'slam' event from a prop (props.js)
 //   sound.squash(event, camera);    // a 'squash' event: a cereal box crushed flat
 //   sound.splash(event, camera);    // a 'splash' event: a foot or a jump in the puddle (puddle.js)
+//   sound.minerCall(event, camera); // a 'call' event of a flying noisy miner (src/miner/flight.js)
 //   sound.muted = true;
 //
 // The honk is a recording (public/sfx/honk.m4a: 0.375 s, AAC 32 kbps, about 6 KB), played at a
-// different pitch each time. All other sounds are filtered noise and tones made here, with no files:
+// different pitch each time. The noisy miner's calls are recordings too: public/sfx/miner-chip.m4a
+// (0.6 s, a burst of four alarm chips, for the alert) and public/sfx/miner-scold.m4a (0.8 s, three harsh
+// scold notes, for the attack). All other sounds are filtered noise and tones made here, with no files:
 // steps (with a squelch when wet or muddy), scuffs, wing beats, landings, thumps, the threat hiss, bill
 // clacks, the bill's snap on a prop it picks up, puddle splashes and the bin and box slams. Each sound pans and fades with its place in the camera's view.
 // Browsers start audio only after a user input, so a key or tap starts it. Until then, and while
@@ -34,6 +37,8 @@ export const SOUND = {
     land: 1,            // landings
     thump: 1,           // thumps in actions (a sit, a fall)
     call: 0.9,          // the honk
+    chip: 0.7,          // the noisy miner's alert call
+    scold: 0.8,         // the noisy miner's attack call
     hiss: 0.35,         // the threat hiss
     clack: 1,           // the bill snaps shut
     pick: 0.8,          // the bill takes hold of a prop (a peck picks it up)
@@ -43,6 +48,7 @@ export const SOUND = {
   },
   runSpeed: 1.4,        // steps are louder above this speed
   honkPitch: 0.06,      // the honk's pitch changes by up to this part each time
+  minerPitch: 0.05,     // the same for the noisy miner's calls
 };
 
 // Puddle slosh: lumps of low noise, each [start (s), filter from (Hz), filter to (Hz), gain].
@@ -61,7 +67,7 @@ export class IbisSound {
     this.master.ratio.value = SOUND.limiter.ratio;
     this.master.connect(this.ctx.destination);
     this.noise = this.makeNoise(2);
-    this.honk = null;
+    this.samples = {};   // recordings by name
     this.voices = 0;
     this.n = 0;
     this.off = false;
@@ -75,9 +81,9 @@ export class IbisSound {
     for (const type of ['pointerdown', 'pointerup', 'touchend', 'keydown']) addEventListener(type, start, { passive: true });
   }
 
-  async load(url) {
+  async load(name, url) {
     const data = await (await fetch(url)).arrayBuffer();
-    this.honk = await this.ctx.decodeAudioData(data);
+    this.samples[name] = await this.ctx.decodeAudioData(data);
   }
 
   get muted() { return this.off; }
@@ -173,6 +179,13 @@ export class IbisSound {
     }
   }
 
+  // A noisy miner's call: e.kind is 'chip' or 'scold', a recording at a different pitch each time.
+  minerCall(e, camera) {
+    if (this.ctx.state !== 'running') return;
+    this.camera = camera;
+    this.sample(this.samples[e.kind], this.at.copy(e.at), L[e.kind] * this.vary(0.1), this.vary(SOUND.minerPitch));
+  }
+
   // ---- the sounds ----
 
   // A soft pat of a padded foot: low, muffled noise with a slow attack and a dull body. No high click.
@@ -211,12 +224,17 @@ export class IbisSound {
 
   // The recorded honk, at a different pitch each time.
   call(place, pitch, gain) {
-    if (!this.honk) return;
-    const v = this.voice(place, L.call * gain * this.vary(0.1));
+    this.sample(this.samples.honk, place, L.call * gain * this.vary(0.1), pitch * this.vary(SOUND.honkPitch));
+  }
+
+  // A recording at a place, at a gain and a playback rate. Nothing until it has loaded.
+  sample(buffer, place, gain, rate) {
+    if (!buffer) return;
+    const v = this.voice(place, gain);
     if (!v) return;
     const src = this.ctx.createBufferSource();
-    src.buffer = this.honk;
-    src.playbackRate.value = pitch * this.vary(SOUND.honkPitch);
+    src.buffer = buffer;
+    src.playbackRate.value = rate;
     src.connect(v.node);
     this.end(v, src);
     src.start(v.t);

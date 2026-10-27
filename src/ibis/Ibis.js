@@ -145,6 +145,9 @@ export class Ibis {
   // A prod (a click or a tap) at a world point.
   prod(point) { this.character.prod(this.object.worldToLocal(point.clone())); }
 
+  // A blow from a diving bird at a world point.
+  strike(point) { this.character.strike(this.object.worldToLocal(point.clone())); }
+
   // Mud from 0 (clean) to 1 (mud up to the belly), with splashes above the mud line.
   get mud() { return this.uniforms.uMud.value; }
   set mud(value) { this.uniforms.uMud.value = value; }

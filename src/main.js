@@ -17,6 +17,7 @@ import { IbisSound } from './ibis/sound.js';
 import { STREET } from './levels/street.js';
 import { ARENA, MOVES, playScript, startMove } from './moves.js';
 import { Level } from './world/level.js';
+import { seeOn } from './world/props.js';
 
 const config = readConfig();
 const { play, count, anim, fixedTime } = config;
@@ -28,7 +29,9 @@ const birds = { ibis: asset, miner: await loadIbis(MINER, asset.uniforms) };
 const stage = new Stage(document.getElementById('c'), config, asset.sun);
 const { scene, camera, controls, sun } = stage;
 const sound = config.sound ? new IbisSound() : null;
-sound?.load('/sfx/honk.m4a');
+sound?.load('honk', '/sfx/honk.m4a');
+sound?.load('chip', '/sfx/miner-chip.m4a');
+sound?.load('scold', '/sfx/miner-scold.m4a');
 const level = new Level(STREET, { asset, birds, scene, env: config.env, props: config.props, terrain: config.terrain, sound, weather: config.weather });
 
 // Free play: the level's characters and props. Other views: ibises in a grid that play moves in place,
@@ -79,8 +82,10 @@ if (play) {
   controls.update();
 }
 const follow = play ? new Follow(camera, controls, TARGET_PLAY.y) : null;
+seeOn.value = play ? 1 : 0;   // the props and the fence fade where the camera is in them
 const input = play ? new Input(stage.renderer.domElement, stage, level, () => { freePlay = true; ui.setPressed(-1); }, () => follow.recentre()) : null;
 window.demo.input = input;
+window.demo.follow = follow;
 const ui = new Ui({
   play, anim, level, input,
   onMove: i => {
@@ -103,6 +108,8 @@ function frame() {
   ui.update();
   stage.keepAbove();
   if (follow) {
+    // A miner that goes on alert out of view: the camera glances toward its head.
+    for (const e of level.sentry?.events ?? []) follow.glance(e.flier.rig.head.clone().applyMatrix4(e.flier.object.matrixWorld));
     follow.update(dt, bird.character);
     stage.shadowTo(controls.target);
   }

@@ -55,6 +55,13 @@ export class Character {
     else { this.prods = 0; this.turnTo(toward); this.act('startle'); }
   }
 
+  // A blow from a diving bird at a point in character space: it stumbles on the ground at any speed. In
+  // the air, or while it already stumbles, it flinches as from a prod.
+  strike(point) {
+    if (this.action === 'stumble') return;
+    if (!this.trip(0)) this.prod(point);
+  }
+
   // The bird runs into something heavy (src/world/physics.js). At a full run it sometimes trips over it.
   knock() {
     this.knocks = (this.knocks ?? 0) + 1;

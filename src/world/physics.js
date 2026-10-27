@@ -568,6 +568,12 @@ export class Physics {
     for (const bird of this.birds) bird.placed = true;
   }
 
+  // The ibis lets go of what its bill holds, as a blow knocks it out.
+  release(ibis) {
+    const bird = this.birds.find(b => b.ibis === ibis);
+    if (bird) this.drop(bird);
+  }
+
   // Lets go of what the bill holds: dynamic again, with the bill's speed.
   drop(bird) {
     const body = bird.held === null ? null : rigidBody.get(this.world, bird.held);

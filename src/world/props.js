@@ -580,14 +580,41 @@ export function toonParts(parts, shared) {
 }
 
 // One toon and one outline material for each set of shared uniforms, with the colours on the vertices.
+// Each has a faded twin (userData.faded, and back with userData.solid) for seeInside().
 const materials = new WeakMap();
 function toonMaterials(shared) {
   if (!materials.has(shared)) {
     const none = new Color();
-    materials.set(shared, { body: toonMaterial(none, none, shared, { tones: true }), line: outlineMaterial(none, shared, { tones: true }) });
+    const pair = make => {
+      const solid = make(false), faded = make(true);
+      solid.userData.faded = faded;
+      faded.userData.solid = solid;
+      return solid;
+    };
+    materials.set(shared, {
+      body: pair(faded => toonMaterial(none, none, shared, { tones: true, faded })),
+      line: pair(faded => outlineMaterial(none, shared, { tones: true, faded })),
+    });
   }
   return materials.get(shared);
 }
+
+// Fades the whole prop while the camera is in one of its solids (a box, SEE.margin larger), as in a
+// bin: its far walls are too far from the camera for the fade of SEE_THROUGH. eye: camera position.
+export function seeInside(prop, eye) {
+  const inside = prop.solids?.().some(({ body, half }) => {
+    local.copy(eye).sub(at.fromArray(body.position)).applyQuaternion(turn.fromArray(body.quaternion).invert());
+    return Math.abs(local.x) < half[0] + SEE.margin && Math.abs(local.y) < half[1] + SEE.margin && Math.abs(local.z) < half[2] + SEE.margin;
+  }) ?? false;
+  if (inside === !!prop.seeInside) return;
+  prop.seeInside = inside;
+  prop.object.traverse(o => {
+    const next = o.material?.userData[inside ? 'faded' : 'solid'];
+    if (next) o.material = next;
+  });
+}
+
+const local = new Vector3(), at = new Vector3(), turn = new Quaternion();   // scratch
 
 // Lit, shade and line colours on every vertex (aLit, aShade, aLine; black with no line), for one draw of
 // many colours.
@@ -606,6 +633,33 @@ const float CONTOUR_SHADE = 0.023;
 const float LINE_MIN_PX = 1.0;
 `;
 
+// See-through: the props and the fence fade only where the camera is in them, so a camera in a bin or
+// in the fence does not show cut open faces. Nothing fades between the camera and the player. A
+// screen-door dither (4 by 4 Bayer), so the parts stay opaque and need no sort. uSee: 1 on (free play),
+// 0 off. near: no fade farther than this from the camera, full fade nearer than near - soft (the camera
+// near plane is 0.1). A material with FADED fades all over (seeInside()). min: the opacity of the full
+// fade. margin: seeInside() fades a prop when the camera is this near its solids. Units.
+export const SEE = { near: 0.6, soft: 0.4, min: 0.3, margin: 0.15 };
+export const seeOn = { value: 0 };
+export const SEE_THROUGH = /* glsl */`
+uniform float uSee;
+// Opacity at a world point: 1 away from the camera, SEE.min at the camera.
+float seeThrough(vec3 p) {
+#ifdef FADED
+  return ${f(SEE.min)};
+#endif
+  if (uSee == 0.0) return 1.0;
+  float near = 1.0 - smoothstep(${f(SEE.near - SEE.soft)}, ${f(SEE.near)}, distance(p, cameraPosition));
+  return mix(1.0, ${f(SEE.min)}, near);
+}
+// True where a pixel of this opacity is not drawn.
+bool seeHidden(float opacity) {
+  ivec2 q = ivec2(gl_FragCoord.xy) & 3;
+  const float BAYER[16] = float[16](0.0, 8.0, 2.0, 10.0, 12.0, 4.0, 14.0, 6.0, 3.0, 11.0, 1.0, 9.0, 15.0, 7.0, 13.0, 5.0);
+  return opacity < 1.0 && opacity * 16.0 <= BAYER[q.y * 4 + q.x];
+}
+`;
+
 // The model matrix, with the instance matrix on an InstancedMesh.
 export const MODEL = /* glsl */`
 mat4 model() {
@@ -619,15 +673,15 @@ mat4 model() {
 
 // tones: the lit and shade colours come from the vertex attributes aLit and aShade, so parts of
 // several colours draw in one call. Works on an InstancedMesh.
-export function toonMaterial(lit, shade, shared, { tones = false } = {}) {
+export function toonMaterial(lit, shade, shared, { tones = false, faded = false } = {}) {
   return new ShaderMaterial({
     lights: true,
-    defines: tones ? { TONES: '' } : {},
-    uniforms: { ...lightUniforms(), uSun: shared.uSun, uLit: { value: lit }, uShade: { value: shade } },
+    defines: { ...(tones ? { TONES: '' } : {}), ...(faded ? { FADED: '' } : {}) },
+    uniforms: { ...lightUniforms(), uSun: shared.uSun, uLit: { value: lit }, uShade: { value: shade }, uSee: seeOn },
     vertexShader: /* glsl */`
       ${TOON_VERTEX}
       ${MODEL}
-      varying vec3 vNormal;
+      varying vec3 vNormal, vWorld;
       #ifdef TONES
       attribute vec3 aLit, aShade;
       varying vec3 vLit, vShade;
@@ -635,6 +689,7 @@ export function toonMaterial(lit, shade, shared, { tones = false } = {}) {
       void main() {
         mat4 m = model();
         vec4 world = m * vec4(position, 1.0);
+        vWorld = world.xyz;
         vNormal = normalize(mat3(m) * normal);
         gl_Position = projectionMatrix * viewMatrix * world;
         toonShadowCoord(world, vNormal);
@@ -645,12 +700,14 @@ export function toonMaterial(lit, shade, shared, { tones = false } = {}) {
       }`,
     fragmentShader: /* glsl */`
       ${TOON}
+      ${SEE_THROUGH}
       uniform vec3 uSun, uLit, uShade;
-      varying vec3 vNormal;
+      varying vec3 vNormal, vWorld;
       #ifdef TONES
       varying vec3 vLit, vShade;
       #endif
       void main() {
+        if (seeHidden(seeThrough(vWorld))) discard;
         float band = toonBand(normalize(vNormal), uSun);
         #ifdef TONES
         gl_FragColor = vec4(mix(vShade, vLit, band), 1.0);
@@ -667,11 +724,11 @@ export function toonMaterial(lit, shade, shared, { tones = false } = {}) {
 // wider than the contour line, at any distance. front: the line takes the depth
 // of the front of a sphere round the object (uniform uFront: world centre, radius), not of its back
 // faces, so the ground under the object does not cover it.
-export function outlineMaterial(line, shared, { tones = false, screen = 0, front = false } = {}) {
+export function outlineMaterial(line, shared, { tones = false, screen = 0, front = false, faded = false } = {}) {
   return new ShaderMaterial({
     side: BackSide,
-    defines: { ...(tones ? { TONES: '' } : {}), ...(screen ? { SCREEN: f(screen) } : {}), ...(front ? { FRONT: '' } : {}) },
-    uniforms: { uSun: shared.uSun, uViewHeight: shared.uViewHeight, uLine: { value: line }, uFront: { value: new Vector4() } },
+    defines: { ...(tones ? { TONES: '' } : {}), ...(screen ? { SCREEN: f(screen) } : {}), ...(front ? { FRONT: '' } : {}), ...(faded ? { FADED: '' } : {}) },
+    uniforms: { uSun: shared.uSun, uViewHeight: shared.uViewHeight, uLine: { value: line }, uFront: { value: new Vector4() }, uSee: seeOn },
     vertexShader: /* glsl */`
       ${BAND}
       ${MODEL}
@@ -679,6 +736,7 @@ export function outlineMaterial(line, shared, { tones = false, screen = 0, front
       uniform float uViewHeight;
       uniform vec4 uFront;
       attribute vec3 _outline;
+      varying vec3 vWorld;
       #ifdef TONES
       attribute vec3 aLine;
       varying vec3 vLine;
@@ -688,6 +746,7 @@ export function outlineMaterial(line, shared, { tones = false, screen = 0, front
         vLine = aLine;
         #endif
         mat4 m = model();
+        vWorld = (m * vec4(position, 1.0)).xyz;
         vec3 worldNormal = normalize(mat3(m) * _outline);
         vec4 clip = projectionMatrix * viewMatrix * m * vec4(position, 1.0);
         float units = mix(CONTOUR_SHADE, CONTOUR_LIT, smoothstep(-0.3, 0.6, dot(worldNormal, uSun)));
@@ -705,12 +764,16 @@ export function outlineMaterial(line, shared, { tones = false, screen = 0, front
         gl_Position = clip;
       }`,
     fragmentShader: /* glsl */`
+      ${SEE_THROUGH}
       uniform vec3 uLine;
+      varying vec3 vWorld;
       #ifdef TONES
       varying vec3 vLine;
       #define uLine vLine
       #endif
       void main() {
+        // No line where the part fades: it would show through the gaps of the dither.
+        if (seeThrough(vWorld) < 1.0) discard;
         gl_FragColor = vec4(uLine, 1.0);
         #include <colorspace_fragment>
       }`,

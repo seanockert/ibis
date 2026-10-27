@@ -142,7 +142,7 @@ The head turns apart from the neck, so the neck slides into the skull, as it doe
 ## Change the character
 
 - To change the shape or the colours, edit `src/sdf/model.glsl`, then run `npm run bake`.
-- The noisy miner is a second bird on the same rig: `src/miner/model.glsl` and `src/miner/bird.js`. Look at it with `sdf.html?bird=miner`, then run `npm run bake -- miner`. In free play three miners circle over the ibis and dive at its head (`src/miner/flight.js`, `src/characters/swoop.js`).
+- The noisy miner is a second bird on the same rig: `src/miner/model.glsl` and `src/miner/bird.js`. Look at it with `sdf.html?bird=miner`, then run `npm run bake -- miner`. In free play three miners guard posts on the far fence. When the ibis comes near, they call, then fly at it and dive at its head. A hit makes the ibis drop what it holds and stumble (`src/miner/flight.js`, `src/characters/sentry.js`).
 - To change a clip, edit `src/ibis/rig.js`. To change a move, edit `src/ibis/motion/`. You do not have to bake again.
   You must bake again if you change `restPose()` or the rig dimensions, because the mesh is bound in the rest pose.
 

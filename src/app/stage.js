@@ -8,6 +8,7 @@ import { Grade } from '../world/grade.js';
 
 const FOCAL = 3.2;   // the SDF view's lens: vertical half-angle atan(1 / FOCAL)
 const CAM_DIST_PLAY = 12.5;  // free play: the whole walk circle is in view, then the camera follows
+const CAM_MAX_PLAY = 18;     // free play: the zoom can't take the camera farther than this
 export const TARGET_PLAY = new THREE.Vector3(0, 0.9, 0);
 const CAM_MIN_Y = 0.3;      // the orbit can't take the camera lower than this
 const GROUND_LIT = new THREE.Color().setRGB(0.925, 0.902, 0.855, 'srgb');
@@ -40,6 +41,7 @@ export class Stage {
       .multiplyScalar(play ? CAM_DIST_PLAY : view.dist).add(target);
     const controls = this.controls = new OrbitControls(camera, canvas);
     controls.target.copy(target);
+    if (play) controls.maxDistance = CAM_MAX_PLAY;
     controls.update();
 
     const light = this.sun = new THREE.DirectionalLight(0xffffff, 1);

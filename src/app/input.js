@@ -7,14 +7,12 @@
 //   input.apply(character);   // every frame, before the level update
 import * as THREE from 'three';
 import { MOVE } from '../ibis/motion/controller.js';
-import { wrapAngle } from '../ibis/motion/spring.js';
 
 const TAP_PX = 8;           // a pointer that moves less than this between down and up is a tap
 const STICK_DEAD = 0.12;    // joystick dead zone, part of its reach
 const STICK_RUN = 0.65;     // the joystick walks up to this part of its reach, then runs
 const STICK_TAP = 0.35;     // a tap on the joystick inside this part of its reach recentres the camera
 const TAP_MS = 300;         // a tap is shorter than this
-const INPUT_TURN = Math.PI / 4;   // the input keeps its view until its direction turns more than this
 const WALK_KEYS = ['KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'];
 
 export class Input {
@@ -27,10 +25,6 @@ export class Input {
     this.stick = new THREE.Vector2();   // joystick: x right, y up, length 0 to 1 (with stickRun, of the run speed)
     this.stickRun = false;
     this.jump = false;                // the Jump button, while held
-    this.view = null;                 // while there is move input: { dir, fwd }, its direction and view
-    this.dragging = false;
-    stage.controls.addEventListener('start', () => { this.dragging = true; });
-    stage.controls.addEventListener('end', () => { this.dragging = false; });
     addEventListener('keydown', e => {
       if (e.repeat) return;
       this.keys.add(e.code);
@@ -56,16 +50,10 @@ export class Input {
     const { keys, stick } = this, { camera, controls } = this.stage;
     const ax = (keys.has('KeyD') || keys.has('ArrowRight') ? 1 : 0) - (keys.has('KeyA') || keys.has('ArrowLeft') ? 1 : 0) + stick.x;
     const ay = (keys.has('KeyW') || keys.has('ArrowUp') ? 1 : 0) - (keys.has('KeyS') || keys.has('ArrowDown') ? 1 : 0) + stick.y;
-    // Camera relative: up on the keys and the joystick is away from the camera. The camera swings behind
-    // the bird, so the input keeps the view of when it started or last turned a lot: held to the side, the
-    // bird keeps its line and doesn't circle the camera. A drag turns the view at once.
+    // Camera relative, from the view of this frame, as in Mario 64: up on the keys and the joystick is away
+    // from the camera. The camera swings behind the bird, so a diagonal makes a wide curve, and a bird held
+    // to the side runs in a circle round the camera.
     const fwd = new THREE.Vector3().subVectors(controls.target, camera.position).setY(0).normalize();
-    if ((ax === 0 && ay === 0) || this.dragging) this.view = null;
-    else {
-      const dir = Math.atan2(ax, ay);
-      if (!this.view || Math.abs(wrapAngle(dir - this.view.dir)) > INPUT_TURN) this.view = { dir, fwd: fwd.clone() };
-      fwd.copy(this.view.fwd);
-    }
     const right = new THREE.Vector3(-fwd.z, 0, fwd.x);
     const move = fwd.multiplyScalar(ay).add(right.multiplyScalar(ax));
     c.input.fast = keys.has('ShiftLeft') || keys.has('ShiftRight') || this.stickRun;

@@ -5,9 +5,9 @@
 // update(camera, dt, ibises, solids), or none. puddle: a muddy puddle (puddle.js).
 // characters: species (species.js), at [x, z], heading, player (the one the input drives) or brain
 // ('wander', wander.js).
-// fliers: species (FLIERS in species.js) and the options of their Flight (src/miner/flight.js): height
-// and radius of the circle over the player, where on it they start (angle) and which way round (dir).
-// They dive at the player's head (swoop.js).
+// fliers: species (FLIERS in species.js), home [x, z] (each sits on the highest perch near it and guards
+// it, sentry.js) and the options of their Flight (src/miner/flight.js): height and radius of the circle
+// over the player when they attack, and which way round (dir).
 // props: kind (kinds.js), at [x, z], heading, and the options of the kind. The height comes from
 // place.js: a prop stands on the ground or on a prop before it in the list. Two props at the same place
 // stack.
@@ -30,11 +30,12 @@ export const STREET = {
     { species: 'ibis', at: [0, 0], heading: 0, player: true },
   ],
 
-  // Three noisy miners in the sky over the player.
+  // Three noisy miners on the posts of the far fence, in front of the free play camera: two guard the
+  // part behind the small bin, one the part behind the stack of boxes.
   fliers: [
-    { species: 'miner', height: 4.5, radius: 6, angle: 0, dir: 1 },
-    { species: 'miner', height: 5.2, radius: 7.5, angle: 2.1, dir: 1 },
-    { species: 'miner', height: 3.9, radius: 5, angle: 4.2, dir: -1 },
+    { species: 'miner', home: [-10, -27], height: 4.5, radius: 5, dir: 1 },
+    { species: 'miner', home: [-10, -27], height: 4, radius: 4, dir: -1 },
+    { species: 'miner', home: [12, -27], height: 4.5, radius: 5, dir: 1 },
   ],
 
   props: [

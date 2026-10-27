@@ -8,12 +8,13 @@
 //
 // Without env there is no scenery and the ground is flat at 0 (the fixed views, which match sdf.html).
 // Without props there is no physics.
+import { SENTRY, Sentry } from '../characters/sentry.js';
 import { FLIERS, SPECIES } from '../characters/species.js';
-import { Swoop } from '../characters/swoop.js';
 import { Wander } from '../characters/wander.js';
 import { IbisEffects } from '../ibis/effects.js';
 import { Highlight } from './highlight.js';
 import { PROPS } from './kinds.js';
+import { seeInside } from './props.js';
 import { Physics } from './physics.js';
 import { stack } from './place.js';
 import { Puddle, splashMud } from './puddle.js';
@@ -23,6 +24,7 @@ const FLAT = { profile: null, height: () => 0 };
 const WEATHER_RATE = 0.5;   // mud and wet change per second toward their targets
 const PROP_FENCE = 0.5;     // the walls that stop light props are this far outside the bounds
 const BRAINS = { wander: (seed, at, bounds) => new Wander(seed, at, bounds) };
+const NOTICE_LOOK = 1.5;    // seconds the player looks at a miner that goes on alert
 
 export class Level {
   // asset: the ibis asset (loadIbis()), for the shared uniforms. birds: the bird assets by species.
@@ -35,8 +37,8 @@ export class Level {
     this.bounds = def.bounds;
     this.ibises = [];
     this.fliers = [];            // birds in the air (src/miner/flier.js)
-    this.swoop = null;           // their brain: circle over the player, dive at its head
-    this.perches = [];           // what they can land on (Swoop)
+    this.sentry = null;          // their brain: guard a perch, call, dive at the player's head
+    this.perches = [];           // what they can land on (Sentry)
     this.player = null;
     this.brains = new Map();     // ibis to brain
     this.targets = new Map();    // ibis to { mud, wet }: where its mud and wet go
@@ -64,15 +66,17 @@ export class Level {
   // so their solids go into the physics before the props.
   populate() {
     this.def.characters.forEach((c, seed) => this.add(SPECIES[c.species](this.birds, seed), c));
-    const first = this.def.characters.length;
-    (this.def.fliers ?? []).forEach(({ species, ...flight }, i) => this.addFlier(FLIERS[species](this.birds, first + i, flight)));
-    if (this.fliers.length) this.swoop = new Swoop(first);
-    // Where the fliers can land: the scenery parts that have perches (the fence), and the props below.
+    // Where the fliers can land: the scenery parts that have perches (the fence), and the props.
     this.perches = this.parts.flatMap(p => p.perches?.() ?? []);
-    if (!this.physics) return;
-    const defs = this.def.props, bases = stack(defs, d => PROPS[d.kind].footprint(d), this.ground.height);
-    for (const [i, d] of defs.entries()) this.addProp(new PROPS[d.kind](this.physics, this.asset, { ...d, base: bases[i] }));
-    this.perches.push(...this.props.filter(p => p.perch));
+    if (this.physics) {
+      const defs = this.def.props, bases = stack(defs, d => PROPS[d.kind].footprint(d), this.ground.height);
+      for (const [i, d] of defs.entries()) this.addProp(new PROPS[d.kind](this.physics, this.asset, { ...d, base: bases[i] }));
+      this.perches.push(...this.props.filter(p => p.perch));
+    }
+    // Each flier sits on a perch near its home.
+    const first = this.def.characters.length, fliers = this.def.fliers ?? [];
+    if (fliers.length) this.sentry = new Sentry(first);
+    fliers.forEach(({ species, home, ...flight }, i) => this.sentry.add(this.addFlier(FLIERS[species](this.birds, first + i, flight)), home, this.perches));
   }
 
   // Adds a character. at: [x, z], or none to keep where it is. player: the one the input drives. brain:
@@ -142,11 +146,26 @@ export class Level {
         target.mud = ibis.mud = Math.max(ibis.mud - 0.5, 0);
       }
     }
-    // The fliers circle, dive and perch on props. A dive that hits the player's head prods it: it gets more annoyed each time.
-    this.swoop?.update(this.fliers, this.player, dt, this.perches, camera);
+    // The fliers guard their perches, call, and dive at the player. A dive that hits the player's head
+    // makes it drop what it holds and stumble.
+    // A squawk or a hiss of the player is a noise that the miners hear.
+    if (this.sentry && this.player?.character.events.some(e => e.type === 'call' || e.type === 'hiss')) this.sentry.hear(this.player.object.position, SENTRY.loud.call);
+    this.sentry?.update(this.player, dt, this.perches);
+    // The player turns its head to a miner that goes on alert.
+    for (const e of this.sentry?.events ?? []) {
+      const p = this.player.object.position, m = e.flier.object.position;
+      this.player.character.animator.lookAt(Math.atan2(m.x - p.x, m.z - p.z), NOTICE_LOOK);
+    }
     for (const flier of this.fliers) {
       flier.update(dt);
-      for (const e of flier.events) if (e.type === 'hit' && this.player) this.player.prod(e.at);
+      for (const e of flier.events) {
+        if (e.type === 'hit' && this.player) {
+          this.physics?.release(this.player);
+          this.player.strike(e.at);
+          fx.hit(this.player);
+        }
+        if (e.type === 'call') sound?.minerCall(e, camera);
+      }
     }
     // Puddle splashes: mud on the bird at once (the target too, so it stays), mud blobs and a splash sound.
     this.puddle?.update(dt, this.ibises);
@@ -164,12 +183,15 @@ export class Level {
         for (const e of prop.events) {
           if (e.type === 'slam') { if (e.kind !== 'glass') fx.burst(e.points, e.centre); sound?.slam(e, camera); }
           if (e.type === 'squash') { fx.burst(e.points, e.centre); sound?.squash(e, camera); }
+          // A crash is a noise that the miners hear.
+          if (e.type === 'slam' || e.type === 'squash') this.sentry?.hear(e.centre, SENTRY.loud.slam * Math.max(...e.points.map(p => p.strength), 0.5));
         }
       }
       this.highlight.update(this.props, this.player ? this.physics.target(this.player) : null);
       this.collidersView?.update();
     }
     fx.update(dt, this.ibises, camera);
+    fx.alertMarks(this.fliers, dt, camera);
     sound?.update(this.ibises, camera);
   }
 
@@ -177,6 +199,7 @@ export class Level {
   // under the props.
   updateView(camera, dt) {
     const solids = this.props.flatMap(prop => prop.solids?.() ?? []);
+    for (const prop of this.props) seeInside(prop, camera.position);
     for (const part of this.parts) part.update?.(camera, dt, this.ibises, solids);
   }
 }
