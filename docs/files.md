@@ -31,6 +31,7 @@ What each source file does.
 | `src/app/stage.js` | `Stage`: renderer, scene, camera and orbit controls, sun and shadow (`SHADOW`, `shadowTo()`), grade, plain ground, `keepAbove()` (`CAM_MIN_Y`) |
 | `src/app/follow.js` | `Follow`: the free play camera follow, the swing behind the bird, the recentre and the glance toward a point out of view. `CAMERA` |
 | `src/app/input.js` | `Input`: keys, joystick (walks, runs when pushed far, `STICK_RUN`), tap to walk, tap to prod, joystick tap to recentre (`STICK_TAP`) |
+| `src/app/meter.js` | `Meter`: the frame meter, top left in free play: frame time, fps, CPU and GPU time (timer queries) |
 | `src/app/ui.js` | `Ui`: free play Threat, Squawk, Peck and Jump diamond (hold Jump to flutter), the other action (Shake) in the top bar after Wet. Other views: one button for each move |
 | `src/app/screen.js` | `lockScreen()`: stops browser zoom and page gestures on touch screens (iOS ignores `user-scalable=no` and `touch-action` for a second-finger double tap), full screen on the first touch where it can. Touch gives no click, so `ui.js` buttons act on pointerdown for touch. The canvas fills `100lvh` (under the iOS Safari bars); `Stage` sizes from the canvas, not `innerHeight`. Manifest and icons: `public/manifest.webmanifest`, `public/icon-*.png` |
 | `src/sw.js` | Service worker: the built game starts offline. `swPlugin` in `vite.config.js` adds `VERSION` and `FILES` (every file in `dist`) and writes `dist/sw.js`. Cache first. Registered only in the build, so the dev server and the tools always get fresh files. Cache matches use `ignoreVary`: Vite's module scripts are `crossorigin`, and a server that sends `Vary: Origin` makes the match miss |
@@ -52,6 +53,7 @@ What each source file does.
 | `src/world/wind.js` | `WIND`, `sway()` (GLSL), `windDepthMaterial()`: the plants sway in the wind, with their outlines and shadows. `wind: true` on the prop toon materials turns it on |
 | `src/world/fence.js` | `Fence`: white posts, a top rail and chain wire along the yard edges of the two footpaths (`FENCE`), none at the ends. Instanced toon posts and rails; the wire is a shader pattern. With physics, a static wall on the `terrain` layer |
 | `src/world/puddle.js` | `Puddle`: a muddy puddle on the nature strip (`PUDDLE`, `shape()`), splash events from steps and landings, ripples. `SPLASH`, `splashMud()`: the mud a splash puts on the bird |
+| `src/world/noise.js` | `noise2()` (GLSL `NOISE_TEX`, `noiseUniform`): value noise from a tiling texture, for the ground and the tufts |
 | `src/world/tufts.js` | `Tufts`: grass tufts, one instanced draw of upright quads turned to the camera about y. `TUFTS` tuning |
 | `src/world/lighting.js` | `LIGHT` (shared uniforms: night, lamp slots, lamp shadow atlas), `LIGHT_GLSL` (`lampLight()`, `night()`, `toonLit()`, in `TOON`), `DayNight` (turns the sun to the moon) |
 | `src/world/lamps.js` | `Lamps`: street lamps (pole, arm, head, lens, halo, beam), the slots of the nearest lit lamps and their shadow atlas tiles |
@@ -61,4 +63,4 @@ What each source file does.
 | `tools/bake/bake.js` | Bake: grid, dual contouring, material split, simplify, normals, skin weights, GLB export |
 | `tools/bake/bake.glsl` | Bake kernel: which SDF each `PART_*` is |
 | `tools/pack.mjs` | Small vertex types and `EXT_meshopt_compression` |
-| `tools/shot.mjs`, `tools/strip.mjs`, `tools/bench.mjs` | Headless screenshot, filmstrip of a move, GPU timing |
+| `tools/shot.mjs`, `tools/strip.mjs`, `tools/bench.mjs`, `tools/gpu.mjs`, `tools/playshot.mjs` | Headless screenshot, filmstrip of a move, wall time, GPU time of free play (timer queries), free play screenshot |

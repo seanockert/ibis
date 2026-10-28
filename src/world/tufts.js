@@ -10,7 +10,7 @@
 //   scene.add(tufts.object);
 //   tufts.update(camera, dt, ibises, solids);   // every frame. solids: [{ body, half, round }] from the props
 import { InstancedBufferAttribute, InstancedBufferGeometry, Float32BufferAttribute, Mesh, ShaderMaterial, Vector3, Vector4 } from 'three';
-import { lightUniforms, NOISE, TOON, TOON_VERTEX } from '../ibis/materials.js';
+import { lightUniforms, TOON, TOON_VERTEX } from '../ibis/materials.js';
 import { hash } from '../ibis/motion/spring.js';
 import { fencePosts } from './fence.js';
 import { inPuddle, PUDDLE } from './puddle.js';
@@ -171,7 +171,6 @@ function tuftMaterial() {
     },
     vertexShader: /* glsl */`
       ${TOON_VERTEX}
-      ${NOISE}
       ${GRASS}
       attribute vec4 aTuft;
       attribute float aLeafy, aGround;
@@ -225,7 +224,6 @@ function tuftMaterial() {
       }`,
     fragmentShader: /* glsl */`
       ${TOON}
-      ${NOISE}
       #define FRAGMENT
       ${GRASS}
       ${BLADES}

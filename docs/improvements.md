@@ -22,7 +22,10 @@ Notes:
 
 ## GPU
 
-- **Noise from a texture.** `noise3()` is 8 sin hashes. Each grass pixel calls it 4 times, each sky pixel 6 times, each backdrop pixel 3 times. One tiling noise texture would cost much less. The look changes a little: tune against the concept.
+- **Noise from a texture: ground done.** The ground and the tufts use `noise2()` (`src/world/noise.js`). Still on `noise3()`: the sky (6 for each pixel, but the sky draws only where nothing covers it), the backdrop (3), the puddle. The ibis materials too, but a change there changes the ibis.
+- **MSAA.** The 4x target of `grade.js` costs about 1.3 ms at ratio 1.5 (2x: about 0.4 ms less). The tufts and the fence wire need it for `alphaToCoverage`. On phones (tile GPUs) MSAA costs little: measure on a phone before you cut it.
+- **Birds before the ground.** The birds (0.9 ms) draw after the ground, so the ground shades the pixels under them. They must stay after the puddle and the footprints, which write no depth.
+- **Dynamic resolution.** `RES` in `stage.js` only steps the ratio down, when frames stay over 22 ms. A 120 Hz screen or a phone near the limit would do better with a step down and up round a target frame time (the GPU time of `Meter` where there are timer queries).
 - **Ibis body early-z.** The body program has `discard` (the lid cut), which can turn off early depth on the whole body. Compile the `discard` only into the material that draws the lids (a define), and draw the wings and the scarf before the torso, so the torso pixels that they hide skip the line march. The lids are in group 0 now: they would need their own group.
 
 ## CPU

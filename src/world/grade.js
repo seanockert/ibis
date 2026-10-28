@@ -76,6 +76,10 @@ export class Grade {
     renderer.setRenderTarget(this.target);
     renderer.render(this.scene, this.camera);
     renderer.setRenderTarget(null);
+    // The quad covers every pixel: no clear.
+    const clear = renderer.autoClear;
+    renderer.autoClear = false;
     this.quad.render(renderer);
+    renderer.autoClear = clear;
   }
 }

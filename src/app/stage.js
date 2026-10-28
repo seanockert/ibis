@@ -25,8 +25,9 @@ export class Stage {
     const { play, env } = config;
     this.config = config;
     this.sunDirection = sun;
-    // With the street, Grade draws into its own multisampled target: the canvas gets only a full-screen quad.
-    const renderer = this.renderer = new THREE.WebGLRenderer({ canvas, antialias: !env, stencil: true });
+    // With the street, Grade draws into its own multisampled target: the canvas gets only a full-screen quad,
+    // so it needs no depth and stencil buffers (less to clear and store each frame).
+    const renderer = this.renderer = new THREE.WebGLRenderer({ canvas, antialias: !env, depth: !env, stencil: !env });
     renderer.setPixelRatio(config.scale);
     // The canvas CSS sets the size (the large viewport on phones), not innerWidth and innerHeight.
     const size = () => [canvas.clientWidth || innerWidth, canvas.clientHeight || innerHeight];

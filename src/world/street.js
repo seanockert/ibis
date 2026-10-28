@@ -11,8 +11,9 @@
 // Scale: the bird is 2 units, so 1 unit is about 35 cm. Sizes are a little smaller than real, as in a
 // cartoon: a footpath is 3 units, the road 14 (two lanes).
 import { BufferGeometry, Float32BufferAttribute, Mesh, ShaderMaterial, Vector4 } from 'three';
-import { lightUniforms, NOISE, TOON, TOON_VERTEX } from '../ibis/materials.js';
+import { lightUniforms, TOON, TOON_VERTEX } from '../ibis/materials.js';
 import { smoothstep } from '../ibis/motion/spring.js';
+import { NOISE_TEX, noiseUniform } from './noise.js';
 import { haze } from './sky.js';
 import { srgb, f } from './util.js';
 
@@ -50,6 +51,9 @@ const REACH = 450;   // half size of the ground mesh
 export const PROFILE = profile();
 const FORM = 0.75;          // N.L below this: the cool form tone. Flat ground is above it
 const DEPTH_BIAS = 0.2;    // the ground writes its depth this far behind it, along the view ray
+// Ground mesh cells: cell units within x of the camera along x (the mesh follows it) and inside z,
+// larger by grow for each unit away. Small cells keep the depth bias of each vertex true between them.
+const GRID = { cell: 3, grow: 0.3, x: 24, z: [-30, 26] };
 
 // Mulch: patches of bare dirt and bark through the grass round the foot of a tree, full near the trunk,
 // broken into small patches out to reach (a part of the radius), none past it. patch: frequency of the
@@ -83,8 +87,9 @@ const COLOURS = {
 export class Street {
   constructor(sun, beds = []) {
     const material = groundMaterial(sun, beds);
-    // Draws first (the sky draws after the opaque scene). Its depth is DEPTH_BIAS behind it, so it can't cover the outline round the feet, but
-    // a kerb still hides what is below it on the road.
+    // Draws after the solid scenery and props (BEFORE_GROUND in level.js), before the puddle, the footprints
+    // and the birds; the sky draws after the opaque scene. Its depth is DEPTH_BIAS behind it, so it can't
+    // cover the outline round the feet, but a kerb still hides what is below it on the road.
     this.object = new Mesh(groundGeometry(), material);
     this.object.receiveShadow = true;
     this.object.renderOrder = -1;
@@ -130,27 +135,53 @@ function profile() {
   return out.filter((p, i) => i === 0 || p[0] < out[i - 1][0]);
 }
 
-// The profile along x, from -REACH to REACH. Smooth normals across the roll. The triangles go from the
-// lowest to the highest, so a higher strip draws over the lower one it hides (the road behind a kerb,
-// from the top side) where the depth bias is too small to sort them.
+// The profile along x, from -REACH to REACH, as a grid. Smooth normals across the roll. The depth bias is
+// for each vertex and straight between them, so the cells are small near the play area (GRID) and grow
+// away from it. The rows go from the lowest to the highest, so a higher strip draws over the lower one it
+// hides (the road behind a kerb, from the top side) where the depth bias is too small to sort them.
 function groundGeometry() {
-  const position = [], normal = [], quads = [];
+  const xs = steps(REACH, x => Math.max(x - GRID.x, 0)), zs = [];
+  const half = [...xs].reverse().map(x => -x).concat(xs.slice(1));
   PROFILE.forEach(([z, y], i) => {
-    const [za, ya] = PROFILE[Math.max(i - 1, 0)], [zb, yb] = PROFILE[Math.min(i + 1, PROFILE.length - 1)];
+    if (!i) return zs.push([z, y]);
+    const [z0, y0] = PROFILE[i - 1];
+    for (const d of steps(z0 - z, d => Math.max(GRID.z[0] - (z0 - d), z0 - d - GRID.z[1], 0)).slice(1)) zs.push([z0 - d, y0 + (y - y0) * d / (z0 - z), i]);
+  });
+  const position = [], normal = [], rows = [];
+  zs.forEach(([z, y, seg], j) => {
+    // The normal of the profile point, or of the segment between two points.
+    const i = PROFILE.findIndex(p => p[0] === z);
+    const [za, ya] = i >= 0 ? PROFILE[Math.max(i - 1, 0)] : PROFILE[seg - 1], [zb, yb] = i >= 0 ? PROFILE[Math.min(i + 1, PROFILE.length - 1)] : PROFILE[seg];
     const n = [0, za - zb, yb - ya], len = Math.hypot(n[1], n[2]);
-    position.push(-REACH, y, z, REACH, y, z);
-    normal.push(0, n[1] / len, n[2] / len, 0, n[1] / len, n[2] / len);
-    if (i) quads.push([i, y + PROFILE[i - 1][1]]);
+    for (const x of half) {
+      position.push(x, y, z);
+      normal.push(0, n[1] / len, n[2] / len);
+    }
+    if (j) rows.push([j, y + zs[j - 1][1]]);
   });
-  const index = quads.sort((a, b) => a[1] - b[1]).flatMap(([i]) => {
-    const a = 2 * (i - 1), b = 2 * i;
+  const nx = half.length;
+  const index = rows.sort((a, b) => a[1] - b[1]).flatMap(([j]) => Array.from({ length: nx - 1 }, (_, k) => {
+    const a = (j - 1) * nx + k, b = j * nx + k;
     return [a, a + 1, b, a + 1, b + 1, b];
-  });
+  }).flat());
   const g = new BufferGeometry();
   g.setAttribute('position', new Float32BufferAttribute(position, 3));
   g.setAttribute('normal', new Float32BufferAttribute(normal, 3));
   g.setIndex(index);
   return g;
+}
+
+// Distances 0 to length along a line, each step GRID.cell, larger by GRID.grow for each unit that
+// away(d) gives: the distance from the camera along x (the mesh follows it), or from the play area in z.
+function steps(length, away) {
+  const out = [0];
+  while (out.at(-1) < length) {
+    const d = out.at(-1);
+    out.push(Math.min(d + GRID.cell + GRID.grow * away(d), length));
+  }
+  // A last step much smaller than the others: join it to the one before.
+  if (out.length > 2 && out.at(-1) - out.at(-2) < 0.25 * (out.at(-2) - out.at(-3))) out.splice(-2, 1);
+  return out;
 }
 
 // Footprint on each strip: lit, shade, strength for a dry foot, and lit, shade for a wet one. Dry: on grass
@@ -170,7 +201,7 @@ export const stripAt = z => STRIPS.find(([, edge]) => z > edge)[0];
 // Grass colour uniforms, for the ground and the tufts.
 const GRASS_TONES = ['grass', 'grassSun', 'grassDark'];
 export function grassUniforms() {
-  const uniforms = {};
+  const uniforms = { uNoise: noiseUniform };
   for (const name of GRASS_TONES) {
     uniforms[`u_${name}Lit`] = { value: COLOURS[name][0] };
     uniforms[`u_${name}Shade`] = { value: COLOURS[name][1] };
@@ -178,16 +209,17 @@ export function grassUniforms() {
   return uniforms;
 }
 // GLSL: grassPatches() and grassColour(), the colour of the grass at a ground point, so a tuft's root matches the ground.
-// Needs NOISE. Sunny and lush patches with hard toon edges, one pixel wide, warped for a brushed shape.
+// Sunny and lush patches with hard toon edges, one pixel wide, warped for a brushed shape.
 export const GRASS = /* glsl */`
+${NOISE_TEX}
 ${GRASS_TONES.map(n => `uniform vec3 u_${n}Lit, u_${n}Shade;`).join('\n')}
 // lit: 0 shade to 1 sun. near: patchNear(), 1 near the camera to 0 far away, where the patches are too
 // small to read.
 // sun, lush: 0 to 1, how much of each patch is at xz. aa: 1 for a pixel-wide edge (fragment shader only),
 // 0 for a hard step.
 void grassPatches(vec2 xz, float aa, out float sun, out float lush) {
-  vec2 g = xz + 1.6 * vec2(noise3(vec3(xz * 0.45, 1.0)), noise3(vec3(xz * 0.45, 2.0)));
-  float a = noise3(vec3(g * 0.2, 0.0)), b = noise3(vec3(g * 0.45, 5.0));
+  vec2 g = xz + 1.6 * vec2(noise2(xz * 0.45), noise2(xz * 0.45 + vec2(37.0, 17.0)));
+  float a = noise2(g * 0.2 + vec2(71.0, 113.0)), b = noise2(g * 0.45 + vec2(151.0, 29.0));
   float wa = 1e-4, wb = 1e-4;
 #ifdef FRAGMENT   // the fragment shaders define it before this chunk
   wa = max(aa * fwidth(a), 1e-4);
@@ -275,18 +307,21 @@ function groundMaterial(sun, beds) {
         vWorld = world.xyz;
         vNormal = normal;
         gl_Position = projectionMatrix * viewMatrix * world;
+        // Depth DEPTH_BIAS behind the ground along the view ray, at the same pixel. In the vertex shader,
+        // not gl_FragDepth: a depth write in the fragment shader turns off the early depth test, so every
+        // ground pixel ran the full shader, even under a prop (about 0.9 ms).
+        vec4 back = projectionMatrix * viewMatrix * vec4(world.xyz + normalize(world.xyz - cameraPosition) * ${f(DEPTH_BIAS)}, 1.0);
+        gl_Position.z = back.z / back.w * gl_Position.w;
         toonShadowCoord(world, normal);
       }`,
     fragmentShader: /* glsl */`
       ${TOON}
-      ${NOISE}
       #define FRAGMENT
       ${GRASS}
       ${BLADES}
       ${other.map(n => `uniform vec3 u_${n}Lit, u_${n}Shade;`).join('\n')}
       uniform vec3 uHaze, uSun;
       uniform vec4 uBeds[${MULCH.max}];
-      uniform mat4 projectionMatrix;
       varying vec3 vWorld, vNormal;
       // 1 on a line of width (units) at u = 0, with w (one pixel, units) of blur.
       float line(float u, float width, float w) {
@@ -379,7 +414,7 @@ function groundMaterial(sun, beds) {
           if (b.z == 0.0) continue;
           float t = distance(xz, b.xy) / b.z;
           if (t > ${f(MULCH.reach)}) continue;
-          float n = noise3(vec3(xz * ${f(MULCH.patch)}, b.w)) * 0.7 + noise3(vec3(xz * ${f(MULCH.patch * 2.7)}, b.w + 3.0)) * 0.3;
+          float n = noise2(xz * ${f(MULCH.patch)} + b.w) * 0.7 + noise2(xz * ${f(MULCH.patch * 2.7)} + b.w + 3.0) * 0.3;
           d = max(d, (${f(MULCH.reach)} - t - 0.9 * n) / (1.0 / b.z + ${f(MULCH.patch)}));
         }
         return d;
@@ -455,7 +490,7 @@ function groundMaterial(sun, beds) {
         // Road: patches of repair, and the dashed centre line. The noise runs only near the road.
         vec3 road = ${tone('road')};
         if (${STRIPS.map(([kind, z], i) => kind !== 'road' ? null : `z < ${f(STRIPS[i - 1][1] + 0.5)} && z > ${f(z - 0.5)}`).filter(Boolean).join(' || ')}) {
-          road = mix(road, ${tone('patch')}, smoothstep(0.70, 0.74, noise3(vec3(p.xz * vec2(0.08, 0.25), 9.0))));
+          road = mix(road, ${tone('patch')}, smoothstep(0.70, 0.74, noise2(p.xz * vec2(0.08, 0.25) + vec2(9.0, 201.0))));
         }
         float dx = mod(p.x, ${f(ROAD.dash[0] + ROAD.dash[1])}) - ${f(ROAD.dash[0] / 2)};
         road = mix(road, ${tone('line')}, line(z - ${f(ROAD.centre)}, ${f(ROAD.dashWidth)}) * line(dx, ${f(ROAD.dash[0])}, fwidth(p.x)));
@@ -492,10 +527,6 @@ function groundMaterial(sun, beds) {
         col = mix(col, uHaze, smoothstep(${f(HAZE_FROM[0])}, ${f(HAZE_FROM[1])}, distance(p, cameraPosition)));
         gl_FragColor = vec4(col, 1.0);
         #include <colorspace_fragment>
-        // Depth a little behind the ground along the view ray. For each pixel: the triangles are too
-        // large to move their corners. The ground draws first, so it loses no early depth test.
-        vec4 clip = projectionMatrix * viewMatrix * vec4(p + normalize(p - cameraPosition) * ${f(DEPTH_BIAS)}, 1.0);
-        gl_FragDepth = 0.5 + 0.5 * clip.z / clip.w;
       }`,
   });
 }

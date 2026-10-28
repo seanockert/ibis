@@ -1,6 +1,7 @@
-// Free play input: WASD or the arrow keys walk, Shift runs, Space jumps (hold to flutter). The joystick
-// walks, and runs when pushed far. A tap on the ground walks there (runs when far); a tap on the player
-// prods it. A drag orbits the camera. A tap on the middle of the joystick turns the camera behind the bird.
+// Free play input: WASD or the arrow keys walk, Shift runs, Space jumps (hold to flutter; a double-tap
+// shakes the body). The joystick walks, and runs when pushed far. A tap on the ground walks there (runs
+// when far); a tap on the player prods it. A drag orbits the camera. A tap on the middle of the joystick
+// turns the camera behind the bird.
 //
 //   const input = new Input(canvas, stage, level, () => { ... }, () => { ... });   // onFree, onRecentre
 //   input.bindStick(element);
@@ -13,6 +14,7 @@ const STICK_DEAD = 0.12;    // joystick dead zone, part of its reach
 const STICK_RUN = 0.65;     // the joystick walks up to this part of its reach, then runs
 const STICK_TAP = 0.35;     // a tap on the joystick inside this part of its reach recentres the camera
 const TAP_MS = 300;         // a tap is shorter than this
+const DOUBLE_MS = 300;      // a jump press this soon after the last one is a double-tap: a body shake
 const WALK_KEYS = ['KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'];
 
 export class Input {
@@ -25,11 +27,13 @@ export class Input {
     this.stick = new THREE.Vector2();   // joystick: x right, y up, length 0 to 1 (with stickRun, of the run speed)
     this.stickRun = false;
     this.jump = false;                // the Jump button, while held
+    this.jumpAt = -Infinity;          // time of the last jump press that jumped (ms)
+    this.shaking = false;             // the press now held is a double-tap: it does not jump
     addEventListener('keydown', e => {
       if (e.repeat) return;
       this.keys.add(e.code);
       if (WALK_KEYS.includes(e.code)) this.free();
-      if (e.code === 'Space') e.preventDefault();
+      if (e.code === 'Space') { e.preventDefault(); this.pressJump(e.timeStamp); }
     });
     addEventListener('keyup', e => this.keys.delete(e.code));
     addEventListener('blur', () => this.keys.clear());
@@ -43,6 +47,14 @@ export class Input {
   free() {
     this.goal = null;
     this.onFree();
+  }
+
+  // A jump press (Space or the Jump button). The second press of a double-tap shakes the body, and does
+  // not jump until it is let go.
+  pressJump(time) {
+    this.shaking = time - this.jumpAt < DOUBLE_MS;
+    this.jumpAt = this.shaking ? -Infinity : time;
+    if (this.shaking) this.level.player.character.act('shake');
   }
 
   // Sets the character's input from the keys, the joystick and the tap target.
@@ -66,7 +78,9 @@ export class Input {
     }
     c.input.move.set(move.x, move.z);
     if (c.input.move.lengthSq() > 1) c.input.move.normalize();   // the joystick keeps its analog length
-    c.input.jump = keys.has('Space') || this.jump;
+    const held = keys.has('Space') || this.jump;
+    if (!held) this.shaking = false;
+    c.input.jump = held && !this.shaking;
   }
 
   // On the player, a prod; on the ground in bounds, walk there.

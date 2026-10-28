@@ -28,6 +28,14 @@ const NOTICE_LOOK = 1.5;    // seconds the player looks at a miner that goes on 
 // A snap that hurts a miner: the hit-stop (seconds, and the time rate in it), and the size and hold
 // (seconds) of its hit lines. The camera shakes too (Follow.shake(), in main.js).
 const HURT = { freeze: 0.12, rate: 0.05, lines: 2.2, hold: 0.6 };
+// Solid scenery and props draw before the ground (renderOrder -1), so the depth test skips the ground
+// pixels under them: the ground has the most costly shader (about 0.7 ms less in free play). They all
+// write depth, so the order changes no pixel. Not the puddle and the footprints: they write no depth and
+// must draw after the ground.
+const BEFORE_GROUND = -2;
+function beforeGround(object) {
+  object.traverse(o => { if (o.isMesh && o.renderOrder === 0 && ![o.material].flat().some(m => m.transparent)) o.renderOrder = BEFORE_GROUND; });
+}
 
 export class Level {
   // asset: the ibis asset (loadIbis()), for the shared uniforms. birds: the bird assets by species.
@@ -49,6 +57,7 @@ export class Level {
     this.physics = props ? new Physics({ ground: this.ground.profile }) : null;
     this.parts = env ? def.scenery(asset, this.physics) : [];
     this.puddle = env && def.puddle ? new Puddle(asset.sun) : null;
+    for (const part of this.parts) beforeGround(part.object);
     for (const part of [...this.parts, this.puddle]) if (part) scene.add(part.object);
     this.fx = new IbisEffects(asset);
     if (env) {
@@ -112,6 +121,7 @@ export class Level {
   }
 
   addProp(prop) {
+    beforeGround(prop.object);
     this.props.push(prop);
     this.scene.add(prop.object);
     return prop;

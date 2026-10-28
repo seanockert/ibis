@@ -5,6 +5,7 @@ import * as THREE from 'three';
 import { readConfig } from './app/config.js';
 import { Follow } from './app/follow.js';
 import { Input } from './app/input.js';
+import { Meter } from './app/meter.js';
 import { lockScreen } from './app/screen.js';
 import { Stage, TARGET_PLAY } from './app/stage.js';
 import { hideUi, Ui } from './app/ui.js';
@@ -105,8 +106,11 @@ const ui = new Ui({
   },
 });
 
+// Frame meter, top left: free play with the buttons.
+const meter = play && config.ui ? new Meter(stage.renderer) : null;
 let last = performance.now();
 function frame() {
+  meter?.begin();
   const now = performance.now();
   const dt = Math.min((now - last) / 1000, 0.1);
   last = now;
@@ -134,7 +138,9 @@ function frame() {
   level.updateView(camera, dt);
   level.renderShadows(stage.renderer);
   stage.render(dt);
+  meter?.end();
 }
+window.demo.frame = frame;   // for tools/gpu.mjs
 
 if (config.bench !== null) {
   // Draw N frames in a blocking loop and put the mean frame time in the title.

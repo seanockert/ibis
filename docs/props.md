@@ -15,6 +15,13 @@ The physics engine, layers and the bird's solid are in `physics.md`.
   - Check it: walk and then run the bird into the prop (headless, in free play). A walk must not throw a light prop far, and a run must not throw a heavy one.
 - Australian, not American: the street is an Australian suburb, and every object is Australian in style and product. Examples: wheelie bins (red lid general waste, yellow recycling, green garden), an AFL football, stubbies, a nature strip, a rolled kerb, brick letterboxes, a Hills Hoist, a corrugated iron fence, gum trees. Not: an American mailbox on a post, a fire hydrant, a yellow school bus, an American football, American road markings. Cars drive on the left.
 - No real brands: take the general colours and shapes of a classic Australian product (as the stubbies after a gold lager bottle), with no logo or name.
+- Cost (the GPU is the limit; the frame budget is in `environment.md`, "Frame cost"):
+  - Draws: merge the parts of one rigid body with `toonParts()`, and share the prop materials. Many copies of one object: one instanced mesh (as `Stubbies`, the fence posts), not one mesh each.
+  - Solid and opaque: write depth and keep renderOrder 0. `Level` then draws it before the ground (`BEFORE_GROUND` in `level.js`), so the ground shader skips the pixels under it. An object that writes no depth (a decal, a puddle) needs a renderOrder between -1 and 0, after the ground.
+  - Triangles: low meshes. Each mesh draws about 3 times (toon, outline, shadow). See the counts in `improvements.md`.
+  - Shaders: no `gl_FragDepth` (it turns off the early depth test). For noise, use `noise2()` (`src/world/noise.js`), not `noise3()`.
+  - Shadows: `castShadow` only where the shadow reads. The props with `castShadow` also draw into the lamp shadow atlas.
+  - Measure before and after with `npm run gpu` (`tools.md`), at day and at night.
 
 ## Props
 

@@ -1,6 +1,6 @@
 // The buttons. Free play: a joystick (input.js), a diamond of Threat, Squawk, Peck and Jump (bottom
-// right; Jump acts while held; Squawk gives a squawk and a happy dance in turn), and the other one-shot
-// actions in the top bar after Wet. Other views: one button for each move script.
+// right; Jump acts while held, and a double-tap shakes the body; Squawk gives a squawk and a happy dance
+// in turn), and the other one-shot actions in the top bar after Wet. Other views: one button for each move script.
 //
 //   const ui = new Ui({ play, anim, level, input, cycle, onMove });
 //   ui.update();   // every frame: the Wet button follows the player's wet
@@ -20,11 +20,11 @@ const DIAMOND = [   // grid cell, move
   ['2 / 3', 'Peck'],
   ['3 / 2', 'Jump'],
 ];
-// Not in the free play row: the joystick and the diamond do them, or the bird does them itself (Shake
-// head in the prod chain, Startle at the end of it, Happy from Squawk, Stumble when it runs into the bin or
-// is prodded at a run).
+// Not in the free play row: the joystick and the diamond do them (Shake: a double-tap on Jump), or the
+// bird does them itself (Shake head in the prod chain, Startle at the end of it, Happy from Squawk,
+// Stumble when it runs into the bin or is prodded at a run).
 const PAD = ['Idle', 'Walk', 'Run', 'Jump', 'Peck', 'Squawk', 'Threat', 'Turn', 'Prod', 'Shake head', 'Stumble',
-  'Happy', 'Startle'];
+  'Happy', 'Startle', 'Shake'];
 
 export class Ui {
   // input: free play input, or null. cycle: DayCycle or null. onMove(i): a move button in the other views.
@@ -41,7 +41,10 @@ export class Ui {
         b.setAttribute('aria-label', name);
         b.title = name;
         b.innerHTML = icon(name);
-        if (move.hold) hold(b, on => { if (on) input.free(); input.jump = on; });
+        if (move.hold) hold(b, (on, e) => {
+          if (on) { input.free(); input.pressJump(e.timeStamp); }
+          input.jump = on;
+        });
         else b.addEventListener('pointerdown', () => move.press(bird.character));
         acts.appendChild(b);
       }
@@ -105,10 +108,10 @@ function onPress(b, fn) {
   b.addEventListener('click', e => { if (e.timeStamp - pressed > 1000) fn(); });
 }
 
-// On while a pointer holds it.
+// On while a pointer holds it. set(on, event).
 function hold(b, set) {
-  b.addEventListener('pointerdown', e => { b.setPointerCapture(e.pointerId); set(true); });
-  for (const ev of ['pointerup', 'pointercancel', 'lostpointercapture']) b.addEventListener(ev, () => set(false));
+  b.addEventListener('pointerdown', e => { b.setPointerCapture(e.pointerId); set(true, e); });
+  for (const ev of ['pointerup', 'pointercancel', 'lostpointercapture']) b.addEventListener(ev, e => set(false, e));
 }
 
 // ui=0 hides the buttons and the joystick, for tools/strip.mjs.

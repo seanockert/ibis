@@ -8,6 +8,7 @@
     "bake": "node tools/bake.mjs",
     "shot": "node tools/shot.mjs",
     "bench": "node tools/bench.mjs",
+    "gpu": "node tools/gpu.mjs",
     "strip": "node tools/strip.mjs"
   },
   "dependencies": {

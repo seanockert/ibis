@@ -24,7 +24,6 @@
     --right: max(var(--edge), env(safe-area-inset-right));
     --bottom: max(var(--edge), env(safe-area-inset-bottom));
     --left: max(var(--edge), env(safe-area-inset-left));
-    --under: 0px;    /* iOS home screen app: screen height under the short viewport (fillScreen in screen.js) */
     --gap-x: max(0.5rem, env(safe-area-inset-left), env(safe-area-inset-right));   /* side gap of the bars */
     --cell: 3rem;     /* diamond grid cell */
     --act: 3.75rem;   /* diamond button */
@@ -40,21 +39,25 @@
     touch-action: none;
   }
   body { font: 0.875rem/1.4 system-ui, sans-serif; }   /* not on html: 1rem stays 16px */
-  /* lvh: the large viewport. In iOS Safari the canvas goes on under the address and tab bars.
-     --app-h: the screen height in an iOS home screen app, where lvh can be short. */
-  canvas { position: fixed; inset: 0 auto auto 0; display: block; width: 100vw; height: 100vh; height: var(--app-h, 100lvh); cursor: grab; }
+  /* iOS 26 home screen app: a page shorter than the screen gets a short viewport (WebKit bug 301108).
+     min(): no scroll when the top inset is 0. */
+  @media (display-mode: standalone) {
+    html { min-height: min(100lvh, calc(100% + env(safe-area-inset-top))); }
+  }
+  /* lvh: the large viewport. In iOS Safari the canvas goes on under the address and tab bars. */
+  canvas { position: fixed; inset: 0 auto auto 0; display: block; width: 100vw; height: 100vh; height: 100lvh; cursor: grab; }
   canvas:active { cursor: grabbing; }
   button { font: inherit; color: inherit; touch-action: none; cursor: pointer; -webkit-user-select: none; user-select: none; }
   [hidden] { display: none !important; }
 
   /* Move buttons (bottom) and the top bar (Wet, then the free play actions). */
-  .bar { position: fixed; inset: auto var(--gap-x) calc(var(--bottom) + 1.75rem - var(--under)); display: flex; flex-wrap: wrap; justify-content: center; gap: 0.375rem; }
+  .bar { position: fixed; inset: auto var(--gap-x) calc(var(--bottom) + 1.75rem); display: flex; flex-wrap: wrap; justify-content: center; gap: 0.375rem; }
   .bar.weather { inset: var(--top) var(--gap-x) auto; justify-content: end; }
   .bar button { padding: 0.375rem 0.875rem; border: 0.094rem solid var(--ink); border-radius: 999px; background: var(--chip); }
   .bar button[aria-pressed="true"] { background: var(--ink); color: var(--chip); }
 
   /* Free play: joystick bottom left, action diamond bottom right. */
-  .stick, .acts { position: fixed; bottom: calc(var(--bottom) - var(--under)); }
+  .stick, .acts { position: fixed; bottom: var(--bottom); }
   .stick { left: var(--left); width: var(--stick); aspect-ratio: 1; border-radius: 50%; background: rgb(246 242 234 / 0.2); backdrop-filter: blur(0.25rem); -webkit-backdrop-filter: blur(0.25rem); }
   .knob { position: absolute; inset: 50% auto auto 50%; width: var(--knob); aspect-ratio: 1; margin: calc(var(--knob) / -2) 0 0 calc(var(--knob) / -2); border: 0.094rem solid var(--ink); border-radius: 50%; background: var(--chip); pointer-events: none; }
   .acts { right: var(--right); display: grid; grid-template: repeat(3, var(--cell)) / repeat(3, var(--cell)); }
@@ -65,8 +68,11 @@
   .ico path { fill: currentColor; stroke: currentColor; stroke-width: 0; stroke-linejoin: round; }
   .ico .s { fill: none; stroke-width: 2.4; stroke-linecap: round; }
 
+  /* Frame meter (src/app/meter.js), top left. */
+  .meter { position: fixed; top: var(--top); left: var(--left); margin: 0; padding: 0.25rem 0.5rem; border-radius: 0.375rem; background: rgb(38 40 56 / 0.6); color: var(--chip); font: 0.6875rem/1.35 ui-monospace, monospace; white-space: pre; pointer-events: none; }
+
   @media (max-width: 37.5rem) {
-    .bar { bottom: calc(var(--bottom) - var(--under)); }
+    .bar { bottom: var(--bottom); }
   }
 </style>
 </head>
@@ -74,6 +80,7 @@
 <canvas id="c"></canvas>
 <div class="bar" id="bar"></div>
 <div class="bar weather" id="weather"></div>
+<pre class="meter" id="meter" hidden></pre>
 <div class="stick" id="stick" hidden><div class="knob"></div></div>
 <div class="acts" id="acts" hidden></div>
 <script type="module" src="/src/main.js"></script>

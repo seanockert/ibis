@@ -11,6 +11,8 @@ npm run bake -- miner                                 # writes public/miner.glb
 npm run shot -- out.png "index.html?anim=6&t=0.35&yaw=1.3&pitch=0" 700x700
 npm run shot -- out.png "sdf.html?anim=6&t=0.35&yaw=1.3&pitch=0" 700x700
 npm run strip -- out.png "index.html?anim=7&yaw=1.3&pitch=0.1" 0 1.2 12   # filmstrip: 12 frames, t 0 to 1.2
+npm run gpu -- "index.html?time=night" 1200x800 1.5 120   # GPU time of free play frames: median of timer queries
+node tools/playshot.mjs out.png "time=dusk" 1200x800          # free play screenshot after 40 frames
 npm run build
 ```
 
@@ -24,6 +26,8 @@ npm run build
 - To zoom in, render at 1400x1400 or more and crop with `sips -c H W --cropOffset Y X in.png --out out.png`.
 - `public/ibis.glb` is in git. To undo a bake, run `git checkout public/ibis.glb`.
 - To show that a change to shared code does not change the ibis, render the views from a copy of HEAD (`git archive HEAD | tar -x -C DIR`, then a link to `node_modules`) and from the work tree, and diff the PNGs.
+- Frame meter (`src/app/meter.js`): top left in free play (not with `ui=0`): frame time and fps, the CPU time of the frame's JS, and the GPU time where the browser has timer queries (not Safari).
+- `npm run gpu` times `window.demo.frame()` (the whole free play frame, with the shadows) with GPU timer queries, at a pixel ratio (default 1.5). `GPU_SETUP` is JS to run in the page first: hide a part to find its cost, for example `GPU_SETUP="window.demo.world[1].object.visible=false"` (the ground), or change a shader (`m.fragmentShader = m.fragmentShader.replace(...)`, `m.needsUpdate = true`). Runs vary by about 0.3 ms: run twice.
 - `npm run bench` measures wall time. When another tab or app renders (the demo open in a browser), it can read 5 to 10 times too high, with no pattern. For costs, use GPU timer queries (`EXT_disjoint_timer_query_webgl2`) round `window.demo.render()`, and take the median. Free play at 1200x800: about 1.2 ms GPU with no environment, about 4 ms with the street, sky, backdrop, grade and the 4096 shadow map. Keep a large budget free for the props and set pieces to come.
 - `npm` and `npx` can be slow here. Run long installs in the background.
 
