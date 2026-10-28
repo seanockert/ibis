@@ -6,13 +6,15 @@
 //   const fence = new Fence(asset, physics);   // physics optional: a solid wall for the props
 //   scene.add(fence.object);
 //   fence.perches();   // where a flying miner can land: the post tops and the middle of each rail
+//   fence.update(camera);   // every frame: the fade of the posts and rails near the camera
 //
-// Posts and rails are instanced (one draw each, and one for each outline). The wire is one mesh of flat
+// Posts and rails are instanced (one draw each, and one for each outline). A post or a rail that the
+// camera is in or near fades all over (seeIds() in props.js). The wire is one mesh of flat
 // quads, a diamond pattern in the shader with alphaToCoverage (soft edges with the multisampled target
 // of grade.js, no sorting). Far away, where a diamond is a few pixels, the lines blend to a flat tint.
-import { DoubleSide, Float32BufferAttribute, BufferGeometry, InstancedMesh, Matrix4, Mesh, Quaternion, ShaderMaterial, Vector3 } from 'three';
+import { DoubleSide, Float32BufferAttribute, BufferGeometry, InstancedBufferAttribute, InstancedMesh, Line3, Matrix4, Mesh, Quaternion, ShaderMaterial, Vector3 } from 'three';
 import { lightUniforms, TOON, TOON_VERTEX } from '../ibis/materials.js';
-import { outlineMaterial, SEE_THROUGH, seeOn, smoothNormals, toonMaterial } from './props.js';
+import { outlineMaterial, SEE, SEE_THROUGH, seeIds, seeOn, smoothNormals, toonMaterial } from './props.js';
 import { PLAY, streetHeight } from './street.js';
 import { srgb, f } from './util.js';
 
@@ -50,9 +52,11 @@ export class Fence {
       }
     }
     const [lit, shade, line] = COLOURS.post;
-    const instanced = (geometry, list, matrix) => {
+    // Each instance's id (seeIds()) is its place in the list.
+    const instanced = (geometry, list, matrix, ids) => {
       geometry.setAttribute('_outline', smoothNormals(geometry));
-      const meshes = [new InstancedMesh(geometry, toonMaterial(lit, shade, asset.uniforms), list.length), new InstancedMesh(geometry, outlineMaterial(line, asset.uniforms), list.length)];
+      geometry.setAttribute('aSeeId', new InstancedBufferAttribute(Float32Array.from(list, (_, i) => i), 1));
+      const meshes = [new InstancedMesh(geometry, toonMaterial(lit, shade, asset.uniforms, { ids }), list.length), new InstancedMesh(geometry, outlineMaterial(line, asset.uniforms, { ids }), list.length)];
       list.forEach((item, i) => { const m = matrix(item); for (const mesh of meshes) mesh.setMatrixAt(i, m); });
       meshes[0].castShadow = meshes[0].receiveShadow = true;
       for (const mesh of meshes) mesh.frustumCulled = false;
@@ -60,19 +64,34 @@ export class Fence {
     };
     const postGeometry = roundedPost(pw, ph, 0.06);
     const q = new Quaternion(), up = new Vector3(0, 1, 0);
-    const postMeshes = instanced(postGeometry, fencePosts(), p => new Matrix4().setPosition(p));
+    const posts = fencePosts();
+    this.see = { posts: seeIds(), rails: seeIds() };
+    const postMeshes = instanced(postGeometry, posts, p => new Matrix4().setPosition(p), this.see.posts);
     // Rails: a unit long box, stretched to the gap between two posts.
     const railGeometry = roundedRail(rh, rd, 0.05).translate(0, railTop - rh / 2, 0);
     const railMeshes = instanced(railGeometry, rails, ([a, b]) => {
       q.setFromAxisAngle(up, Math.atan2(a.z - b.z, b.x - a.x));
       return new Matrix4().compose(a.clone().add(b).multiplyScalar(0.5), q, new Vector3(a.distanceTo(b) - pw + 0.02, 1, 1));
-    });
+    }, this.see.rails);
     this.wire = new Mesh(wireGeometry(runs), wireMaterial(asset.sun));
     this.wire.receiveShadow = true;
     this.wire.frustumCulled = false;
     this.object = postMeshes[0];
     this.object.add(postMeshes[1], ...railMeshes, this.wire);
     this.rails = rails;
+    // The volumes for the fade: a capsule along each post and each rail, SEE.margin larger.
+    const y = railTop - rh / 2;
+    this.volumes = {
+      posts: posts.map(p => new Line3(p.clone(), p.clone().setY(p.y + ph))), post: pw / Math.SQRT2 + SEE.margin,
+      rails: rails.map(([a, b]) => new Line3(a.clone().setY(a.y + y), b.clone().setY(b.y + y))), rail: Math.hypot(rh, rd) / 2 + SEE.margin,
+    };
+  }
+
+  update(camera) {
+    const eye = camera.position, { posts, post, rails, rail } = this.volumes;
+    const near = (line, r) => line.closestPointToPoint(eye, true, closest).distanceToSquared(eye) < r * r;
+    this.see.posts.update(posts.length, i => near(posts[i], post));
+    this.see.rails.update(rails.length, i => near(rails[i], rail));
   }
 
   // Perches for the flying miners (src/characters/sentry.js), as perch() on a prop: the top of each post,
@@ -86,6 +105,8 @@ export class Fence {
     ];
   }
 }
+
+const closest = new Vector3();   // scratch
 
 const postCount = (a, b) => Math.max(1, Math.round(a.distanceTo(b) / FENCE.spacing));
 

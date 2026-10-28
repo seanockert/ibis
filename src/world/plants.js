@@ -11,15 +11,15 @@
 // (default 1), flowers (a shrub: 'yellow', 'pink' or none), perch (a bottlebrush: [x, z], the world
 // direction of a bare perch branch for a miner, or none). A plant in PLAY gets a solid in the physics: a
 // tree its trunk, a shrub a core (its branches), so the bird goes into the leaves at the edge but not
-// through the middle. The street puts most of them in the yards. A plant that the camera is in fades
-// all over (seeId in props.js), as a prop in seeInside().
+// through the middle. The street puts most of them in the yards. A plant that the camera is in or near
+// fades all over (seeIds() in props.js), as a prop in seeInside().
 //
 //   plants.perches();   // where a flying miner can land: the perch branches (as fence.perches())
 import { Box3, CatmullRomCurve3, Color, CylinderGeometry, Float32BufferAttribute, BufferGeometry, Group, IcosahedronGeometry, Line3, Mesh, Quaternion, ShaderMaterial, Vector3 } from 'three';
 import { lightUniforms, NOISE, TOON, TOON_VERTEX } from '../ibis/materials.js';
 import { hash } from '../ibis/motion/spring.js';
 import { FAR_LAYER } from './farShadow.js';
-import { outlineMaterial, SEE, SEE_THROUGH, SEE_VERTEX, seeId, seeOn, toonParts } from './props.js';
+import { outlineMaterial, SEE, SEE_THROUGH, SEE_VERTEX, seeIds, seeOn, toonParts } from './props.js';
 import { inPlay, streetHeight } from './street.js';
 import { srgb, f } from './util.js';
 import { swayReach, swayWeight, WIND_SWAY, windDepthMaterial, windTime } from './wind.js';
@@ -93,7 +93,7 @@ export class Plants {
       const plant = grow(def, def.seed ?? i), key = Math.floor(def.at[0] / CHUNK);
       this.spots.push(...plant.perches);
       this.volumes.push(plant.volume);
-      // The plant's id (seeId) on all its vertices: its place in the list.
+      // The plant's id (seeIds()) on all its vertices: its place in the list.
       for (const [g] of plant.bark) g.setAttribute('aSeeId', new Float32BufferAttribute(new Float32Array(g.attributes.position.count).fill(i), 1));
       for (const b of plant.balls) b.id = i;
       if (!chunks.has(key)) chunks.set(key, { bark: [], balls: [] });
@@ -102,14 +102,15 @@ export class Plants {
       if (physics && plant.solid) physics.addTerrain(plant.solid);
     });
     this.object = new Group();
-    const leaf = leafMaterial(asset.uniforms);
-    for (const { bark, balls } of chunks.values()) this.object.add(...chunkMeshes(bark, balls, leaf, asset.uniforms));
+    this.see = seeIds();
+    const leaf = leafMaterial(asset.uniforms, this.see);
+    for (const { bark, balls } of chunks.values()) this.object.add(...chunkMeshes(bark, balls, leaf, asset.uniforms, this.see));
     this.count = list.length;
   }
 
   update(camera, dt = 0) {
     windTime.value += dt;
-    seeId.value = this.volumes.findIndex(v => inside(v, camera.position));
+    this.see.update(this.volumes.length, i => inside(this.volumes[i], camera.position));
   }
 
   // Perches for the flying miners (src/characters/sentry.js), as perch() on a prop: a point on top of a
@@ -122,15 +123,15 @@ export class Plants {
 
 // Four draws for a chunk: bark and flowers with their outline (toonParts()), leaves, and the leaf
 // outline, pushed back LINE_BACK, so it is only round the outside of a crown.
-function chunkMeshes(bark, balls, leaf, shared) {
+function chunkMeshes(bark, balls, leaf, shared, see) {
   const geometry = leafGeometry(balls);
   const leaves = new Mesh(geometry, leaf);
   leaves.castShadow = true;
   leaves.customDepthMaterial = windDepthMaterial();
   leaves.layers.enable(FAR_LAYER);
-  const leafLine = new Mesh(geometry, outlineMaterial(new Color(), shared, { tones: true, wind: true, back: LINE_BACK, ids: true }));
+  const leafLine = new Mesh(geometry, outlineMaterial(new Color(), shared, { tones: true, wind: true, back: LINE_BACK, ids: see }));
   if (!bark.length) return [leaves, leafLine];   // shrubs with no flowers
-  const [body, line] = toonParts(bark, shared, { wind: true, ids: true });
+  const [body, line] = toonParts(bark, shared, { wind: true, ids: see });
   body.layers.enable(FAR_LAYER);
   return [body, line, leaves, leafLine];
 }
@@ -487,11 +488,11 @@ function leafGeometry(balls) {
 // Leaves: two tones, split by the toon band on a normal between the ball and the clump, so each clump
 // reads as one shape, with round leaf lobes on the light edge. No shadow map on the leaves: the sway
 // and the coarse far map gave streaks and soft bands on the crowns.
-function leafMaterial(shared) {
+function leafMaterial(shared, see) {
   return new ShaderMaterial({
     lights: true,
     defines: { SEE_ID: '' },
-    uniforms: { ...lightUniforms(), uSun: shared.uSun, uSee: seeOn, uSeeId: seeId, uWindTime: windTime },
+    uniforms: { ...lightUniforms(), uSun: shared.uSun, uSee: seeOn, uSeeId: see, uWindTime: windTime },
     vertexShader: /* glsl */`
       ${TOON_VERTEX}
       ${WIND_SWAY}

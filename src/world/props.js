@@ -562,8 +562,8 @@ function openBox([w, h, d], wall, floor) {
 // one outline round the parts that have a line colour, with it on each vertex. All props share the two
 // materials. parts: [geometry, [lit, shade, line?], at = [0, 0, 0]]: the geometry moves to at. wind:
 // the parts sway (wind.js): world space geometry with aSway, and their own materials. ids: the parts
-// have aSeeId (see seeId), and their own materials.
-export function toonParts(parts, shared, { wind = false, ids = false } = {}) {
+// have aSeeId, and this seeIds() uniform fades them; their own materials.
+export function toonParts(parts, shared, { wind = false, ids = null } = {}) {
   const { body, line } = toonMaterials(shared, wind, ids);
   const sway = [...(wind ? ['aSway'] : []), ...(ids ? ['aSeeId'] : [])];
   const toned = parts.map(([geometry, colours, at = [0, 0, 0]]) => {
@@ -587,9 +587,11 @@ export function toonParts(parts, shared, { wind = false, ids = false } = {}) {
 // One toon and one outline material for each set of shared uniforms, with the colours on the vertices.
 // Each has a faded twin (userData.faded, and back with userData.solid) for seeInside().
 const materials = new WeakMap();
-function toonMaterials(shared, wind = false, ids = false) {
-  if (!materials.has(shared)) materials.set(shared, {});
-  const cache = materials.get(shared), key = `${wind} ${ids}`;
+function toonMaterials(shared, wind = false, ids = null) {
+  if (!materials.has(shared)) materials.set(shared, new Map());
+  const caches = materials.get(shared);
+  if (!caches.has(ids)) caches.set(ids, {});
+  const cache = caches.get(ids), key = wind;
   if (!cache[key]) {
     const none = new Color();
     const pair = make => {
@@ -606,8 +608,8 @@ function toonMaterials(shared, wind = false, ids = false) {
   return cache[key];
 }
 
-// Fades the whole prop while the camera is in one of its solids (a box, SEE.margin larger), as in a
-// bin: its far walls are too far from the camera for the fade of SEE_THROUGH. eye: camera position.
+// Fades the whole prop while the camera is in one of its solids or near it (a box, SEE.margin larger),
+// as in a bin: its far walls are too far from the camera for the fade of SEE_THROUGH. eye: camera position.
 export function seeInside(prop, eye) {
   const inside = prop.solids?.().some(({ body, half }) => {
     local.copy(eye).sub(at.fromArray(body.position)).applyQuaternion(turn.fromArray(body.quaternion).invert());
@@ -645,12 +647,25 @@ const float LINE_MIN_PX = 1.0;
 // screen-door dither (4 by 4 Bayer), so the parts stay opaque and need no sort. uSee: 1 on (free play),
 // 0 off. near: no fade farther than this from the camera, full fade nearer than near - soft (the camera
 // near plane is 0.1). A material with FADED fades all over (seeInside()). min: the opacity of the full
-// fade. margin: seeInside() fades a prop when the camera is this near its solids. Units.
-export const SEE = { near: 0.6, soft: 0.4, min: 0.3, margin: 0.15 };
+// fade. margin: a whole object fades when the camera is this near it (seeInside(), seeIds()); not less
+// than near, so no part of an object fades on its own. Units.
+export const SEE = { near: 0.6, soft: 0.4, min: 0.3, margin: 0.6 };
 export const seeOn = { value: 0 };
-// One mesh of many objects (the plants): a material with SEE_ID gets the object of each vertex
-// (aSeeId), and fades all over where it is the object the camera is in (seeId; -1: none).
-export const seeId = { value: -1 };
+
+// One mesh of many objects (the plants, the fence posts): a material with SEE_ID gets the object of each
+// vertex or instance (aSeeId), and fades all of the objects in its uniform uSeeId (up to 4; -1: none).
+//
+//   const see = seeIds();                       // one for each mesh, its ids from 0
+//   see.update(count, i => cameraIsNear(i));    // every frame
+export function seeIds() {
+  const uniform = { value: new Vector4(-1, -1, -1, -1) };
+  uniform.update = (count, near) => {
+    let k = 0;
+    for (let i = 0; i < count && k < 4; i++) if (near(i)) uniform.value.setComponent(k++, i);
+    while (k < 4) uniform.value.setComponent(k++, -1);
+  };
+  return uniform;
+}
 export const SEE_VERTEX = /* glsl */`
 #ifdef SEE_ID
 attribute float aSeeId;
@@ -663,7 +678,7 @@ varying float vSeeId;
 export const SEE_THROUGH = /* glsl */`
 uniform float uSee;
 #ifdef SEE_ID
-uniform float uSeeId;
+uniform vec4 uSeeId;
 varying float vSeeId;
 #endif
 // Opacity at a world point: 1 away from the camera, SEE.min at the camera.
@@ -673,7 +688,7 @@ float seeThrough(vec3 p) {
 #endif
   if (uSee == 0.0) return 1.0;
 #ifdef SEE_ID
-  if (abs(vSeeId - uSeeId) < 0.5) return ${f(SEE.min)};
+  if (any(lessThan(abs(uSeeId - vSeeId), vec4(0.5)))) return ${f(SEE.min)};
 #endif
   float near = 1.0 - smoothstep(${f(SEE.near - SEE.soft)}, ${f(SEE.near)}, distance(p, cameraPosition));
   return mix(1.0, ${f(SEE.min)}, near);
@@ -709,12 +724,12 @@ mat4 model() {
 
 // tones: the lit and shade colours come from the vertex attributes aLit and aShade, so parts of
 // several colours draw in one call. Works on an InstancedMesh. wind: the vertices sway (wind.js).
-// ids: the vertices have aSeeId (seeId).
-export function toonMaterial(lit, shade, shared, { tones = false, faded = false, wind = false, ids = false } = {}) {
+// ids: the vertices have aSeeId, and this seeIds() uniform fades them.
+export function toonMaterial(lit, shade, shared, { tones = false, faded = false, wind = false, ids = null } = {}) {
   return new ShaderMaterial({
     lights: true,
     defines: { ...(tones ? { TONES: '' } : {}), ...(faded ? { FADED: '' } : {}), ...(wind ? { WIND: '' } : {}), ...(ids ? { SEE_ID: '' } : {}) },
-    uniforms: { ...lightUniforms(), uSun: shared.uSun, uLit: { value: lit }, uShade: { value: shade }, uSee: seeOn, uSeeId: seeId, uWindTime: windTime },
+    uniforms: { ...lightUniforms(), uSun: shared.uSun, uLit: { value: lit }, uShade: { value: shade }, uSee: seeOn, uWindTime: windTime, ...(ids ? { uSeeId: ids } : {}) },
     vertexShader: /* glsl */`
       ${TOON_VERTEX}
       ${MODEL}
@@ -765,12 +780,12 @@ export function toonMaterial(lit, shade, shared, { tones = false, faded = false,
 // of the front of a sphere round the object (uniform uFront: world centre, radius), not of its back
 // faces, so the ground under the object does not cover it. wind: the vertices sway (wind.js). back:
 // the line takes the depth of a point this many units farther from the camera, so it shows only
-// against what is far behind it (no lines inside a leaf crown). ids: the vertices have aSeeId (seeId).
-export function outlineMaterial(line, shared, { tones = false, screen = 0, front = false, faded = false, wind = false, back = 0, ids = false } = {}) {
+// against what is far behind it (no lines inside a leaf crown). ids: as toonMaterial().
+export function outlineMaterial(line, shared, { tones = false, screen = 0, front = false, faded = false, wind = false, back = 0, ids = null } = {}) {
   return new ShaderMaterial({
     side: BackSide,
     defines: { ...(tones ? { TONES: '' } : {}), ...(screen ? { SCREEN: f(screen) } : {}), ...(front ? { FRONT: '' } : {}), ...(faded ? { FADED: '' } : {}), ...(wind ? { WIND: '' } : {}), ...(back ? { BACK: f(back) } : {}), ...(ids ? { SEE_ID: '' } : {}) },
-    uniforms: { uSun: shared.uSun, uViewHeight: shared.uViewHeight, uLine: { value: line }, uFront: { value: new Vector4() }, uSee: seeOn, uSeeId: seeId, uWindTime: windTime },
+    uniforms: { uSun: shared.uSun, uViewHeight: shared.uViewHeight, uLine: { value: line }, uFront: { value: new Vector4() }, uSee: seeOn, uWindTime: windTime, ...(ids ? { uSeeId: ids } : {}) },
     vertexShader: /* glsl */`
       ${BAND}
       ${MODEL}
