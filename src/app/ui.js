@@ -2,7 +2,7 @@
 // right; Jump acts while held; Squawk gives a squawk and a happy dance in turn), and the other one-shot
 // actions in the top bar after Wet. Other views: one button for each move script.
 //
-//   const ui = new Ui({ play, anim, level, input, onMove });
+//   const ui = new Ui({ play, anim, level, input, cycle, onMove });
 //   ui.update();   // every frame: the Wet button follows the player's wet
 import { MOVES } from '../moves.js';
 
@@ -27,8 +27,8 @@ const PAD = ['Idle', 'Walk', 'Run', 'Jump', 'Peck', 'Squawk', 'Threat', 'Turn', 
   'Happy', 'Startle'];
 
 export class Ui {
-  // input: free play input, or null. onMove(i): a move button in the other views.
-  constructor({ play, anim, level, input, onMove }) {
+  // input: free play input, or null. cycle: DayCycle or null. onMove(i): a move button in the other views.
+  constructor({ play, anim, level, input, cycle = null, onMove }) {
     this.level = level;
     const bird = level.player ?? level.ibises[0], bar = document.getElementById('bar');
     const topActions = document.createDocumentFragment();   // free play: the other actions, in the top bar after Wet
@@ -67,13 +67,18 @@ export class Ui {
       (play ? topActions : bar).appendChild(b);
       this.buttons[i] = b;
     }
-    // Top bar: the Wet toggle (the ibis gets wet over two seconds, and dry again; wet also washes the mud
-    // off), then in free play the other actions. Mud comes from the puddle.
+    // Top bar: the time of day (tap or N: the next period), Wet (also washes the mud off), then in free
+    // play the other actions.
     const wet = this.wet = document.createElement('button');
     wet.textContent = 'Wet';
     onPress(wet, () => level.setWet(!this.wetOn()));
+    this.cycle = cycle;
+    const time = this.time = document.createElement('button');
+    time.hidden = !cycle;
+    onPress(time, () => cycle.next());
+    if (cycle) addEventListener('keydown', e => { if (e.code === 'KeyN' && !e.repeat) cycle.next(); });
     this.update();
-    document.getElementById('weather').append(wet, topActions);
+    document.getElementById('weather').append(time, wet, topActions);
   }
 
   wetOn() {
@@ -84,6 +89,8 @@ export class Ui {
   update() {
     const on = String(this.wetOn());
     if (this.wet.getAttribute('aria-pressed') !== on) this.wet.setAttribute('aria-pressed', on);
+    const period = this.cycle?.period ?? 'day', label = period[0].toUpperCase() + period.slice(1);
+    if (this.time.textContent !== label) this.time.textContent = label;
   }
 
   // i: the move button to show pressed, or -1 for none.

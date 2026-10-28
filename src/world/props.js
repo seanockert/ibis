@@ -763,11 +763,11 @@ export function toonMaterial(lit, shade, shared, { tones = false, faded = false,
       #endif
       void main() {
         if (seeHidden(seeThrough(vWorld))) discard;
-        float band = toonBand(normalize(vNormal), uSun);
+        vec3 n = normalize(vNormal);
         #ifdef TONES
-        gl_FragColor = vec4(mix(vShade, vLit, band), 1.0);
+        gl_FragColor = vec4(toonLit(vShade, vLit, toonBand(n, uSun), n), 1.0);
         #else
-        gl_FragColor = vec4(mix(uShade, uLit, band), 1.0);
+        gl_FragColor = vec4(toonLit(uShade, uLit, toonBand(n, uSun), n), 1.0);
         #endif
         #include <colorspace_fragment>
       }`,

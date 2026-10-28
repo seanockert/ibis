@@ -244,7 +244,7 @@ function wireMaterial(sun) {
         vec2 c = vUv / vec2(${f(cell[0])}, ${f(cell[1])});
         float cover = max(wires(c.x + c.y), wires(c.x - c.y)) * seeThrough(vWorld);
         if (cover < 0.02) discard;
-        gl_FragColor = vec4(mix(uShade, uLit, sunShadow()), cover);
+        gl_FragColor = vec4(toonLit(uShade, uLit, sunShadow(), vec3(0.0, 1.0, 0.0)), cover);
         #include <colorspace_fragment>
       }`,
   });

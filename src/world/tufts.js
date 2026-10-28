@@ -3,10 +3,10 @@
 // flat green, and a cooler one in the sun's shadow. The wind moves them in slow waves, and they bend away from the birds.
 // One instanced draw of upright quads that turn to the camera about y. The shader cuts the blades.
 // Placed by rules: clusters where a noise is high (one big tuft and small ones round it), and runs along
-// the edges of the footpaths and kerbs, and long grass round the fence posts. Far tufts shrink to nothing, so they don't shimmer. A tuft is
+// the edges of the footpaths and kerbs, and long grass round the fence posts and the lamp posts. None in the mulch beds. Far tufts shrink to nothing, so they don't shimmer. A tuft is
 // no taller than its distance to the nearest prop, so the grass doesn't go through a box on it.
 //
-//   const tufts = new Tufts();
+//   const tufts = new Tufts({ beds, poles });   // beds: mulch (street.js), no tufts; poles: [x, z], long grass round each
 //   scene.add(tufts.object);
 //   tufts.update(camera, dt, ibises, solids);   // every frame. solids: [{ body, half, round }] from the props
 import { InstancedBufferAttribute, InstancedBufferGeometry, Float32BufferAttribute, Mesh, ShaderMaterial, Vector3, Vector4 } from 'three';
@@ -14,7 +14,7 @@ import { lightUniforms, NOISE, TOON, TOON_VERTEX } from '../ibis/materials.js';
 import { hash } from '../ibis/motion/spring.js';
 import { fencePosts } from './fence.js';
 import { inPuddle, PUDDLE } from './puddle.js';
-import { BLADES, GRASS, grassUniforms, JOINT, streetHeight, stripAt, STRIPS } from './street.js';
+import { BLADES, GRASS, grassUniforms, inBed, JOINT, streetHeight, stripAt, STRIPS } from './street.js';
 import { srgb, f } from './util.js';
 
 
@@ -24,8 +24,9 @@ export const TUFTS = {
   density: 0.09,           // frequency of the density noise: clusters gather where it is high
   spread: [0.35, 0.9],     // distance of the small tufts from the big one
   joints: 0.3,             // part of the footpath joints with a small tuft
-  edgeStep: 0.7,
-  posts: { count: [4, 7], size: [0.55, 0.95], ring: [0.1, 0.45] },   // long thin grass round each fence post           // spacing of the tufts along a strip edge, where the noise lets them grow
+  edgeStep: 0.7,           // spacing of the tufts along a strip edge, where the noise lets them grow
+  posts: { count: [4, 7], size: [0.55, 0.95], ring: [0.1, 0.45] },   // long thin grass round each fence post
+  poles: { count: [6, 9], size: [0.45, 0.85], ring: [0.3, 0.6] },     // and round each lamp post: all round, out from its base (radius 0.25)
   size: [0.18, 0.38],      // height of the big tuft, units (the bird is 2). Small ones are 0.4 to 0.75 of it
   fade: [26, 38],          // distance from the camera where tufts shrink to nothing
   wind: { dir: [0.8, 0.6], speed: 1.4, wave: 0.35, bend: 0.12 },   // wave: crests per unit; bend: of the height
@@ -37,8 +38,8 @@ const MAX_SOLIDS = 32;   // props' boxes: the ball, the bin and its lid, the box
 const TIP = srgb(0.86, 0.90, 0.50);     // the lit side moves toward this warm light green
 
 export class Tufts {
-  constructor() {
-    const tufts = place();
+  constructor({ beds = [], poles = [] } = {}) {
+    const tufts = place(beds, poles);
     const g = new InstancedBufferGeometry();
     // Upright quad: x -1 to 1, y 0 to 1.1.
     g.setAttribute('position', new Float32BufferAttribute([-1, 0, 0, 1, 0, 0, 1, 1.1, 0, -1, 1.1, 0], 3));
@@ -82,7 +83,7 @@ function noise2(x, z, seed) {
 }
 
 // [x, z, height, seed, leafy] for each tuft.
-function place() {
+function place(beds, poles) {
   const { area, tries, density, spread, edgeStep, size, seed } = TUFTS;
   let n = seed * 7919;
   const r = () => hash(n++);
@@ -91,7 +92,7 @@ function place() {
   // None in the puddle or on its mud bank. The seed is taken first, so the other tufts don't move.
   const add = (x, z, h, leafy) => {
     const tuft = [x, z, h, r(), Math.min(Math.max(leafy, 0), 1)];
-    if (!inPuddle(x, z, PUDDLE.bank + 0.1)) out.push(tuft);
+    if (!inPuddle(x, z, PUDDLE.bank + 0.1) && !inBed(beds, x, z, 0.1)) out.push(tuft);
   };
   // Clusters: one big tuft and 1 to 4 small ones round it, all of one kind (leafy), where the noise is high.
   for (let i = 0; i < tries; i++) {
@@ -138,6 +139,16 @@ function place() {
       // Half in the thin grass in front of the fence line, half behind it.
       const z = post.z + yard * (r() < 0.5 ? -0.09 * r() : 0.3 * r());
       if (stripAt(z) === 'grass') add(x, z, tall[0] + (tall[1] - tall[0]) * r(), 0.2 * r());
+    }
+  }
+  // Long thin grass all round the foot of each lamp post.
+  for (const [px, pz] of poles) {
+    const { count: pc, size: ps, ring: pr } = TUFTS.poles;
+    const n = pc[0] + Math.floor(r() * (pc[1] - pc[0] + 1));
+    for (let j = 0; j < n; j++) {
+      const a = (j + 0.6 * r()) / n * 2 * Math.PI, dist = pr[0] + (pr[1] - pr[0]) * r();
+      const x = px + Math.cos(a) * dist, z = pz + Math.sin(a) * dist;
+      if (stripAt(z) === 'grass') add(x, z, ps[0] + (ps[1] - ps[0]) * r(), 0.2 * r());
     }
   }
   return out;
@@ -226,7 +237,8 @@ function tuftMaterial() {
         float across, d = tuft(vUv, vSeed, vLeafy, across);
         float a = smoothstep(-0.5, 0.5, d / max(fwidth(d), 1e-5));
         if (a < 0.01) discard;
-        float lit = sunShadow();
+        vec2 lamp = lampLight(vec3(0.0, 1.0, 0.0));
+        float lit = max(sunShadow(), lamp.x);
         // Colours from the ground at the root. Thin grass: the lit side moves toward a warm light green.
         // Leaves: a darker, cooler green than the ground. The shade side is darker still.
         vec3 groundLit = grassColour(vPatch.x, vPatch.y, 1.0, vNear), groundShade = grassColour(vPatch.x, vPatch.y, 0.0, vNear);
@@ -236,7 +248,7 @@ function tuftMaterial() {
         vec3 col = mix(shadeCol, litCol, lit);
         // The root melts into the ground.
         col = mix(mix(groundShade, groundLit, lit), col, smoothstep(0.0, 0.1, vUv.y));
-        gl_FragColor = vec4(col, a);
+        gl_FragColor = vec4(night(col, lamp), a);
         #include <colorspace_fragment>
       }`,
   });

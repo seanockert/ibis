@@ -13,6 +13,7 @@
 // stack.
 import { Backdrop } from '../world/backdrop.js';
 import { Fence } from '../world/fence.js';
+import { Lamps } from '../world/lamps.js';
 import { Plants } from '../world/plants.js';
 import { inPuddle } from '../world/puddle.js';
 import { Sky } from '../world/sky.js';
@@ -44,13 +45,24 @@ const PLANTED = [
   { kind: 'shrub', at: [45.3, 1] },
 ];
 
+// Street lamps (lamps.js) by the kerb, arm over the gutter (reach: along z). One near the start.
+const LAMPS = [
+  { at: [6, -2.4], reach: -1 },
+  { at: [-30, -2.4], reach: -1 },
+  { at: [-14, -19.3], reach: 1 },
+  { at: [26, -19.3], reach: 1 },
+];
+
+// Mulch beds round the foot of each tree (street.js); no tufts in them. Shrubs have none.
+const BEDS = PLANTED.filter(p => p.kind !== 'shrub').map(p => ({ at: p.at, radius: p.kind === 'gum' ? 2.6 : 2.0 }));
+
 export const STREET = {
   ground: { profile: PROFILE, height: (x, z) => streetHeight(z) },
   surface: (x, z) => (inPuddle(x, z) ? false : printOn(x, z)),   // pressed grass, dust; none in the puddle
   bounds: PLAY,
-  // The sky, the ground, the tufts, the far trees, a white post and wire fence round the play area, and
-  // the trees and shrubs in the yards.
-  scenery: (asset, physics) => [new Sky(asset.sun), new Street(asset.sun), new Tufts(), new Backdrop(), new Fence(asset, physics), new Plants(asset, physics, PLANTED)],
+  // The sky, the ground (mulch round the trees), the tufts (long grass round the lamp posts), the far trees, a white post and wire fence round the play area, the
+  // trees and shrubs in the yards, and the street lamps.
+  scenery: (asset, physics) => [new Sky(asset.sun), new Street(asset.sun, BEDS), new Tufts({ beds: BEDS, poles: LAMPS.map(l => l.at) }), new Backdrop(), new Fence(asset, physics), new Plants(asset, physics, PLANTED), new Lamps(asset, physics, LAMPS)],
   puddle: true,
 
   characters: [

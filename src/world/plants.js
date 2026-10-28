@@ -508,6 +508,7 @@ function leafMaterial(shared, see) {
         vLit = aLit; vShade = aShade;
         seeVertex();
         gl_Position = projectionMatrix * viewMatrix * world;
+        toonShadowCoord(world, normal);
       }`,
     fragmentShader: /* glsl */`
       ${TOON}
@@ -533,7 +534,7 @@ function leafMaterial(shared, see) {
         vec3 n = normalize(mix(normalize(vNormal), normalize(vCanopy), ${f(LEAF.canopy)}));
         float ndl = dot(n, light) + ${f(LEAF.wrap)} + ${f(LEAF.lobe)} * (lobe(vLobe) - 0.5);
         float w = 0.5 * max(fwidth(ndl), 1e-5);
-        gl_FragColor = vec4(mix(vShade, vLit, smoothstep(BAND_SPLIT - w, BAND_SPLIT + w, ndl)), 1.0);
+        gl_FragColor = vec4(toonLit(vShade, vLit, smoothstep(BAND_SPLIT - w, BAND_SPLIT + w, ndl), n), 1.0);
         #include <colorspace_fragment>
       }`,
   });

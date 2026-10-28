@@ -151,7 +151,8 @@ function puddleMaterial(sun) {
         // The bank has a noisy outer edge, so it reads as mud on the grass, not a ring.
         float d = shape(p), w = max(fwidth(d), 1e-4);
         float rim = ${f(bank)} + 0.08 * (noise3(vec3(p * 2.2, 3.0)) - 0.5);
-        float lit = sunShadow();
+        vec2 lamp = lampLight(vec3(0.0, 1.0, 0.0));
+        float lit = max(sunShadow(), lamp.x);
         vec3 col = ${tone('bank')};
         // Water: a shallow band at the edge, slow streaks of sky, and rings from the splashes.
         float water = inside(d, 1.0, w);
@@ -175,7 +176,7 @@ function puddleMaterial(sun) {
         col = mix(col, ${tone('line')}, 0.5 * inside(abs(d - rim), 0.02, w));
         // Cut last: fwidth() above needs every pixel of the quad.
         if (d > rim) discard;
-        gl_FragColor = vec4(col, 1.0);
+        gl_FragColor = vec4(night(col, lamp), 1.0);
         #include <colorspace_fragment>
       }`,
   });

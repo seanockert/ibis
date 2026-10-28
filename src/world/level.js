@@ -224,4 +224,8 @@ export class Level {
     for (const prop of this.props) seeInside(prop, camera.position);
     for (const part of this.parts) part.update?.(camera, dt, this.ibises, solids);
   }
+
+  renderShadows(renderer) {
+    for (const part of this.parts) part.renderShadows?.(renderer, this.scene);
+  }
 }

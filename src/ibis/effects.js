@@ -77,11 +77,14 @@ const OUTLINE_GONE = 0.3;   // part of the dissolve in which the outline thins a
 function puffMaterial(sun, hull) {
   return new ShaderMaterial({
     side: hull ? BackSide : DoubleSide,
+    lights: !hull,
     uniforms: {
+      ...(hull ? {} : lightUniforms()),
       uSun: { value: sun }, uLit: { value: DUST_LIT }, uShade: { value: DUST_SHADE }, uLine: { value: DUST_LINE },
       uMudLit: { value: MUD_DUST_LIT }, uMudShade: { value: MUD_DUST_SHADE }, uMudLine: { value: MUD_DUST_LINE },
     },
     vertexShader: /* glsl */`
+      ${hull ? '' : TOON_VERTEX}
       attribute float aFade, aSeed, aMud;
       varying vec3 vNormal, vLocal;
       varying float vFade, vSeed, vMud;
@@ -94,8 +97,10 @@ function puffMaterial(sun, hull) {
         vMud = aMud;
         vNormal = normalize(mat3(modelMatrix) * mat3(instanceMatrix) * normal);
         gl_Position = projectionMatrix * modelViewMatrix * instanceMatrix * vec4(p, 1.0);
+        ${hull ? '' : 'toonShadowCoord(modelMatrix * instanceMatrix * vec4(p, 1.0), vNormal);'}
       }`,
     fragmentShader: /* glsl */`
+      ${hull ? '' : TOON}
       uniform vec3 uSun, uLit, uShade, uLine, uMudLit, uMudShade, uMudLine;
       varying vec3 vNormal, vLocal;
       varying float vFade, vSeed, vMud;
@@ -106,8 +111,9 @@ function puffMaterial(sun, hull) {
         gl_FragColor = vec4(mix(uLine, uMudLine, vMud), 1.0);` : `
         float holes = (vFade - ${OUTLINE_GONE}) / (1.0 - ${OUTLINE_GONE});
         if (noise3(vLocal * 2.6 + vSeed * 17.0) < holes) discard;
-        float band = gl_FrontFacing ? smoothstep(0.0, 0.05, dot(normalize(vNormal), uSun)) : 0.0;
-        gl_FragColor = vec4(mix(mix(uShade, uMudShade, vMud), mix(uLit, uMudLit, vMud), band), 1.0);`}
+        vec3 n = normalize(vNormal);
+        float band = gl_FrontFacing ? smoothstep(0.0, 0.05, dot(n, uSun)) : 0.0;
+        gl_FragColor = vec4(toonLit(mix(uShade, uMudShade, vMud), mix(uLit, uMudLit, vMud), band, n), 1.0);`}
         #include <colorspace_fragment>
       }`,
   });
@@ -170,7 +176,7 @@ function printMaterial() {
       varying vec4 vPrint;
       varying vec3 vShade;
       void main() {
-        gl_FragColor = vec4(mix(vShade, vPrint.rgb, sunShadow()), vPrint.a);
+        gl_FragColor = vec4(toonLit(vShade, vPrint.rgb, sunShadow(), vec3(0.0, 1.0, 0.0)), vPrint.a);
         #include <colorspace_fragment>
       }`,
   });

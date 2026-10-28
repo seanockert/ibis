@@ -4,16 +4,16 @@
 // the footprints). The mesh follows the camera along x, so
 // the street has no end.
 //
-//   const street = new Street(asset.sun);
+//   const street = new Street(asset.sun, beds);   // beds: [{ at: [x, z], radius }], mulch round the trees
 //   scene.add(street.object);
 //   street.update(camera);   // every frame
 //
 // Scale: the bird is 2 units, so 1 unit is about 35 cm. Sizes are a little smaller than real, as in a
 // cartoon: a footpath is 3 units, the road 14 (two lanes).
-import { BufferGeometry, Float32BufferAttribute, Mesh, ShaderMaterial } from 'three';
+import { BufferGeometry, Float32BufferAttribute, Mesh, ShaderMaterial, Vector4 } from 'three';
 import { lightUniforms, NOISE, TOON, TOON_VERTEX } from '../ibis/materials.js';
 import { smoothstep } from '../ibis/motion/spring.js';
-import { HAZE } from './sky.js';
+import { haze } from './sky.js';
 import { srgb, f } from './util.js';
 
 
@@ -51,6 +51,13 @@ export const PROFILE = profile();
 const FORM = 0.75;          // N.L below this: the cool form tone. Flat ground is above it
 const DEPTH_BIAS = 0.2;    // the ground writes its depth this far behind it, along the view ray
 
+// Mulch: patches of bare dirt and bark through the grass round the foot of a tree, full near the trunk,
+// broken into small patches out to reach (a part of the radius), none past it. patch: frequency of the
+// patch noise. tint: how much of the mulch colour, over the grass under it. clear: the part of the
+// radius with no tufts (the tufts grow among the outer patches). chip: grid of the chips (one in some
+// cells), chance: part of the cells with a chip. A chip must stay inside half a cell.
+export const MULCH = { max: 8, reach: 1.25, patch: 2.2, tint: 0.6, clear: 0.6, chip: 0.3, chance: 0.4 };
+
 // Cracks: part of the footpath slabs with a crack, a zigzag of three strokes from one side of the path.
 const CRACKS = { chance: 0.35, width: 0.035 };
 
@@ -69,11 +76,13 @@ const COLOURS = {
   patch: [srgb(0.33, 0.32, 0.40), srgb(0.20, 0.21, 0.35)],    // road repairs
   line: [srgb(0.99, 0.94, 0.85), srgb(0.70, 0.70, 0.85)],
   pebble: [srgb(0.98, 0.94, 0.86), srgb(0.68, 0.69, 0.86)],
+  mulch: [srgb(0.66, 0.50, 0.33), srgb(0.38, 0.38, 0.42)],     // warm bark brown in the sun, a muted grey in the shade
+  chip: [srgb(0.80, 0.64, 0.44), srgb(0.42, 0.47, 0.48)],      // light bark chips
 };
 
 export class Street {
-  constructor(sun) {
-    const material = groundMaterial(sun);
+  constructor(sun, beds = []) {
+    const material = groundMaterial(sun, beds);
     // Draws first (the sky draws after the opaque scene). Its depth is DEPTH_BIAS behind it, so it can't cover the outline round the feet, but
     // a kerb still hides what is below it on the road.
     this.object = new Mesh(groundGeometry(), material);
@@ -231,11 +240,20 @@ float tuft(vec2 p, float s, float leafy, out float across) {
 }
 `;
 
+// Is a world point in the inner part of a mulch bed (MULCH.clear of the radius), or within margin of it?
+export const inBed = (beds, x, z, margin = 0) => beds.some(({ at, radius }) => Math.hypot(x - at[0], z - at[1]) < radius * MULCH.clear + margin);
+
 // Is a world point in the play area?
 export const inPlay = (x, z) => x >= PLAY.x[0] && x <= PLAY.x[1] && z >= PLAY.z[0] && z <= PLAY.z[1];
 
-function groundMaterial(sun) {
-  const uniforms = { ...lightUniforms(), ...grassUniforms(), uHaze: { value: HAZE }, uSun: { value: sun } };
+function groundMaterial(sun, beds) {
+  // Each bed: x, z, radius (0: none), seed.
+  const uBeds = Array.from({ length: MULCH.max }, (_, i) => {
+    const b = beds[i];
+    return b ? new Vector4(b.at[0], b.at[1], b.radius, i * 7.3) : new Vector4();
+  });
+  if (beds.length > MULCH.max) console.warn(`Street: only ${MULCH.max} mulch beds`);
+  const uniforms = { ...lightUniforms(), ...grassUniforms(), uHaze: haze, uSun: { value: sun }, uBeds: { value: uBeds } };
   const other = Object.keys(COLOURS).filter(n => !GRASS_TONES.includes(n));
   for (const name of other) {
     const [lit, shade] = COLOURS[name];
@@ -267,6 +285,7 @@ function groundMaterial(sun) {
       ${BLADES}
       ${other.map(n => `uniform vec3 u_${n}Lit, u_${n}Shade;`).join('\n')}
       uniform vec3 uHaze, uSun;
+      uniform vec4 uBeds[${MULCH.max}];
       uniform mat4 projectionMatrix;
       varying vec3 vWorld, vNormal;
       // 1 on a line of width (units) at u = 0, with w (one pixel, units) of blur.
@@ -350,6 +369,32 @@ function groundMaterial(sun) {
         }
         return col;
       }
+      // Mulch: + inside a patch, - in the grass, about units of distance (for a pixel-wide edge). A patch
+      // noise less a fall off from the trunk: full near it, small patches toward the edge, none past
+      // MULCH.reach of the radius. Each bed has its own noise, so no two are the same.
+      float mulchIn(vec2 xz) {
+        float d = -1e3;
+        for (int i = 0; i < ${MULCH.max}; i++) {
+          vec4 b = uBeds[i];
+          if (b.z == 0.0) continue;
+          float t = distance(xz, b.xy) / b.z;
+          if (t > ${f(MULCH.reach)}) continue;
+          float n = noise3(vec3(xz * ${f(MULCH.patch)}, b.w)) * 0.7 + noise3(vec3(xz * ${f(MULCH.patch * 2.7)}, b.w + 3.0)) * 0.3;
+          d = max(d, (${f(MULCH.reach)} - t - 0.9 * n) / (1.0 / b.z + ${f(MULCH.patch)}));
+        }
+        return d;
+      }
+      // Bark chips: a short flat sliver in some cells, at a random turn, lighter or darker than the bed.
+      vec3 mulchChips(vec2 xz, vec3 col, vec3 chip, float px) {
+        vec2 c = floor(xz / ${f(MULCH.chip)});
+        if (hash12(c + 21.7) > ${f(MULCH.chance)}) return col;
+        vec2 root = (c + 0.3 + 0.4 * vec2(hash12(c + 1.3), hash12(c + 5.9))) * ${f(MULCH.chip)};
+        float a = hash12(c + 8.8) * 3.1416, len = mix(0.06, 0.09, hash12(c + 2.2));
+        vec2 d = xz - root, q = vec2(dot(d, vec2(cos(a), sin(a))), dot(d, vec2(-sin(a), cos(a))));
+        float e = length(q / vec2(len, len * 0.35)) - 1.0;
+        float m = 1.0 - smoothstep(-px / len, px / len, e);
+        return mix(col, hash12(c + 4.1) < 0.6 ? chip : col * vec3(0.86, 0.86, 0.90), 0.7 * m);
+      }
       // Cracks: in some slabs, a cartoon crack: three straight strokes in a zigzag from one side of the
       // path. s: the point in the slab, 0 to ${JOINT} across the slab and the path. px: world units for each
       // pixel.
@@ -380,7 +425,8 @@ function groundMaterial(sun) {
         float jx = (fract(p.x / ${f(JOINT)} + 0.5) - 0.5) * ${f(JOINT)};
         float bevel = step(pathOut(z), 0.0) * near * (1.0 - smoothstep(${f(PATH.bevel)} - px, ${f(PATH.bevel)} + px, abs(jx)));
         vec3 n = normalize(normalize(vNormal) - vec3(sign(jx) * ${f(PATH.slope)} * bevel, 0.0, 0.0));
-        float lit = toonBand(n, uSun);
+        vec2 lamp = lampLight(n);
+        float lit = max(toonBand(n, uSun), lamp.x);
         // Only near a grass strip: the patches and the marks are most of the cost of the ground. The margin
         // is wide, so where the branch ends the grass has no weight in the colour.
         bool onGrass = ${STRIPS.map(([kind, z], i) => kind !== 'grass' ? null : `(${z === -Infinity ? 'true' : `z > ${f(z - 0.5)}`}${i ? ` && z < ${f(STRIPS[i - 1][1] + 0.5)}` : ''})`).filter(Boolean).join(' || ')};
@@ -393,6 +439,13 @@ function groundMaterial(sun) {
           if (near > 0.0) mark = near * grassMarks(p, u, light);
           vec3 markCol = light > 0.5 ? mix(grass, mix(u_grassSunShade, u_grassSunLit, lit) * vec3(1.06, 1.06, 0.92), 0.7) : grass * vec3(0.84, 0.91, 0.88);
           grass = mix(grass, markCol, mark);
+          // Mulch round the trees: patches with a hard toon edge, tinted over the grass so they blend, and chips.
+          float mi = mulchIn(p.xz);
+          if (mi > -px) {
+            vec3 mulch = mix(grass, ${tone('mulch')}, ${f(MULCH.tint)});
+            if (near > 0.0) mulch = mix(mulch, mulchChips(p.xz, mulch, mix(grass, ${tone('chip')}, ${f(MULCH.tint)}), px), near);
+            grass = mix(grass, mulch, smoothstep(-px, px, mi));
+          }
         }
         // Footpath: concrete slabs, with joints across. The bevel that faces the sun is a little lighter.
         vec3 path = mix(${tone('path')}, ${tone('joint')}, line(jx, 0.05, fwidth(p.x)));
@@ -435,6 +488,7 @@ function groundMaterial(sun) {
           bool hard = ${STRIPS.map(([kind, z], i) => (kind === 'kerb' || kind === 'road') ? `(z < ${f(STRIPS[i - 1][1])} && z > ${f(z)})` : null).filter(Boolean).join(' || ')};
           if (!hard && edgeDistance(z) < ${f(PEBBLES.band + PEBBLES.cell / 2)}) col = mix(col, pebbles(p, u, col, lit), near);
         }
+        col = night(col, lamp);
         col = mix(col, uHaze, smoothstep(${f(HAZE_FROM[0])}, ${f(HAZE_FROM[1])}, distance(p, cameraPosition)));
         gl_FragColor = vec4(col, 1.0);
         #include <colorspace_fragment>

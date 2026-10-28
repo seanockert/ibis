@@ -5,6 +5,7 @@ import { BackSide, Color, Matrix4, Quaternion, ShaderMaterial, UniformsLib, Unif
 import { bindPose, rigUniforms } from './rig.js';
 import eye from '../sdf/eye.glsl?raw';
 import library from '../sdf/library.glsl?raw';
+import { LIGHT, LIGHT_GLSL } from '../world/lighting.js';
 
 const SHARED = /* glsl */`
 uniform vec3 uSun;            // toward the sun, world space
@@ -21,15 +22,17 @@ const float GLOW = 0.005;   // the glow contour's added width, a part of the vie
 // material needs lights: true and lightUniforms(), and the mesh needs receiveShadow.
 // Vertex shader: TOON_VERTEX, then toonShadowCoord() in main(). Fragment shader: TOON, then toonBand().
 // Past the sun's map, the far map of the plants (FAR_SHADOW, src/world/farShadow.js) gives the shadow.
+// Night and lamps: LIGHT_GLSL (src/world/lighting.js).
 export const TOON_VERTEX = /* glsl */`
 #include <shadowmap_pars_vertex>
 uniform mat4 uFarShadowMatrix;
-varying vec3 vFarShadowCoord;
+varying vec3 vFarShadowCoord, vToonWorld;
 void toonShadowCoord(vec4 worldPosition, vec3 worldNormal) {
 #if defined(USE_SHADOWMAP) && NUM_DIR_LIGHT_SHADOWS > 0
     vDirectionalShadowCoord[0] = directionalShadowMatrix[0] * (worldPosition + vec4(worldNormal * directionalLightShadows[0].shadowNormalBias, 0.0));
 #endif
     vFarShadowCoord = (uFarShadowMatrix * (worldPosition + vec4(worldNormal * 0.1, 0.0))).xyz;
+    vToonWorld = worldPosition.xyz;
 }
 `;
 export const TOON = /* glsl */`
@@ -69,6 +72,7 @@ float sunShadow() {
 #endif
     return smoothstep(0.35, 0.65, s);
 }
+${LIGHT_GLSL}
 // 0 shade to 1 lit. n: unit normal, world. The band edge is one pixel wide at any distance.
 float toonBand(vec3 n, vec3 sun) {
     float ndl = dot(n, sun);
@@ -85,7 +89,10 @@ float toonGloss(vec3 n, vec3 v, vec3 sun, float size) {
 // The far shadow map (src/world/farShadow.js), shared by all toon materials. matrix: world to the map
 // ([0, 1] in x, y and depth). on: false with no far map (the fixed views).
 export const FAR_SHADOW = { map: { value: null }, matrix: { value: new Matrix4() }, on: { value: false } };
-export const lightUniforms = () => ({ ...UniformsUtils.clone(UniformsLib.lights), uFarShadow: FAR_SHADOW.map, uFarShadowMatrix: FAR_SHADOW.matrix, uFarShadowOn: FAR_SHADOW.on });
+export const lightUniforms = () => ({
+  ...UniformsUtils.clone(UniformsLib.lights), uFarShadow: FAR_SHADOW.map, uFarShadowMatrix: FAR_SHADOW.matrix, uFarShadowOn: FAR_SHADOW.on,
+  uNight: LIGHT.night, uTint: LIGHT.tint, uLamps: LIGHT.lamps, uLampMatrix: LIGHT.lampMatrix, uLampShadow: LIGHT.lampShadow, uLampCone: LIGHT.lampCone,
+});
 
 // Smooth value noise, 0 to 1. Also used by effects.js.
 export const NOISE = /* glsl */`
@@ -390,12 +397,14 @@ export function bodyMaterial(palette, shared, bird) {
           }
         }
         vec3 n = normalize(vNormal), v = normalize(mat3(vRotX, vRotY, vRotZ) * vToCamera);
-        float band = toonBand(n, uSun);
+        vec2 lamp = lampLight(n);
+        float band = max(toonBand(n, uSun), lamp.x);
         vec3 col = mix(shade, lit, band);
         // Highlight, in the lit band only. Not on the wings.
         vec2 gloss = int(vGroup + 0.5) == GROUP_WINGS ? vec2(0.0) : uGloss[id];
         col = mix(col, vec3(1.0), gloss.y * band * toonGloss(n, v, uSun, gloss.x));
         if (id != ID_EYE && id != ID_LID) col = weather(col, vBind, band, n, v);
+        col = night(col, lamp);
         col = mix(col, edgeCol, edge);
         gl_FragColor = vec4(col, 1.0);
         #include <colorspace_fragment>

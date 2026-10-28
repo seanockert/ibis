@@ -19,6 +19,7 @@ import { STREET } from './levels/street.js';
 import { ARENA, MOVES, playScript, startMove } from './moves.js';
 import { renderFarShadow } from './world/farShadow.js';
 import { Level } from './world/level.js';
+import { DayCycle } from './world/lighting.js';
 import { seeOn } from './world/props.js';
 
 const config = readConfig();
@@ -63,11 +64,15 @@ else if (config.fly) {
     sun.shadow.camera.updateProjectionMatrix();
   }
 }
+// The day cycle, with the street: day, dusk, night, morning.
+const cycle = config.env ? new DayCycle(asset.sun, config.time) : null;
+stage.aimSun();
 if (config.env) renderFarShadow(stage.renderer, scene, asset.sun);   // the plants' shadows past the sun's map
+let turning = 0;
 if (config.colliders && level.physics) await level.showColliders();
 const bird = level.player ?? level.ibises[0];
 const { physics, props, highlight, puddle, fx } = level;
-window.demo = { level, ibises: level.ibises, physics, props, highlight, puddle, fx, sound, camera, controls, world: level.parts, sun, grade: stage.grade, renderer: stage.renderer, scene, render: () => stage.render() };   // for the console
+window.demo = { cycle, level, ibises: level.ibises, physics, props, highlight, puddle, fx, sound, camera, controls, world: level.parts, sun, grade: stage.grade, renderer: stage.renderer, scene, render: () => stage.render() };   // for the console
 
 // Scripted moves: the grid plays move i on ibis i, and a single ibis plays the anim move. In free play,
 // only Walk and Run are scripts; the other buttons are one-shot actions. Only the player plays scripts:
@@ -93,7 +98,7 @@ const input = play ? new Input(stage.renderer.domElement, stage, level, () => { 
 window.demo.input = input;
 window.demo.follow = follow;
 const ui = new Ui({
-  play, anim, level, input,
+  play, anim, level, input, cycle,
   onMove: i => {
     freePlay = false;
     driven.forEach((ibis, k) => { scripts[k] = { move: i, run: startMove(ibis.character, i), time: 0 }; });
@@ -110,6 +115,11 @@ function frame() {
     else { scripts[i].run(ibis.character, scripts[i].time); scripts[i].time += dt; }
   });
   level.flyDemo?.(dt);
+  if (cycle?.update(dt)) {
+    stage.aimSun();
+    // Far map: every 6th frame of the turn, and at the end.
+    if (++turning % 6 === 0 || !cycle.turning) renderFarShadow(stage.renderer, scene, asset.sun);
+  }
   level.update(dt, camera);
   ui.update();
   stage.keepAbove();
@@ -122,7 +132,8 @@ function frame() {
     stage.shadowTo(controls.target);
   }
   level.updateView(camera, dt);
-  stage.render();
+  level.renderShadows(stage.renderer);
+  stage.render(dt);
 }
 
 if (config.bench !== null) {
@@ -138,6 +149,7 @@ if (config.bench !== null) {
   const [flier] = level.fliers;
   for (let time = 0; time < fixedTime - 1e-9; time += 1 / 60) { const dt = Math.min(1 / 60, fixedTime - time); level.flyDemo(dt); flier.update(dt); }
   level.updateView(camera, 0);
+  level.renderShadows(stage.renderer);
   stage.render();
   document.title = 'DONE';
 } else if (fixedTime !== null) {
@@ -157,6 +169,7 @@ if (config.bench !== null) {
     fx.update(0, level.ibises, camera);
   }
   level.updateView(camera, 0);
+  level.renderShadows(stage.renderer);
   stage.render();
   document.title = 'DONE';
 } else {

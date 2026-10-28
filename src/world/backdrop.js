@@ -7,10 +7,13 @@
 //   scene.add(backdrop.object);
 import { BufferGeometry, Float32BufferAttribute, Group, Mesh, ShaderMaterial } from 'three';
 import { NOISE } from '../ibis/materials.js';
-import { COLOURS as SKY_COLOURS } from './sky.js';
+import { LIGHT } from './lighting.js';
+import { COLOURS as SKY_COLOURS, NIGHT_COLOURS } from './sky.js';
 import { srgb, f } from './util.js';
 
 const SKY = SKY_COLOURS.horizon;   // far things fade toward it
+const SKY_NIGHT = NIGHT_COLOURS.horizon;
+const DARK = srgb(0.30, 0.36, 0.52);   // night multiply
 
 // box: [x min, x max, z min, z max] of the ring. height: [base, bumps] of the canopy line: big, slow
 // bumps for the crowns. clump: width of the round leaf clumps on top. haze: 0 to 1.
@@ -72,7 +75,8 @@ function ringMaterial({ height: [base, bumps], clump, freq, lit, shade, haze, se
   return new ShaderMaterial({
     transparent: true, depthWrite: false, side: 2,
     uniforms: {
-      uLit: { value: lit.clone().lerp(SKY, haze) }, uShade: { value: shade.clone().lerp(SKY, haze) },
+      uLit: { value: lit.clone().lerp(SKY, haze) }, uShade: { value: shade.clone().lerp(SKY, haze) }, uNight: LIGHT.night,
+      uLitNight: { value: lit.clone().multiply(DARK).lerp(SKY_NIGHT, haze) }, uShadeNight: { value: shade.clone().multiply(DARK).lerp(SKY_NIGHT, haze) },
     },
     vertexShader: /* glsl */`
       attribute float aU;
@@ -84,7 +88,8 @@ function ringMaterial({ height: [base, bumps], clump, freq, lit, shade, haze, se
       }`,
     fragmentShader: /* glsl */`
       ${NOISE}
-      uniform vec3 uLit, uShade;
+      uniform vec3 uLit, uShade, uLitNight, uShadeNight;
+      uniform float uNight;
       varying float vU, vY;
       float n1(float x, float s) { return noise3(vec3(x, s, 0.0)); }
       // Round bumps of about width w along x, each a half circle of a size from noise.
@@ -102,7 +107,8 @@ function ringMaterial({ height: [base, bumps], clump, freq, lit, shade, haze, se
         if (a < 0.01) discard;
         // Clumps: lit on top, cool below, with a broken edge between them.
         float clump = h - 1.6 - 1.2 * n1(vU * 0.3, ${f(seed + 2)}) - 0.8 * noise3(vec3(vU * 0.6, vY * 0.6, ${f(seed + 3)}));
-        vec3 col = mix(uShade, uLit, smoothstep(clump - soft, clump + soft, vY));
+        float t = smoothstep(clump - soft, clump + soft, vY);
+        vec3 col = mix(mix(uShade, uLit, t), mix(uShadeNight, uLitNight, t), uNight);
         gl_FragColor = vec4(col, a);
         #include <colorspace_fragment>
       }`,

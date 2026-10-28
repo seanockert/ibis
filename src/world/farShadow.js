@@ -4,7 +4,7 @@
 // stand still in it, in the wind of time 0.
 //
 //   mesh.layers.enable(FAR_LAYER);                    // a mesh that casts into the far map (plants.js)
-//   renderFarShadow(renderer, scene, sunDirection);   // once, after the level is built
+//   renderFarShadow(renderer, scene, sunDirection);   // after the level is built, and when the sun turns
 import { Box3, DepthTexture, Matrix4, OrthographicCamera, Vector3, WebGLRenderTarget } from 'three';
 import { FAR_SHADOW } from '../ibis/materials.js';
 import { windDepthMaterial } from './wind.js';
@@ -13,6 +13,7 @@ export const FAR_LAYER = 5;
 const SIZE = 2048;     // map size: about 0.04 units a texel over the street's plants
 const MARGIN = 1;      // added round the casters' box, units
 const BIAS = 0.15;     // a receiver is this much nearer the sun for the depth test, units
+let target = null;
 
 // sun: the unit direction to the sun.
 export function renderFarShadow(renderer, scene, sun) {
@@ -33,7 +34,7 @@ export function renderFarShadow(renderer, scene, sun) {
   camera.updateProjectionMatrix();
   camera.layers.set(FAR_LAYER);
 
-  const target = new WebGLRenderTarget(SIZE, SIZE, { depthTexture: new DepthTexture(SIZE, SIZE) });
+  target ??= new WebGLRenderTarget(SIZE, SIZE, { depthTexture: new DepthTexture(SIZE, SIZE) });
   const saved = { target: renderer.getRenderTarget(), override: scene.overrideMaterial, auto: renderer.shadowMap.autoUpdate };
   scene.overrideMaterial = windDepthMaterial();
   renderer.shadowMap.autoUpdate = false;

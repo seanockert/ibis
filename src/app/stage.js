@@ -15,7 +15,9 @@ const GROUND_LIT = new THREE.Color().setRGB(0.925, 0.902, 0.855, 'srgb');
 const GROUND_SHADE = new THREE.Color().setRGB(0.80, 0.78, 0.86, 'srgb');
 // Free play sun shadow: half size of the area, the sun's distance from the area's centre (above the
 // tallest tree top), and the depth bias (about 0.02 units).
-const SHADOW = { half: 25, sun: 45, bias: -0.0002 };
+const SHADOW = { half: 25, sun: 45, bias: -0.0002, every: 2 };   // every: redraw the map each n frames
+// Free play: the pixel ratio steps down (never up) while frames stay slow.
+const RES = { slow: 1 / 45, window: 2, step: 0.85, min: 0.6 };
 
 export class Stage {
   // sun: the unit direction to the sun (asset.sun).
@@ -80,13 +82,40 @@ export class Stage {
     }).observe(canvas);
   }
 
-  render() { this.grade ? this.grade.render() : this.renderer.render(this.scene, this.camera); }
+  render(dt = 0) {
+    if (this.config.play) {
+      // Map and matrix update together, so skipped frames stay correct.
+      const shadows = this.renderer.shadowMap;
+      shadows.autoUpdate = false;
+      shadows.needsUpdate = (this.frame = (this.frame ?? -1) + 1) % SHADOW.every === 0;
+      if (dt) this.adapt(dt);
+    }
+    this.grade ? this.grade.render() : this.renderer.render(this.scene, this.camera);
+  }
+
+  adapt(dt) {
+    const r = this.res ??= { time: 0, frames: 0, ratio: this.renderer.getPixelRatio() };
+    r.time += dt;
+    r.frames++;
+    if (r.time < RES.window) return;
+    const slow = r.time / r.frames > RES.slow, min = RES.min * this.config.scale;
+    Object.assign(r, { time: 0, frames: 0 });
+    if (!slow || r.ratio <= min) return;
+    r.ratio = Math.max(min, r.ratio * RES.step);
+    const size = this.renderer.getSize(new THREE.Vector2());
+    this.renderer.setPixelRatio(r.ratio);
+    this.renderer.setSize(size.x, size.y, false);
+    this.grade?.setSize(size.x, size.y);
+  }
 
   // Keeps the camera above the ground: the lowest polar angle for this distance.
   keepAbove() {
     const { camera, controls } = this, reach = camera.position.distanceTo(controls.target);
     controls.maxPolarAngle = Math.PI / 2 + Math.asin(Math.min(Math.max((controls.target.y - CAM_MIN_Y) / reach, -1), 1));
   }
+
+  // Close views: aim the shadow camera after the sun turns. Free play: shadowTo().
+  aimSun() { if (!this.config.play) this.sun.position.copy(this.sunDirection).multiplyScalar(6); }
 
   // Centres the sun's shadow area on a point on the ground. The centre moves in whole shadow texels
   // across the sun's view, so the shadow edges don't crawl as the camera follows the bird.

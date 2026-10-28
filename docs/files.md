@@ -53,6 +53,8 @@ What each source file does.
 | `src/world/fence.js` | `Fence`: white posts, a top rail and chain wire along the yard edges of the two footpaths (`FENCE`), none at the ends. Instanced toon posts and rails; the wire is a shader pattern. With physics, a static wall on the `terrain` layer |
 | `src/world/puddle.js` | `Puddle`: a muddy puddle on the nature strip (`PUDDLE`, `shape()`), splash events from steps and landings, ripples. `SPLASH`, `splashMud()`: the mud a splash puts on the bird |
 | `src/world/tufts.js` | `Tufts`: grass tufts, one instanced draw of upright quads turned to the camera about y. `TUFTS` tuning |
+| `src/world/lighting.js` | `LIGHT` (shared uniforms: night, lamp slots, lamp shadow atlas), `LIGHT_GLSL` (`lampLight()`, `night()`, `toonLit()`, in `TOON`), `DayNight` (turns the sun to the moon) |
+| `src/world/lamps.js` | `Lamps`: street lamps (pole, arm, head, lens, halo, beam), the slots of the nearest lit lamps and their shadow atlas tiles |
 | `src/world/sky.js` | `Sky`: sky dome shader (gradient, warm glow toward the sun, puff clouds, far hills and trees), `HAZE` |
 | `src/world/backdrop.js` | `Backdrop`: two rings of tree silhouettes round the street (`RINGS`), so the world ends past the yards |
 | `src/world/grade.js` | `Grade`: the scene to a multisampled target, then one colour grade pass to the canvas. `GRADE` tuning |
