@@ -63,6 +63,7 @@ export class Level {
     if (env) {
       this.fx.surface = def.surface;
       this.fx.height = this.ground.height;
+      if (sound) sound.under = def.under ?? null;
     }
     scene.add(this.fx.object);
     this.props = [];
@@ -233,6 +234,7 @@ export class Level {
     const solids = this.props.flatMap(prop => prop.solids?.() ?? []);
     for (const prop of this.props) seeInside(prop, camera.position);
     for (const part of this.parts) part.update?.(camera, dt, this.ibises, solids);
+    for (const part of this.parts) if (part.rustle) this.sound?.rustle(part.rustle, camera);
   }
 
   renderShadows(renderer) {

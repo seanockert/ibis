@@ -3,18 +3,20 @@
 //
 //   const sound = new IbisSound();
 //   sound.load('honk', '/sfx/honk.m4a');   // also 'chip' and 'scold', the noisy miner's calls
+//   sound.under = (x, z) => 'grass';       // what a foot is on (set by the level): a step on grass is softer
 //   sound.update(ibises, camera);   // every frame, after ibis.update(dt)
 //   sound.slam(event, camera);      // a 'slam' event from a prop (props.js)
 //   sound.squash(event, camera);    // a 'squash' event: a cereal box crushed flat
 //   sound.splash(event, camera);    // a 'splash' event: a foot or a jump in the puddle (puddle.js)
 //   sound.minerCall(event, camera); // a 'call' event of a flying noisy miner (src/miner/flight.js)
+//   sound.rustle(tufts.rustle, camera);       // every frame: the grass that moves (tufts.js)
 //   sound.muted = true;
 //
 // The honk is a recording (public/sfx/honk.m4a: 0.375 s, AAC 32 kbps, about 6 KB), played at a
 // different pitch each time. The noisy miner's calls are recordings too: public/sfx/miner-chip.m4a
 // (0.6 s, a burst of four alarm chips, for the alert) and public/sfx/miner-scold.m4a (0.8 s, three harsh
 // scold notes, for the attack). All other sounds are filtered noise and tones made here, with no files:
-// steps (with a squelch when wet or muddy), scuffs, wing beats, landings, thumps, the threat hiss, bill
+// steps (softer on grass, with a squelch when wet or muddy), scuffs, the grass rustle, wing beats, landings, thumps, the threat hiss, bill
 // clacks, the bill's snap on a prop it picks up, puddle splashes and the bin and box slams. Each sound pans and fades with its place in the camera's view.
 // Browsers start audio only after a user input, so a key or tap starts it. Until then, and while
 // muted, the context is suspended: no sound plays or queues, and the audio thread does no work.
@@ -46,6 +48,8 @@ export const SOUND = {
     slam: { bin: 1, box: 1, cereal: 1, glass: 0.45 },   // props that fall or hit. glass: the stubbies
     squash: 0.8,        // a cereal box crushed flat
     splash: 0.6,        // a foot or a jump in the puddle
+    rustle: 0.25,       // grass that moves round a bird: a quiet support, under the other sounds
+    grassStep: 0.5,     // a step on grass, part of a step
   },
   runSpeed: 1.4,        // steps are louder above this speed
   honkPitch: 0.06,      // the honk's pitch changes by up to this part each time
@@ -53,6 +57,12 @@ export const SOUND = {
   minerGap: 0.7,        // seconds: a miner call this soon after the last one (of any miner) is skipped
   minerTone: 3200,      // Hz: a lowpass on the miner's calls takes off the harsh top
   yelpPitch: 1.5,       // the yelp's playback rate
+  // Grass moving (tufts.js rustle.amount): silent to from (short tufts stay below it), loudest at full.
+  // gap: seconds from one brush of the rustle to the next, at from and at full; span: seconds of a brush.
+  // tone: an extra low-pass, Hz, on all of it: a high end grates when it repeats. stop: seconds to fade
+  // out when the grass stops.
+  rustle: { from: 3, full: 40, gap: [1.2, 0.7], span: 0.5, tone: 1300, stop: 0.03 },
+  grassStep: { tone: 1100 },   // the extra low-pass on a step on grass, Hz
 };
 
 // Puddle slosh: lumps of low noise, each [start (s), filter from (Hz), filter to (Hz), gain].
@@ -72,6 +82,9 @@ export class IbisSound {
     this.master.connect(this.ctx.destination);
     this.noise = this.makeNoise(2);
     this.samples = {};   // recordings by name
+    this.rustleAt = -Infinity;   // ctx time of the last grass rustle (SOUND.rustle.gap)
+    this.rustling = [];          // voices of the grass rustles that play
+    this.under = null;           // (x, z) => what a foot is on there, or null: set by the level
     this.minerAt = -Infinity;   // ctx time of the last miner call (SOUND.minerGap)
     this.voices = 0;
     this.n = 0;
@@ -184,6 +197,33 @@ export class IbisSound {
     }
   }
 
+  // Grass rustle: brushes of grass past the bird. A brush is a few short lumps of low noise spread over
+  // span, so it has a texture but no hiss. While a bird pushes grass, the next brush starts a gap after
+  // the last; the gap is shorter and the brush louder for grass that moves faster. When no bird pushes
+  // grass (it left the grass, or stands still), the brushes that play fade out at once.
+  rustle(r, camera) {
+    if (this.ctx.state !== 'running') return;
+    const { from, full, gap, span, tone, stop } = SOUND.rustle, k = clamp((r.amount - from) / (full - from), 0, 1);
+    const t = this.ctx.currentTime;
+    this.rustling = this.rustling.filter(v => v.sources > 0);
+    if (k <= 0) {
+      for (const v of this.rustling) v.node.gain.setTargetAtTime(0, t, stop);
+      this.rustling = [];
+      return;
+    }
+    if (t < this.rustleAt + gap[0] + (gap[1] - gap[0]) * k) return;
+    this.rustleAt = t;
+    this.camera = camera;
+    const v = this.voice(r.at, L.rustle * (0.4 + 0.6 * k) * this.vary(0.15));
+    if (!v) return;
+    const soft = this.soften(v, tone), count = 4 + Math.floor(this.rand() * 3);
+    for (let i = 0; i < count; i++) {
+      const length = 0.08 + 0.08 * this.rand();
+      this.burst(v, { at: span * (i + 0.6 * this.rand()) / count, length, gain: 0.6 + 0.4 * this.rand(), attack: length * 0.4, filter: ['lowpass', 1100 * this.vary(0.25), 600, 0.7] }, soft);
+    }
+    this.rustling.push(v);
+  }
+
   // A noisy miner's call: e.kind is 'chip' or 'scold', a recording at a different pitch each time, or
   // 'yelp' (hurt): the chip, high and fast. A yelp always plays.
   minerCall(e, camera) {
@@ -198,14 +238,24 @@ export class IbisSound {
   // ---- the sounds ----
 
   // A soft pat of a padded foot: low, muffled noise with a slow attack and a dull body. No high click.
-  // A scuff scrapes. Wet or muddy feet squelch.
+  // A scuff scrapes. On grass: softer, a muffled pat with a few small crackles and a faint body, all low.
+  // Wet or muddy feet squelch.
   step(place, speed, scuff, ibis, level) {
     const run = clamp((speed - SOUND.runSpeed) / 2, 0, 1);
     const v = this.voice(place, level * (0.25 + 0.25 * run));
     if (!v) return;
-    this.burst(v, { length: 0.07, gain: 1, attack: 0.008, filter: ['lowpass', 600 * this.vary(0.2), 220, 0.7] });
-    this.tone(v, { length: 0.06, gain: 0.45, f0: 120 * this.vary(0.15), f1: 60 });
-    if (scuff) this.burst(v, { length: 0.16, gain: L.scuff, attack: 0.01, filter: ['lowpass', 3500, 700, 0.7] });
+    if (this.under?.(place.x, place.z) === 'grass') {
+      const soft = this.soften(v, SOUND.grassStep.tone);
+      this.burst(v, { length: 0.09, gain: L.grassStep, attack: 0.015, filter: ['lowpass', 900 * this.vary(0.2), 300, 0.7] }, soft);
+      for (let i = 0; i < 3; i++) {
+        this.burst(v, { at: 0.005 + 0.05 * this.rand(), length: 0.025, gain: 0.35 * L.grassStep, attack: 0.004, filter: ['bandpass', 800 * this.vary(0.25), 600, 1.5] }, soft);
+      }
+      this.tone(v, { length: 0.06, gain: 0.2, f0: 120 * this.vary(0.15), f1: 60 });
+    } else {
+      this.burst(v, { length: 0.07, gain: 1, attack: 0.008, filter: ['lowpass', 600 * this.vary(0.2), 220, 0.7] });
+      this.tone(v, { length: 0.06, gain: 0.45, f0: 120 * this.vary(0.15), f1: 60 });
+      if (scuff) this.burst(v, { length: 0.16, gain: L.scuff, attack: 0.01, filter: ['lowpass', 3500, 700, 0.7] });
+    }
     const wet = Math.max(ibis.wet, ibis.mud);
     if (wet > 0.1) this.burst(v, { at: 0.01, length: 0.09, gain: L.squelch * wet, attack: 0.02, filter: ['bandpass', 400, 1100 * this.vary(0.2), 3] });
   }
@@ -292,6 +342,17 @@ export class IbisSound {
   }
 
   // ---- parts ----
+
+  // A low-pass into the voice, flat to the cut-off at hz: bursts through it (burst(..., to)) lose their
+  // high end twice as fast, with their own filter.
+  soften(v, hz) {
+    const f = this.ctx.createBiquadFilter();
+    f.type = 'lowpass';
+    f.frequency.value = hz;
+    f.Q.value = -3;   // dB for a low-pass: no bump at the cut-off
+    f.connect(v.node);
+    return f;
+  }
 
   // A voice: gain and pan for a world place in the camera's view. Returns null when too many play.
   voice(place, gain) {

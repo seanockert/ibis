@@ -1,7 +1,7 @@
 // The street: an Australian suburban street, the free play level. Level data for Level (src/world/level.js).
 //
 // ground: profile (heights across z, for the physics) and height(x, z). surface(x, z): what a foot
-// prints on (fx). bounds: the box the characters stay in. scenery(asset, physics): the parts with
+// prints on (fx). under(x, z): what a foot is on, for the sound of a step. bounds: the box the characters stay in. scenery(asset, physics): the parts with
 // update(camera, dt, ibises, solids), or none. puddle: a muddy puddle (puddle.js).
 // characters: species (species.js), at [x, z], heading, player (the one the input drives) or brain
 // ('wander', wander.js).
@@ -17,7 +17,7 @@ import { Lamps } from '../world/lamps.js';
 import { Plants } from '../world/plants.js';
 import { inPuddle } from '../world/puddle.js';
 import { Sky } from '../world/sky.js';
-import { PLAY, printOn, PROFILE, Street, streetHeight } from '../world/street.js';
+import { PLAY, printOn, PROFILE, Street, streetHeight, stripAt } from '../world/street.js';
 import { Tufts } from '../world/tufts.js';
 
 // Trees and shrubs (plants.js). Most in the far yards, behind the fence (z -27.1), in front of the
@@ -59,6 +59,7 @@ const BEDS = PLANTED.filter(p => p.kind !== 'shrub').map(p => ({ at: p.at, radiu
 export const STREET = {
   ground: { profile: PROFILE, height: (x, z) => streetHeight(z) },
   surface: (x, z) => (inPuddle(x, z) ? false : printOn(x, z)),   // pressed grass, dust; none in the puddle
+  under: (x, z) => (inPuddle(x, z) ? 'puddle' : stripAt(z)),
   bounds: PLAY,
   // The sky, the ground (mulch round the trees), the tufts (long grass round the lamp posts), the far trees, a white post and wire fence round the play area, the
   // trees and shrubs in the yards, and the street lamps.
