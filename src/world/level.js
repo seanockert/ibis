@@ -91,7 +91,7 @@ export class Level {
       const defs = this.def.props, bases = stack(defs, d => PROPS[d.kind].footprint(d), this.ground.height);
       const hosts = [];   // props with flies round them
       for (const [i, d] of defs.entries()) {
-        const prop = this.addProp(new PROPS[d.kind](this.physics, this.asset, { ...d, base: bases[i] }));
+        const prop = this.addProp(new PROPS[d.kind](this.physics, this.asset, { ...d, base: bases[i], height: this.ground.height }));
         if (d.flies) hosts.push({ prop, count: d.flies });
       }
       this.perches.push(...this.props.filter(p => p.perch));
@@ -141,16 +141,8 @@ export class Level {
     return prop;
   }
 
-  // The mud and wet targets of a character: the Wet button and the puddle set them.
+  // The mud and wet targets of a character: the puddle, the sprinkler and a shake set them.
   target(ibis) { return this.targets.get(ibis); }
-
-  // Wet on: every character gets wet over two seconds, which also washes the mud off. Off: dry again.
-  setWet(on) {
-    for (const t of this.targets.values()) {
-      t.wet = on ? 1 : 0;
-      if (on) t.mud = 0;
-    }
-  }
 
   // Wireframes of the colliders. It loads the debug renderer only when called.
   async showColliders() {
@@ -224,13 +216,20 @@ export class Level {
     if (this.physics) {
       this.physics.step(dt);
       for (const prop of this.props) {
-        prop.update(this.ibises);
+        prop.update(this.ibises, dt, camera);
         for (const e of prop.events) {
           if (e.type === 'slam') { if (e.kind !== 'glass') fx.burst(e.points, e.centre); sound?.slam(e, camera); }
           if (e.type === 'squash') { fx.burst(e.points, e.centre); sound?.squash(e, camera); }
+          // Sprinkler drops on a bird: wetter, and the mud washes off.
+          if (e.type === 'soak') {
+            const target = this.targets.get(e.ibis);
+            target.wet = Math.min(target.wet + e.wet, 1);
+            target.mud = Math.max(target.mud - e.wash, 0);
+          }
           // A crash is a noise that the miners hear.
           if (e.type === 'slam' || e.type === 'squash') this.sentry?.hear(e.centre, SENTRY.loud.slam * Math.max(...e.points.map(p => p.strength), 0.5));
         }
+        if (prop.spray) sound?.spray(prop.spray, camera, prop);
       }
       this.highlight.update(this.props, this.player ? this.physics.target(this.player) : null);
       this.collidersView?.update();

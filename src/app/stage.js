@@ -48,7 +48,17 @@ export class Stage {
       .multiplyScalar(play ? CAM_DIST_PLAY : view.dist).add(target);
     const controls = this.controls = new OrbitControls(camera, canvas);
     controls.target.copy(target);
-    if (play) controls.maxDistance = CAM_MAX_PLAY;
+    if (play) {
+      controls.maxDistance = CAM_MAX_PLAY;
+      // The orbit controls pan on a left drag with Shift. In free play Shift runs, so a drag must orbit:
+      // the press goes on to the controls again without Shift.
+      canvas.addEventListener('pointerdown', e => {
+        if (e.pointerType !== 'mouse' || e.button !== 0 || !e.shiftKey) return;
+        e.stopImmediatePropagation();
+        const { pointerId, pointerType, isPrimary, button, buttons, clientX, clientY, screenX, screenY, ctrlKey, altKey, metaKey } = e;
+        canvas.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true, pointerId, pointerType, isPrimary, button, buttons, clientX, clientY, screenX, screenY, ctrlKey, altKey, metaKey }));
+      }, { capture: true });
+    }
     controls.update();
 
     const light = this.sun = new THREE.DirectionalLight(0xffffff, 1);

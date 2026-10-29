@@ -53,6 +53,7 @@ URL parameters and the other tools are in `docs/tools.md`.
 
 ## Rules
 
+- If you need to include code comments, keep them succinct and clear. Otherwise use the docs
 - Determinism: random values come from `hash()` with the seed. Do not use `Math.random()` in motion code.
 - Constants are copied between the bird's `SHAPE` (`rig.js` for the ibis, `src/miner/bird.js` for the miner) and its `model.glsl` (`headScale`, the toe directions and lengths, the jaw hinge). Change both.
 - `MAT` in the bird's `materialIds.js` must match `MAT_*` in its `model.glsl`.

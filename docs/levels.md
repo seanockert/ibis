@@ -19,7 +19,7 @@ The physics is in `physics.md`.
 - Without `env`, the level uses flat ground at 0 and no scenery, so the fixed views still match `sdf.html`.
 - `scenery(asset, physics)`: the parts. A part with `update(camera, dt, ibises, solids)` gets it each frame.
 - `characters`: `species` (a key of `SPECIES`), `at`, `heading`, and `player: true` or `brain: 'wander'`. Each character gets its seed from its place in the list.
-- `props`: `kind` (a key of `PROPS`), `at` (`[x, z]`), `heading`, and the options of that kind (for example `size`, `print`, `small`, `lid`).
+- `props`: `kind` (a key of `PROPS`), `at` (`[x, z]`), `heading`, and the options of that kind (for example `size`, `print`, `small`, `lid`, `tap`). The level adds `base` and `height(x, z)` (the ground). Each prop's `update(ibises, dt, camera)` runs after the physics step.
 - A prop has no height in the level data. `place.js` gives it.
 
 ## Placement and stacking
@@ -51,7 +51,7 @@ The physics is in `physics.md`.
 - A brain writes `character.input` (move, fast, jump), the same input that a player gives. So a brain works for any species with a `Controller`.
 - `Wander` (`src/characters/wander.js`): walks to a random point within `WANDER.range` of its home, waits, and picks another. It sometimes runs (`WANDER.run`). It gives up on a goal after `WANDER.stuck` seconds with no progress (a prop in the way).
 - Random values come from `hash()` with the seed, not `Math.random()`.
-- Each character has its own mud and wet targets (`level.target(ibis)`). The Wet button sets all of them. A splash or a shake changes only that character.
+- Each character has its own mud and wet targets (`level.target(ibis)`). A puddle splash, the sprinkler's drops or a shake change only that character.
 - Only the player gets the peck highlight and the camera follow.
 - Every character with physics has a solid (`addBird()`), so characters collide with the props and with each other, and push each other (`bird` layer and bird push, see `physics.md`).
 - Plans for other species: a brush turkey (a walk and a short flight, as the ibis), a ringtail possum (a walk on four legs). Each needs its own controller and animator. The brain shape stays the same.

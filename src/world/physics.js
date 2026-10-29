@@ -575,13 +575,27 @@ export class Physics {
     rigidBody.setMotionType(this.world, body, MotionType.DYNAMIC, true);
   }
 
-  // A peck: picks up the nearest grabbable prop within GRAB.reach of the bill tip. It pops into the
-  // bill at once, and the head comes up with it (lift in actions.js). With none, but another prop in
-  // reach (too big: the ball, a box), the bird tries to bite it and gives up (fumble in actions.js).
+  // A switch: a box (world [x0, y0, z0, x1, y1, z1]) that a peck turns in place of a pick up: grab()
+  // calls turn(). Not a body: nothing collides with it. Returns its id, for target() and hull().
+  addSwitch(box, turn) {
+    const id = `switch${(this.switches ??= new Map()).size}`;
+    this.switches.set(id, { box, turn });
+    return id;
+  }
+
+  // A peck: turns the nearest switch, or picks up the nearest grabbable prop, within GRAB.reach of the
+  // bill tip. A prop pops into the bill at once, and the head comes up with it (lift in actions.js).
+  // With none, but another prop in reach (too big: the ball, a box), the bird tries to bite it and
+  // gives up (fumble in actions.js).
   grab(bird) {
     const c = bird.ibis.character;
     const tip = this.headPoint(bird, GRAB.tip);
-    const id = this.nearest(this.grabbable?.keys(), tip);
+    const id = this.nearest(this.targets(), tip);
+    if (this.switches?.has(id)) {
+      this.switches.get(id).turn();
+      c.events.push({ type: 'turn' });   // for the sound (sound.js)
+      return;
+    }
     if (id === null) {
       if (this.nearest(this.bulky, tip) !== null) c.act('fumble');
       return;
@@ -596,22 +610,26 @@ export class Physics {
     c.events.push({ type: 'pick', hold: this.grabbable.get(id).hold });   // for the sound (sound.js)
   }
 
-  // The grabbable prop that a peck would pick up now (grab()), or null: the nearest one to where the bill
-  // tip goes at the 'grab' of a peck (peckTip()). For a highlight.
+  // The switch or grabbable prop that a peck would turn or pick up now (grab()), or null: the nearest one
+  // to where the bill tip goes at the 'grab' of a peck (peckTip()). For a highlight.
   target(ibis) {
     const bird = this.birds.find(b => b.ibis === ibis);
     if (!bird || bird.held !== null) return null;
     const c = ibis.character, [x, y, z] = this.peckTip ??= peckTip();
     const cs = Math.cos(c.heading), sn = Math.sin(c.heading);
-    return this.nearest(this.grabbable?.keys(), [c.position.x + x * cs + z * sn, c.position.y + y, c.position.z - x * sn + z * cs]);
+    return this.nearest(this.targets(), [c.position.x + x * cs + z * sn, c.position.y + y, c.position.z - x * sn + z * cs]);
   }
 
-  // Of ids, the prop not in a bill whose box is nearest to the world point tip, within GRAB.reach.
+  // What a peck can take or turn: the grabbable props and the switches.
+  targets() { return [...this.grabbable?.keys() ?? [], ...this.switches?.keys() ?? []]; }
+
+  // Of ids (props and switches), the one not in a bill whose box is nearest to the world point tip,
+  // within GRAB.reach.
   nearest(ids, tip) {
     let best = GRAB.reach, id = null;
     for (const other of ids ?? []) {
       if (this.held(other)) continue;
-      const box = rigidBody.get(this.world, other).aabb;
+      const box = this.switches?.get(other)?.box ?? rigidBody.get(this.world, other).aabb;
       const d = Math.hypot(...[0, 1, 2].map(i => Math.max(box[i] - tip[i], 0, tip[i] - box[i + 3])));
       if (d < best) { best = d; id = other; }
     }

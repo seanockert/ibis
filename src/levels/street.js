@@ -93,6 +93,8 @@ export const STREET = {
     { kind: 'bin', at: [-10, -1], heading: -2.5, flies: 5 },
     { kind: 'bin', at: [-9, -19.7], heading: 0.2, small: true, lid: 'yellow' },
     { kind: 'bin', at: [10, -20], heading: -0.3, flies: 5 },
+    // A sprinkler on the far nature strip, on a hose from a tap at the far fence. It sweeps across the strip.
+    { kind: 'sprinkler', at: [-2, -20.8], heading: 0, tap: [-0.5, -26.75] },
     // Cardboard boxes, 60 to 70% of the bird's height: two on the nature strip, one on the footpath.
     { kind: 'box', at: [-3.6, 1.2], size: [1.25, 1.3, 1.1], heading: 0.3 },
     { kind: 'box', at: [-5.6, -0.3], size: [1.0, 1.2, 1.0], heading: -0.5 },

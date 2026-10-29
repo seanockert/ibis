@@ -1,9 +1,9 @@
 // The buttons. Free play: a joystick (input.js), a diamond of Threat, Squawk, Peck and Jump (bottom
 // right; Jump acts while held, and a double-tap shakes the body; Squawk gives a squawk and a happy dance
-// in turn), and the other one-shot actions in the top bar after Wet. Other views: one button for each move script.
+// in turn), and the other one-shot actions in the top bar after the time of day. Other views: one button for each move script.
 //
 //   const ui = new Ui({ play, anim, level, input, cycle, onMove });
-//   ui.update();   // every frame: the Wet button follows the player's wet
+//   ui.update();   // every frame: the time of day button follows the cycle
 import { MOVES } from '../moves.js';
 
 // Icons: 24 by 24 SVG, filled shapes and lines (class s) with a little bow in the edges, so they look hand drawn.
@@ -31,7 +31,7 @@ export class Ui {
   constructor({ play, anim, level, input, cycle = null, onMove }) {
     this.level = level;
     const bird = level.player ?? level.ibises[0], bar = document.getElementById('bar');
-    const topActions = document.createDocumentFragment();   // free play: the other actions, in the top bar after Wet
+    const topActions = document.createDocumentFragment();   // free play: the other actions, in the top bar after the time of day
     if (play) {
       const acts = document.getElementById('acts');
       for (const [area, name] of DIAMOND) {
@@ -70,28 +70,17 @@ export class Ui {
       (play ? topActions : bar).appendChild(b);
       this.buttons[i] = b;
     }
-    // Top bar: the time of day (tap or N: the next period), Wet (also washes the mud off), then in free
-    // play the other actions.
-    const wet = this.wet = document.createElement('button');
-    wet.textContent = 'Wet';
-    onPress(wet, () => level.setWet(!this.wetOn()));
+    // Top bar: the time of day (tap or N: the next period), then in free play the other actions.
     this.cycle = cycle;
     const time = this.time = document.createElement('button');
     time.hidden = !cycle;
     onPress(time, () => cycle.next());
     if (cycle) addEventListener('keydown', e => { if (e.code === 'KeyN' && !e.repeat) cycle.next(); });
     this.update();
-    document.getElementById('weather').append(time, wet, topActions);
-  }
-
-  wetOn() {
-    const bird = this.level.player ?? this.level.ibises[0];   // none in the fly view
-    return !!bird && this.level.target(bird).wet > 0;
+    document.getElementById('weather').append(time, topActions);
   }
 
   update() {
-    const on = String(this.wetOn());
-    if (this.wet.getAttribute('aria-pressed') !== on) this.wet.setAttribute('aria-pressed', on);
     const period = this.cycle?.period ?? 'day', label = period[0].toUpperCase() + period.slice(1);
     if (this.time.textContent !== label) this.time.textContent = label;
   }

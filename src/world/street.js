@@ -65,6 +65,12 @@ export const MULCH = { max: 8, reach: 1.25, patch: 2.2, tint: 0.6, clear: 0.6, c
 // Cracks: part of the footpath slabs with a crack, a zigzag of three strokes from one side of the path.
 const CRACKS = { chance: 0.35, width: 0.035 };
 
+// Wet ground (the sprinkler, sprinkler.js): map, wetness 0 to 1 on a grid; area: x, z of its corner, its
+// size, and w 1 when on. tint: the colour times this where it is wet. edge: the wetness of the edge, with
+// noise (its amount, and its frequency: scale) so the patch is blotchy.
+export const GROUND_WET = { map: { value: null }, area: { value: new Vector4() } };
+const WET = { tint: srgb(0.72, 0.78, 0.84), edge: 0.3, noise: 0.35, scale: 0.9 };
+
 // lit, shade, sRGB, picked from the concept art: warm yellow-green and peach in the sun, cool teal and
 // lavender in the shade. The two are far apart on purpose: the warm and cool split carries the cartoon
 // light. The colour grade (grade.js) warms and lifts them a little more.
@@ -285,7 +291,10 @@ function groundMaterial(sun, beds) {
     return b ? new Vector4(b.at[0], b.at[1], b.radius, i * 7.3) : new Vector4();
   });
   if (beds.length > MULCH.max) console.warn(`Street: only ${MULCH.max} mulch beds`);
-  const uniforms = { ...lightUniforms(), ...grassUniforms(), uHaze: haze, uSun: { value: sun }, uBeds: { value: uBeds } };
+  const uniforms = {
+    ...lightUniforms(), ...grassUniforms(), uHaze: haze, uSun: { value: sun }, uBeds: { value: uBeds },
+    uWetMap: GROUND_WET.map, uWetArea: GROUND_WET.area, uWetTint: { value: WET.tint },
+  };
   const other = Object.keys(COLOURS).filter(n => !GRASS_TONES.includes(n));
   for (const name of other) {
     const [lit, shade] = COLOURS[name];
@@ -322,6 +331,9 @@ function groundMaterial(sun, beds) {
       ${other.map(n => `uniform vec3 u_${n}Lit, u_${n}Shade;`).join('\n')}
       uniform vec3 uHaze, uSun;
       uniform vec4 uBeds[${MULCH.max}];
+      uniform sampler2D uWetMap;
+      uniform vec4 uWetArea;
+      uniform vec3 uWetTint;
       varying vec3 vWorld, vNormal;
       // 1 on a line of width (units) at u = 0, with w (one pixel, units) of blur.
       float line(float u, float width, float w) {
@@ -522,6 +534,14 @@ function groundMaterial(sun, beds) {
           // Not on the kerbs and the road: pale dots there read as road marks.
           bool hard = ${STRIPS.map(([kind, z], i) => (kind === 'kerb' || kind === 'road') ? `(z < ${f(STRIPS[i - 1][1])} && z > ${f(z)})` : null).filter(Boolean).join(' || ')};
           if (!hard && edgeDistance(z) < ${f(PEBBLES.band + PEBBLES.cell / 2)}) col = mix(col, pebbles(p, u, col, lit), near);
+        }
+        // Wet ground: darker, with a blotchy edge.
+        if (uWetArea.w > 0.0) {
+          vec2 q = (p.xz - uWetArea.xy) / uWetArea.z;
+          if (q.x > 0.0 && q.y > 0.0 && q.x < 1.0 && q.y < 1.0) {
+            float wet = texture2D(uWetMap, q).r + ${f(WET.noise)} * (noise2(p.xz * ${f(WET.scale)} + vec2(53.0, 11.0)) - 0.5);
+            col *= mix(vec3(1.0), uWetTint, smoothstep(${f(WET.edge - 0.03)}, ${f(WET.edge + 0.03)}, wet));
+          }
         }
         col = night(col, lamp);
         col = mix(col, uHaze, smoothstep(${f(HAZE_FROM[0])}, ${f(HAZE_FROM[1])}, distance(p, cameraPosition)));

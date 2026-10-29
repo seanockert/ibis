@@ -11,6 +11,7 @@
 //   sound.minerCall(event, camera); // a 'call' event of a flying noisy miner (src/miner/flight.js)
 //   sound.rustle(tufts.rustle, camera);       // every frame: the grass that moves (tufts.js)
 //   sound.buzz(flies.buzz, camera);           // every frame: the flies round a bin (flies.js)
+//   sound.spray(sprinkler.spray, camera);     // every frame: the sprinkler (sprinkler.js)
 //   sound.muted = true;
 //
 // The honk is a recording (public/sfx/honk.m4a: 0.375 s, AAC 32 kbps, about 6 KB), played at a
@@ -18,7 +19,7 @@
 // (0.6 s, a burst of four alarm chips, for the alert) and public/sfx/miner-scold.m4a (0.8 s, three harsh
 // scold notes, for the attack). All other sounds are filtered noise and tones made here, with no files:
 // steps (softer on grass, with a squelch when wet or muddy), scuffs, the grass rustle, wing beats, landings, thumps, the threat hiss, bill
-// clacks, the bill's snap on a prop it picks up, puddle splashes, the bin and box slams and the flies' buzz. Each sound pans and fades with its place in the camera's view.
+// clacks, the bill's snap on a prop it picks up, puddle splashes, the bin and box slams, the flies' buzz, the sprinkler's hiss and the tap's squeak. Each sound pans and fades with its place in the camera's view.
 // Browsers start audio only after a user input, so a key or tap starts it. Until then, and while
 // muted, the context is suspended: no sound plays or queues, and the audio thread does no work.
 import { Vector3 } from 'three';
@@ -46,6 +47,7 @@ export const SOUND = {
     hiss: 0.35,         // the threat hiss
     clack: 1,           // the bill snaps shut
     pick: 0.8,          // the bill takes hold of a prop (a peck picks it up)
+    turn: 0.6,          // the bill turns a tap handle
     slam: { bin: 1, box: 1, cereal: 1, glass: 0.45 },   // props that fall or hit. glass: the stubbies
     squash: 0.8,        // a cereal box crushed flat
     splash: 0.6,        // a foot or a jump in the puddle
@@ -57,6 +59,7 @@ export const SOUND = {
     mower: 0.05,        // a lawnmower far off
     cricket: 0.025,     // a cricket chirp, round the listener
     frog: 0.06,         // a frog call at the puddle
+    spray: 0.05,        // the sprinkler's hiss
   },
   runSpeed: 1.4,        // steps are louder above this speed
   honkPitch: 0.06,      // the honk's pitch changes by up to this part each time
@@ -70,10 +73,14 @@ export const SOUND = {
   // out when the grass stops.
   rustle: { from: 3, full: 40, gap: [1.2, 0.7], span: 0.5, tone: 1300, stop: 0.03 },
   grassStep: { tone: 1100 },   // the extra low-pass on a step on grass, Hz
+  // Sounds that play while heard (loop()): seconds for the gain and pan to follow, and of silence before one stops.
+  loop: { follow: 0.4, idle: 2.5 },
   // Flies (flies.js buzz): wing tones, Hz (a few flies, a little out of tune), the vibrato (Hz, part of the
   // pitch), the swell as flies go near and far (Hz, part of the gain: near 1, the buzz almost stops at the
-  // low of each swell), a band-pass (Hz, Q), a low-pass (Hz), seconds to follow a change, and seconds of silence before it stops.
-  buzz: { tones: [190, 204, 223], vibrato: [7, 0.04], swell: [0.35, 0.9], band: [420, 0.7], tone: 800, follow: 0.4, idle: 2.5 },
+  // low of each swell), a band-pass (Hz, Q) and a low-pass (Hz).
+  buzz: { tones: [190, 204, 223], vibrato: [7, 0.04], swell: [0.35, 0.9], band: [420, 0.7], tone: 800 },
+  // Sprinkler (sprinkler.js spray): a band-pass (Hz, Q) on noise, a swell (Hz, part of the gain) and a low-pass (Hz).
+  spray: { band: [2400, 0.5], swell: [0.3, 0.4], tone: 4000 },
 };
 
 // Puddle slosh: lumps of low noise, each [start (s), filter from (Hz), filter to (Hz), gain].
@@ -95,7 +102,7 @@ export class IbisSound {
     this.samples = {};   // recordings by name
     this.rustleAt = -Infinity;   // ctx time of the last grass rustle (SOUND.rustle.gap)
     this.rustling = [];          // voices of the grass rustles that play
-    this.drone = null;           // the flies' buzz: one voice, made when it is heard and stopped after it is silent (SOUND.buzz.idle)
+    this.loops = new Map();      // sounds that play while they are heard (loop()): the buzz, the spray
     this.under = null;           // (x, z) => what a foot is on there, or null: set by the level
     this.minerAt = -Infinity;   // ctx time of the last miner call (SOUND.minerGap)
     this.voices = 0;
@@ -140,6 +147,7 @@ export class IbisSound {
         if (e.type === 'hiss') this.hiss(place, e.length ?? 1);
         if (e.type === 'clack') this.clack(place, e.amount ?? 1);
         if (e.type === 'pick') this.pick(place, e.hold);
+        if (e.type === 'turn') this.squeak(place);
       }
     }
   }
@@ -237,38 +245,19 @@ export class IbisSound {
   }
 
   // Flies' buzz: a few triangle tones a little out of tune, with a fast vibrato and a slow, deep swell, so
-  // it comes and goes, through a band-pass and a low-pass. Saw tones were harsh near a bin. One voice:
-  // b.amount sets its gain (0 is silent), b.pitch its pitch (higher when the flies scatter), b.at its pan.
-  // It starts when b.amount is above 0, and stops after B.idle seconds at 0, so its oscillators do no
-  // work while no fly is heard.
+  // it comes and goes, through a band-pass and a low-pass. Saw tones were harsh near a bin. b.amount sets
+  // its gain (0 is silent), b.pitch its pitch (higher when the flies scatter), b.at its pan.
   buzz(b, camera) {
     if (this.ctx.state !== 'running') return;
-    const { ctx } = this, B = SOUND.buzz, t = ctx.currentTime;
-    if (b.amount <= 0) {
-      if (!this.drone) return;
-      this.drone.quiet ??= t;
-      if (t - this.drone.quiet > B.idle) {
-        for (const src of this.drone.sources) src.stop();
-        this.drone.node.disconnect();
-        this.drone.pan.disconnect();
-        this.drone = null;
-        return;
-      }
-    } else if (this.drone) this.drone.quiet = null;
-    if (!this.drone) {
-      const node = ctx.createGain(), pan = ctx.createStereoPanner(), band = ctx.createBiquadFilter();
-      node.gain.value = 0;
+    const B = SOUND.buzz;
+    const loop = this.loop('buzz', SOUND.volume * L.buzz * b.amount, b.at, camera, node => {
+      const { ctx } = this, band = ctx.createBiquadFilter();
       band.type = 'bandpass';
       [band.frequency.value, band.Q.value] = B.band;
-      const soft = ctx.createBiquadFilter();
-      soft.type = 'lowpass';
-      soft.frequency.value = B.tone;
-      soft.Q.value = -3;
-      band.connect(soft).connect(node).connect(pan).connect(this.master);
+      band.connect(this.soften({ node }, B.tone));
       // The swell: a slow change of gain, as flies pass near and far.
       const { gain: swell, lfo } = this.wobble(...B.swell);
       swell.connect(band);
-      lfo.start();
       const sources = [lfo];
       const tones = B.tones.map((hz, i) => {
         const osc = ctx.createOscillator(), vib = ctx.createOscillator(), amount = ctx.createGain();
@@ -278,18 +267,62 @@ export class IbisSound {
         amount.gain.value = hz * B.vibrato[1];
         vib.connect(amount).connect(osc.frequency);
         osc.connect(swell);
-        osc.start();
-        vib.start();
         sources.push(osc, vib);
         return osc;
       });
-      this.drone = { node, pan, tones, sources, quiet: null };
+      return { sources, tones };
+    });
+    loop?.tones.forEach((osc, i) => osc.frequency.setTargetAtTime(B.tones[i] * b.pitch, this.ctx.currentTime, SOUND.loop.follow));
+  }
+
+  // Sprinkler spray: a soft hiss of noise that swells a little as the spray sweeps. s.amount: 1 while it
+  // sprays, s.at its place. Its gain falls with the distance to the camera, as a voice.
+  spray(s, camera, key = 'spray') {
+    if (this.ctx.state !== 'running') return;
+    const P = SOUND.spray, d = Math.max(this.p.copy(s.at).applyMatrix4(camera.matrixWorldInverse).length(), 0.1);
+    this.loop(key, SOUND.volume * L.spray * s.amount * Math.min(1, SOUND.near / d), s.at, camera, node => {
+      const { ctx } = this, src = ctx.createBufferSource(), band = ctx.createBiquadFilter();
+      src.buffer = this.noise;
+      src.loop = true;
+      band.type = 'bandpass';
+      [band.frequency.value, band.Q.value] = P.band;
+      const { gain: swell, lfo } = this.wobble(...P.swell);
+      src.connect(band).connect(swell).connect(this.soften({ node }, P.tone));
+      return { sources: [src, lfo] };
+    });
+  }
+
+  // A sound that plays while its gain is above 0: one voice under key, made by build(node) the first time
+  // it is heard. build connects its nodes into node and returns { sources, ... }. The gain and the pan
+  // follow over SOUND.loop.follow seconds. After SOUND.loop.idle seconds at 0 it stops, so its sources do
+  // no work. Returns the loop while it plays, else null.
+  loop(key, gain, at, camera, build) {
+    const { ctx } = this, t = ctx.currentTime, idle = SOUND.loop;
+    let loop = this.loops.get(key);
+    if (gain <= 0) {
+      if (!loop) return null;
+      loop.quiet ??= t;
+      if (t - loop.quiet > idle.idle) {
+        for (const src of loop.sources) src.stop();
+        loop.node.disconnect();
+        loop.pan.disconnect();
+        this.loops.delete(key);
+        return null;
+      }
+    } else if (loop) loop.quiet = null;
+    if (!loop) {
+      const node = ctx.createGain(), pan = ctx.createStereoPanner();
+      node.gain.value = 0;
+      node.connect(pan).connect(this.master);
+      loop = { node, pan, quiet: null, ...build(node) };
+      for (const src of loop.sources) src.start();
+      this.loops.set(key, loop);
     }
     this.camera = camera;
-    const p = this.p.copy(b.at).applyMatrix4(camera.matrixWorldInverse), d = Math.max(p.length(), 0.1);
-    this.drone.node.gain.setTargetAtTime(SOUND.volume * L.buzz * b.amount, t, B.follow);
-    this.drone.pan.pan.setTargetAtTime(clamp(SOUND.pan * p.x / d * 1.5, -SOUND.pan, SOUND.pan), t, B.follow);
-    this.drone.tones.forEach((osc, i) => osc.frequency.setTargetAtTime(B.tones[i] * b.pitch, t, B.follow));
+    const p = this.p.copy(at).applyMatrix4(camera.matrixWorldInverse), d = Math.max(p.length(), 0.1);
+    loop.node.gain.setTargetAtTime(gain, t, idle.follow);
+    loop.pan.pan.setTargetAtTime(clamp(SOUND.pan * p.x / d * 1.5, -SOUND.pan, SOUND.pan), t, idle.follow);
+    return loop;
   }
 
   // A noisy miner's call: e.kind is 'chip' or 'scold', a recording at a different pitch each time, or
@@ -400,6 +433,15 @@ export class IbisSound {
     this.burst(v, { length: 0.045, gain: 1, attack: 0.003, filter: ['bandpass', 1500 * this.vary(0.15), 700, 2] });
     this.tone(v, { length: 0.05, gain: 0.35, f0: 320 * this.vary(0.1), f1: 160 });
     if (hold === 'round') this.tone(v, { at: 0.005, length: 0.06, gain: 0.06, f0: 3200 * this.vary(0.1), f1: 3150 });
+  }
+
+  // A tap handle turned by the bill: a short metal squeak and a click.
+  squeak(place) {
+    const v = this.voice(place, L.turn);
+    if (!v) return;
+    const f = 1100 * this.vary(0.1);
+    this.tone(v, { length: 0.14, gain: 0.25, f0: f, f1: f * 1.35, type: 'triangle' });
+    this.burst(v, { at: 0.12, length: 0.03, gain: 0.5, attack: 0.002, filter: ['bandpass', 2400 * this.vary(0.15), 1800, 2] });
   }
 
   // ---- parts ----
