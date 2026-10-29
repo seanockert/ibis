@@ -12,6 +12,7 @@ import { SENTRY, Sentry } from '../characters/sentry.js';
 import { FLIERS, SPECIES } from '../characters/species.js';
 import { Wander } from '../characters/wander.js';
 import { IbisEffects } from '../ibis/effects.js';
+import { hash } from '../ibis/motion/spring.js';
 import { Ambience } from './ambience.js';
 import { Flies } from './flies.js';
 import { Highlight } from './highlight.js';
@@ -92,7 +93,9 @@ export class Level {
       const hosts = [];   // props with flies round them
       for (const [i, d] of defs.entries()) {
         const prop = this.addProp(new PROPS[d.kind](this.physics, this.asset, { ...d, base: bases[i], height: this.ground.height }));
-        if (d.flies) hosts.push({ prop, count: d.flies });
+        // flies: n or [min, max]
+        const flies = Array.isArray(d.flies) ? d.flies[0] + Math.floor(hash(i * 17 + 1) * (d.flies[1] - d.flies[0] + 1)) : d.flies;
+        if (flies) hosts.push({ prop, count: flies });
       }
       this.perches.push(...this.props.filter(p => p.perch));
       if (hosts.length) {

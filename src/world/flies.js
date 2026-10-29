@@ -8,8 +8,9 @@
 //   scene.add(flies.object);
 //   flies.update(dt, ibises, camera);   // every frame, after the physics
 //   flies.buzz                          // { amount, at, pitch }: the swarm the birds hear, for the sound
-import { DynamicDrawUsage, Float32BufferAttribute, InstancedBufferAttribute, InstancedBufferGeometry, Mesh, Quaternion, ShaderMaterial, Vector3 } from 'three';
+import { DynamicDrawUsage, InstancedBufferAttribute, Mesh, Quaternion, ShaderMaterial, Vector3 } from 'three';
 import { hash } from '../ibis/motion/spring.js';
+import { awayFrom, insect, INSECT, move, quads, rand, range, seek } from './insects.js';
 import { LIGHT } from './lighting.js';
 import { f, srgb } from './util.js';
 
@@ -50,13 +51,10 @@ export class Flies {
       flies: Array.from({ length: count }, () => fly(++seed)),
     }));
     const count = this.swarms.reduce((n, s) => n + s.flies.length, 0);
-    const g = new InstancedBufferGeometry();
-    g.setAttribute('position', new Float32BufferAttribute([-1, -1, 0, 1, -1, 0, 1, 1, 0, -1, 1, 0], 3));
-    g.setIndex([0, 1, 2, 0, 2, 3]);
+    const g = quads(count);
     this.at = new InstancedBufferAttribute(new Float32Array(count * 4), 4).setUsage(DynamicDrawUsage);
     g.setAttribute('aFly', this.at);
     g.setAttribute('aSeed', new InstancedBufferAttribute(new Float32Array(count).map((_, i) => hash(i * 31 + 7)), 1));
-    g.instanceCount = count;
     this.material = flyMaterial();
     this.object = new Mesh(g, this.material);
     this.object.frustumCulled = false;
@@ -140,9 +138,7 @@ export class Flies {
       fl.timer = range(fl, FLIES.next);
       if (fl.state === 'flee') {
         // Away from the bird (or from the bin when it moves), a little to one side, and up.
-        const dx = s.top.x - s.from.x, dz = s.top.z - s.from.z, l = Math.hypot(dx, dz);
-        const angle = (l > 0.01 ? Math.atan2(dz, dx) : rand(fl) * 2 * Math.PI) + 1.6 * (rand(fl) - 0.5), d = range(fl, scare.away);
-        fl.goal.set(s.top.x + Math.cos(angle) * d, s.top.y + range(fl, scare.up), s.top.z + Math.sin(angle) * d);
+        awayFrom(fl, s.top, s.from, 0.8, scare.away, fl.goal).y = s.top.y + range(fl, scare.up);
         outside(s, fl.goal);
       } else if (rand(fl) < sit.chance && this.spot(s, fl)) {
         fl.state = 'land';
@@ -154,14 +150,11 @@ export class Flies {
       if (fl.timer <= 0) { fl.state = 'fly'; fl.timer = 0; }
     }
     // Turn toward the point, slower as it comes near, with a small random shake.
-    want.subVectors(fl.goal, fl.pos);
-    const d = want.length(), speed = (fl.state === 'flee' ? scare.speed : FLIES.speed) * Math.min(d / 0.3, 1);
-    want.multiplyScalar(speed / Math.max(d, 1e-4));
+    const speed = seek(fl, fl.goal, fl.state === 'flee' ? scare.speed : FLIES.speed, 0.3, want);
     want.x += FLIES.jitter * speed * (rand(fl) - 0.5);
     want.y += FLIES.jitter * speed * (rand(fl) - 0.5);
     want.z += FLIES.jitter * speed * (rand(fl) - 0.5);
-    fl.vel.lerp(want, Math.min(FLIES.turn * dt, 1));
-    fl.pos.addScaledVector(fl.vel, dt);
+    move(fl, want, FLIES.turn, dt);
     outside(s, fl.pos, fl.vel);
     fl.pos.y = Math.max(fl.pos.y, this.height(fl.pos.x, fl.pos.z) + LIFT);
   }
@@ -221,13 +214,10 @@ function spotAt(fl, out) {
 }
 
 function fly(seed) {
-  const fl = { seed, n: 0, pos: new Vector3(), vel: new Vector3(), goal: new Vector3(), spot: new Vector3(), face: null, state: 'fly', timer: 0 };
+  const fl = insect(seed, { spot: new Vector3(), face: null });
   fl.back = range(fl, FLIES.scare.back);
   return fl;
 }
-
-const rand = fl => hash(fl.seed * 7919 + ++fl.n);
-const range = (fl, [a, b]) => a + (b - a) * rand(fl);
 
 // A point round the middle of the top, from it.
 function around(fl) {
@@ -253,23 +243,18 @@ function flyMaterial() {
         vSeed = aSeed;
       }`,
     fragmentShader: /* glsl */`
-      uniform float uTime, uNight;
-      uniform vec3 uBody, uWing;
+      ${INSECT}
       varying vec2 vUv;
       varying float vAir, vSeed;
-      // Edge of an ellipse at c with radii r: below 0 inside.
-      float ellipse(vec2 p, vec2 c, vec2 r) { return length((p - c) / r) - 1.0; }
       void main() {
         float body = ellipse(vUv, vec2(0.0), vec2(0.36, 0.42));
         // Wings in the air: up and out to each side, and they flicker. A fly that sits shows only its body:
         // folded wings below it looked like a shadow.
         float wing = ellipse(vec2(abs(vUv.x), vUv.y), vec2(0.5, 0.3), vec2(0.5, 0.3));
-        float flicker = 0.4 + 0.3 * sin(uTime * 95.0 + vSeed * 40.0);
         float a = smoothstep(0.1, -0.1, body);
-        float w = vAir > 0.5 ? smoothstep(0.1, -0.1, wing) * flicker * (1.0 - a) : 0.0;
+        float w = vAir > 0.5 ? smoothstep(0.1, -0.1, wing) * flicker(0.4, 0.3, 95.0, vSeed) * (1.0 - a) : 0.0;
         if (a + w < 0.01) discard;
-        vec3 wingCol = mix(uWing, uBody, 0.7 * uNight);   // no pale glow at night
-        gl_FragColor = vec4(mix(uBody, wingCol, w / max(a + w, 1e-4)), a + w);
+        gl_FragColor = insectColour(uBody, a, w);
         #include <colorspace_fragment>
       }`,
   });

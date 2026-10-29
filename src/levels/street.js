@@ -10,10 +10,11 @@
 // it, sentry.js) and the options of their Flight (src/miner/flight.js): height and radius of the circle
 // over the player when they attack, and which way round (dir).
 // props: kind (kinds.js), at [x, z], heading, and the options of the kind, and flies: the number of
-// flies round it (a bin, flies.js). The height comes from
+// flies round it (a bin, flies.js), or [min, max]. The height comes from
 // place.js: a prop stands on the ground or on a prop before it in the list. Two props at the same place
 // stack.
 import { Backdrop } from '../world/backdrop.js';
+import { Clover } from '../world/clover.js';
 import { Fence } from '../world/fence.js';
 import { Lamps } from '../world/lamps.js';
 import { Plants } from '../world/plants.js';
@@ -55,6 +56,14 @@ const LAMPS = [
   { at: [26, -19.3], reach: 1 },
 ];
 
+// Clover patches (clover.js), on grass clear of props, the puddle and beds. Bees: 0 to 3 each by default.
+const CLOVER = [
+  { at: [3.8, -0.8], radius: 1.3 },
+  { at: [-15, 0.5], radius: 1.5 },
+  { at: [16, -21], radius: 1.4 },
+  { at: [-20, -21.2], radius: 1.2 },
+];
+
 // Mulch beds round the foot of each tree (street.js); no tufts in them. Shrubs have none.
 const BEDS = PLANTED.filter(p => p.kind !== 'shrub').map(p => ({ at: p.at, radius: p.kind === 'gum' ? 2.6 : 2.0 }));
 
@@ -63,9 +72,9 @@ export const STREET = {
   surface: (x, z) => (inPuddle(x, z) ? false : printOn(x, z)),   // pressed grass, dust; none in the puddle
   under: (x, z) => (inPuddle(x, z) ? 'puddle' : stripAt(z)),
   bounds: PLAY,
-  // The sky, the ground (mulch round the trees), the tufts (long grass round the lamp posts), the far trees, a white post and wire fence round the play area, the
+  // The sky, the ground (mulch round the trees), the tufts (long grass round the lamp posts), clover and bees, the far trees, a white post and wire fence round the play area, the
   // trees and shrubs in the yards, and the street lamps.
-  scenery: (asset, physics) => [new Sky(asset.sun), new Street(asset.sun, BEDS), new Tufts({ beds: BEDS, poles: LAMPS.map(l => l.at) }), new Backdrop(), new Fence(asset, physics), new Plants(asset, physics, PLANTED), new Lamps(asset, physics, LAMPS)],
+  scenery: (asset, physics) => [new Sky(asset.sun), new Street(asset.sun, BEDS), new Tufts({ beds: BEDS, poles: LAMPS.map(l => l.at), clear: CLOVER }), new Clover(asset, CLOVER), new Backdrop(), new Fence(asset, physics), new Plants(asset, physics, PLANTED), new Lamps(asset, physics, LAMPS)],
   puddle: true,
   // Background sounds (ambience.js): cicadas in the gums, a lawnmower in a yard down the street past the
   // near fence, frogs at the puddle.
@@ -90,9 +99,9 @@ export const STREET = {
     { kind: 'ball', at: [1.4, 1.3], heading: 0.7 },
     // Wheelie bins: one on the near nature strip, two on the far one. Flies round the general waste
     // bins (flies.js), not the recycling.
-    { kind: 'bin', at: [-10, -1], heading: -2.5, flies: 5 },
+    { kind: 'bin', at: [-10, -1], heading: -2.5, flies: [2, 4] },
     { kind: 'bin', at: [-9, -19.7], heading: 0.2, small: true, lid: 'yellow' },
-    { kind: 'bin', at: [10, -20], heading: -0.3, flies: 5 },
+    { kind: 'bin', at: [10, -20], heading: -0.3, flies: [2, 4] },
     // A sprinkler on the far nature strip, on a hose from a tap at the far fence. It sweeps across the strip.
     { kind: 'sprinkler', at: [-2, -20.8], heading: 0, tap: [-0.5, -26.75] },
     // Cardboard boxes, 60 to 70% of the bird's height: two on the nature strip, one on the footpath.

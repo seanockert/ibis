@@ -55,7 +55,10 @@ What each source file does.
 | `src/world/fence.js` | `Fence`: white posts, a top rail and chain wire along the yard edges of the two footpaths (`FENCE`), none at the ends. Instanced toon posts and rails; the wire is a shader pattern. With physics, a static wall on the `terrain` layer |
 | `src/world/puddle.js` | `Puddle`: a muddy puddle on the nature strip (`PUDDLE`, `shape()`), splash events from steps and landings, ripples. `SPLASH`, `splashMud()`: the mud a splash puts on the bird |
 | `src/world/ambience.js` | `Ambience`: background sounds of a level: cicadas and a far lawnmower by day, crickets and frogs at night. `AMBIENCE` tuning |
-| `src/world/flies.js` | `Flies`: flies round the lid of a bin (`flies: N` on a prop in the level data). They dart and land on the lid, scatter from a bird or a bin that moves, and come back one by one. One instanced draw. `buzz` for the sound. `FLIES` tuning |
+| `src/world/flies.js` | `Flies`: flies round the lid of a bin (`flies: N` or `[min, max]` on a prop). They dart and land on the lid, scatter from a bird or a bin that moves, and come back one by one. One instanced draw. `buzz` for the sound. `FLIES` tuning |
+| `src/world/clover.js` | `Clover`: clover patches (`CLOVER` in `src/levels/street.js`), one toon draw. `height(x, z)`. Makes the `Bees` |
+| `src/world/bees.js` | `Bees`: bees on the clover, one instanced draw. `BEES` tuning |
+| `src/world/insects.js` | Shared by flies and bees: `insect()`, `rand()`, `seek()`, `move()`, `awayFrom()`, `quads()`, `INSECT` GLSL |
 | `src/world/noise.js` | `noise2()` (GLSL `NOISE_TEX`, `noiseUniform`): value noise from a tiling texture, for the ground and the tufts |
 | `src/world/tufts.js` | `Tufts`: grass tufts, one instanced draw of upright quads turned to the camera about y. `TUFTS` tuning |
 | `src/world/lighting.js` | `LIGHT` (shared uniforms: night, lamp slots, lamp shadow atlas), `LIGHT_GLSL` (`lampLight()`, `night()`, `toonLit()`, in `TOON`), `DayNight` (turns the sun to the moon) |

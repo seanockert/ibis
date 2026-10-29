@@ -11,7 +11,7 @@
 // no taller than its distance to the nearest prop, so the grass doesn't go through a box on it. Tufts near
 // the camera shrink to nothing too, so a tall tuft never fills the screen.
 //
-//   const tufts = new Tufts({ beds, poles });   // beds: mulch (street.js), no tufts; poles: [x, z], long grass round each
+//   const tufts = new Tufts({ beds, poles, clear });   // beds: mulch (street.js), no tufts; poles: [x, z], long grass round each; clear: [{ at, radius }], no tufts
 //   scene.add(tufts.object);
 //   tufts.update(camera, dt, ibises, solids);   // every frame. solids: [{ body, half, round }] from the props
 //   tufts.rustle                                 // { amount, at, dry }: the grass that moves now, for the sound
@@ -48,6 +48,7 @@ export const TUFTS = {
   push: { radius: 1.0, bend: 0.75, drag: 0.6, run: 6, stiffness: 55, damping: 4.5, tall: 0.5 },
   seed: 11,
 };
+const CLEAR_MARGIN = 0.8;   // past a clear area: bees drift over a clover edge
 const MAX_SOLIDS = 32;   // props' boxes: the ball, the bin and its lid, the boxes and flaps, cereal, stubbies
 const TIP = srgb(0.86, 0.90, 0.50);     // the lit side moves toward this warm light green
 // Hull round the blades of tuft() (BLADES in street.js), uv units, the right half: x at each y, from a
@@ -56,8 +57,8 @@ const HULL = [[0.53, 0], [0.66, 0.45], [0.66, 0.62], [0.5, 0.85], [0.3, 1.0], [0
 const DRY = [srgb(0.80, 0.77, 0.66), srgb(0.56, 0.58, 0.62)];   // dry tufts: lit straw, cool grey shade
 
 export class Tufts {
-  constructor({ beds = [], poles = [] } = {}) {
-    const tufts = place(beds, poles);
+  constructor({ beds = [], poles = [], clear = [] } = {}) {
+    const tufts = place(beds, poles, clear);
     const g = new InstancedBufferGeometry();
     // Upright card: the hull, left and right side by side, as a strip of quads up the tuft.
     g.setAttribute('position', new Float32BufferAttribute(HULL.flatMap(([x, y]) => [-x, y, 0, x, y, 0]), 3));
@@ -183,7 +184,7 @@ function noise2(x, z, seed) {
 }
 
 // [x, z, height, seed, leafy] for each tuft.
-function place(beds, poles) {
+function place(beds, poles, clear) {
   const { area, tries, density, spread, edgeStep, size, seed } = TUFTS;
   let n = seed * 7919;
   const r = () => hash(n++);
@@ -192,7 +193,8 @@ function place(beds, poles) {
   // None in the puddle or on its mud bank. The seed is taken first, so the other tufts don't move.
   const add = (x, z, h, leafy, wide = 1) => {
     const tuft = [x, z, h, r(), Math.min(Math.max(leafy, 0), 1), wide];
-    if (!inPuddle(x, z, PUDDLE.bank + 0.1) && !inBed(beds, x, z, 0.1)) out.push(tuft);
+    const cleared = clear.some(({ at, radius }) => Math.hypot(x - at[0], z - at[1]) < radius + CLEAR_MARGIN);
+    if (!inPuddle(x, z, PUDDLE.bank + 0.1) && !inBed(beds, x, z, 0.1) && !cleared) out.push(tuft);
   };
   // Clusters: one big tuft and 1 to 4 small ones round it, all of one kind (leafy), where the noise is high.
   for (let i = 0; i < tries; i++) {
