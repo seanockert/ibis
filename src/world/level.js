@@ -12,6 +12,7 @@ import { SENTRY, Sentry } from '../characters/sentry.js';
 import { FLIERS, SPECIES } from '../characters/species.js';
 import { Wander } from '../characters/wander.js';
 import { IbisEffects } from '../ibis/effects.js';
+import { Ambience } from './ambience.js';
 import { Flies } from './flies.js';
 import { Highlight } from './highlight.js';
 import { PROPS } from './kinds.js';
@@ -60,11 +61,13 @@ export class Level {
     this.puddle = env && def.puddle ? new Puddle(asset.sun) : null;
     for (const part of this.parts) beforeGround(part.object);
     for (const part of [...this.parts, this.puddle]) if (part) scene.add(part.object);
+    this.ambience = null;   // background sounds (ambience.js), with env and sound
     this.fx = new IbisEffects(asset);
     if (env) {
       this.fx.surface = def.surface;
       this.fx.height = this.ground.height;
       if (sound) sound.under = def.under ?? null;
+      if (sound && def.ambience) this.ambience = new Ambience(sound, def.ambience);
     }
     scene.add(this.fx.object);
     this.props = [];
@@ -240,6 +243,7 @@ export class Level {
     for (const flier of this.fliers) fx.hitLines(flier, dt, camera);
     fx.alertMarks(this.fliers, dt, camera);
     sound?.update(this.ibises, camera);
+    this.ambience?.update(camera);
   }
 
   // The parts that follow the camera (the ground, the sky) or react to it (the tufts). The tufts hide

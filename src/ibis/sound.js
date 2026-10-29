@@ -52,6 +52,11 @@ export const SOUND = {
     rustle: 0.25,       // grass that moves round a bird: a quiet support, under the other sounds
     grassStep: 0.5,     // a step on grass, part of a step
     buzz: 0.04,         // flies round a bin: faint, it plays all the time near a bin
+    // Background (ambience.js): keep it under the buzz. Measured levels in docs/effects-sound.md.
+    cicada: 0.3,        // a phrase of cicadas in a gum tree
+    mower: 0.05,        // a lawnmower far off
+    cricket: 0.025,     // a cricket chirp, round the listener
+    frog: 0.06,         // a frog call at the puddle
   },
   runSpeed: 1.4,        // steps are louder above this speed
   honkPitch: 0.06,      // the honk's pitch changes by up to this part each time
@@ -261,11 +266,7 @@ export class IbisSound {
       soft.Q.value = -3;
       band.connect(soft).connect(node).connect(pan).connect(this.master);
       // The swell: a slow change of gain, as flies pass near and far.
-      const swell = ctx.createGain(), lfo = ctx.createOscillator(), depth = ctx.createGain();
-      swell.gain.value = 1 - B.swell[1] / 2;
-      lfo.frequency.value = B.swell[0];
-      depth.gain.value = B.swell[1] / 2;
-      lfo.connect(depth).connect(swell.gain);
+      const { gain: swell, lfo } = this.wobble(...B.swell);
       swell.connect(band);
       lfo.start();
       const sources = [lfo];
@@ -376,14 +377,7 @@ export class IbisSound {
   hiss(place, length) {
     const v = this.voice(place, L.hiss);
     if (!v) return;
-    const { ctx } = this;
-    const shake = ctx.createGain();
-    shake.gain.value = 0.7;
-    const lfo = ctx.createOscillator();
-    lfo.frequency.value = 23;
-    const depth = ctx.createGain();
-    depth.gain.value = 0.3;
-    lfo.connect(depth).connect(shake.gain);
+    const { gain: shake, lfo } = this.wobble(23, 0.6);
     shake.connect(v.node);
     this.burst(v, { length, gain: 1, attack: 0.05, hold: true, filter: ['bandpass', 4200, 3600, 0.8] }, shake);
     lfo.start(v.t);
@@ -419,6 +413,16 @@ export class IbisSound {
     f.Q.value = -3;   // dB for a low-pass: no bump at the cut-off
     f.connect(v.node);
     return f;
+  }
+
+  // A gain that swings between 1 - depth and 1, rate times a second. The caller starts and stops the lfo.
+  wobble(rate, depth) {
+    const { ctx } = this, gain = ctx.createGain(), lfo = ctx.createOscillator(), amount = ctx.createGain();
+    gain.gain.value = 1 - depth / 2;
+    amount.gain.value = depth / 2;
+    lfo.frequency.value = rate;
+    lfo.connect(amount).connect(gain.gain);
+    return { gain, lfo };
   }
 
   // A voice: gain and pan for a world place in the camera's view. Returns null when too many play.

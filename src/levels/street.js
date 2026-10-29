@@ -2,7 +2,8 @@
 //
 // ground: profile (heights across z, for the physics) and height(x, z). surface(x, z): what a foot
 // prints on (fx). under(x, z): what a foot is on, for the sound of a step. bounds: the box the characters stay in. scenery(asset, physics): the parts with
-// update(camera, dt, ibises, solids), or none. puddle: a muddy puddle (puddle.js).
+// update(camera, dt, ibises, solids), or none. puddle: a muddy puddle (puddle.js). ambience: the places of
+// the background sounds (ambience.js).
 // characters: species (species.js), at [x, z], heading, player (the one the input drives) or brain
 // ('wander', wander.js).
 // fliers: species (FLIERS in species.js), home [x, z] (each sits on the highest perch near it and guards
@@ -16,7 +17,7 @@ import { Backdrop } from '../world/backdrop.js';
 import { Fence } from '../world/fence.js';
 import { Lamps } from '../world/lamps.js';
 import { Plants } from '../world/plants.js';
-import { inPuddle } from '../world/puddle.js';
+import { inPuddle, PUDDLE } from '../world/puddle.js';
 import { Sky } from '../world/sky.js';
 import { PLAY, printOn, PROFILE, Street, streetHeight, stripAt } from '../world/street.js';
 import { Tufts } from '../world/tufts.js';
@@ -66,6 +67,9 @@ export const STREET = {
   // trees and shrubs in the yards, and the street lamps.
   scenery: (asset, physics) => [new Sky(asset.sun), new Street(asset.sun, BEDS), new Tufts({ beds: BEDS, poles: LAMPS.map(l => l.at) }), new Backdrop(), new Fence(asset, physics), new Plants(asset, physics, PLANTED), new Lamps(asset, physics, LAMPS)],
   puddle: true,
+  // Background sounds (ambience.js): cicadas in the gums, a lawnmower in a yard down the street past the
+  // near fence, frogs at the puddle.
+  ambience: { cicadas: PLANTED.filter(p => p.kind === 'gum').map(p => p.at), mower: [38, 18], frogs: PUDDLE.at },
 
   characters: [
     { species: 'ibis', at: [0, 0], heading: 0, player: true },
