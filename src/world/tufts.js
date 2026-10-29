@@ -343,7 +343,7 @@ function tuftMaterial() {
         float a = smoothstep(-0.5, 0.5, d / max(fwidth(d), 1e-5));
         if (a < 0.01) discard;
         vec2 lamp = lampLight(vec3(0.0, 1.0, 0.0));
-        float lit = max(sunShadow(), lamp.x);
+        float lit = lampBand(sunShadow(), lamp);
         // Colours from the ground at the root. Thin grass: the lit side moves toward a warm light green.
         // Leaves: a darker, cooler green than the ground. The shade side is darker still.
         vec3 groundLit = grassColour(vPatch.x, vPatch.y, 1.0, vNear), groundShade = grassColour(vPatch.x, vPatch.y, 0.0, vNear);

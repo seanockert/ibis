@@ -53,6 +53,7 @@ What each source file does.
 | `src/world/wind.js` | `WIND`, `sway()` (GLSL), `windDepthMaterial()`: the plants sway in the wind, with their outlines and shadows. `wind: true` on the prop toon materials turns it on |
 | `src/world/fence.js` | `Fence`: white posts, a top rail and chain wire along the yard edges of the two footpaths (`FENCE`), none at the ends. Instanced toon posts and rails; the wire is a shader pattern. With physics, a static wall on the `terrain` layer |
 | `src/world/puddle.js` | `Puddle`: a muddy puddle on the nature strip (`PUDDLE`, `shape()`), splash events from steps and landings, ripples. `SPLASH`, `splashMud()`: the mud a splash puts on the bird |
+| `src/world/flies.js` | `Flies`: flies round the lid of a bin (`flies: N` on a prop in the level data). They dart and land on the lid, scatter from a bird or a bin that moves, and come back one by one. One instanced draw. `buzz` for the sound. `FLIES` tuning |
 | `src/world/noise.js` | `noise2()` (GLSL `NOISE_TEX`, `noiseUniform`): value noise from a tiling texture, for the ground and the tufts |
 | `src/world/tufts.js` | `Tufts`: grass tufts, one instanced draw of upright quads turned to the camera about y. `TUFTS` tuning |
 | `src/world/lighting.js` | `LIGHT` (shared uniforms: night, lamp slots, lamp shadow atlas), `LIGHT_GLSL` (`lampLight()`, `night()`, `toonLit()`, in `TOON`), `DayNight` (turns the sun to the moon) |

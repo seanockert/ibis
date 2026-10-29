@@ -398,7 +398,7 @@ export function bodyMaterial(palette, shared, bird) {
         }
         vec3 n = normalize(vNormal), v = normalize(mat3(vRotX, vRotY, vRotZ) * vToCamera);
         vec2 lamp = lampLight(n);
-        float band = max(toonBand(n, uSun), lamp.x);
+        float band = lampBand(toonBand(n, uSun), lamp);
         vec3 col = mix(shade, lit, band);
         // Highlight, in the lit band only. Not on the wings.
         vec2 gloss = int(vGroup + 0.5) == GROUP_WINGS ? vec2(0.0) : uGloss[id];

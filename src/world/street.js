@@ -461,7 +461,7 @@ function groundMaterial(sun, beds) {
         float bevel = step(pathOut(z), 0.0) * near * (1.0 - smoothstep(${f(PATH.bevel)} - px, ${f(PATH.bevel)} + px, abs(jx)));
         vec3 n = normalize(normalize(vNormal) - vec3(sign(jx) * ${f(PATH.slope)} * bevel, 0.0, 0.0));
         vec2 lamp = lampLight(n);
-        float lit = max(toonBand(n, uSun), lamp.x);
+        float lit = lampBand(toonBand(n, uSun), lamp);
         // Only near a grass strip: the patches and the marks are most of the cost of the ground. The margin
         // is wide, so where the branch ends the grass has no weight in the colour.
         bool onGrass = ${STRIPS.map(([kind, z], i) => kind !== 'grass' ? null : `(${z === -Infinity ? 'true' : `z > ${f(z - 0.5)}`}${i ? ` && z < ${f(STRIPS[i - 1][1] + 0.5)}` : ''})`).filter(Boolean).join(' || ')};

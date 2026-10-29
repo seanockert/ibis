@@ -12,6 +12,7 @@ import { SENTRY, Sentry } from '../characters/sentry.js';
 import { FLIERS, SPECIES } from '../characters/species.js';
 import { Wander } from '../characters/wander.js';
 import { IbisEffects } from '../ibis/effects.js';
+import { Flies } from './flies.js';
 import { Highlight } from './highlight.js';
 import { PROPS } from './kinds.js';
 import { seeInside } from './props.js';
@@ -68,6 +69,7 @@ export class Level {
     scene.add(this.fx.object);
     this.props = [];
     this.highlight = null;   // a white outline round the prop that a peck of the player would pick up now
+    this.flies = null;       // flies round the props with flies in the level data (flies.js)
     if (!this.physics) return;
     const [x0, x1] = this.bounds.x, [z0, z1] = this.bounds.z;
     this.physics.addFence({ x: [x0 - PROP_FENCE, x1 + PROP_FENCE], z: [z0 - PROP_FENCE, z1 + PROP_FENCE] });
@@ -84,8 +86,16 @@ export class Level {
     this.perches = this.parts.flatMap(p => p.perches?.() ?? []);
     if (this.physics) {
       const defs = this.def.props, bases = stack(defs, d => PROPS[d.kind].footprint(d), this.ground.height);
-      for (const [i, d] of defs.entries()) this.addProp(new PROPS[d.kind](this.physics, this.asset, { ...d, base: bases[i] }));
+      const hosts = [];   // props with flies round them
+      for (const [i, d] of defs.entries()) {
+        const prop = this.addProp(new PROPS[d.kind](this.physics, this.asset, { ...d, base: bases[i] }));
+        if (d.flies) hosts.push({ prop, count: d.flies });
+      }
       this.perches.push(...this.props.filter(p => p.perch));
+      if (hosts.length) {
+        this.flies = new Flies(hosts, this.ground.height);
+        this.scene.add(this.flies.object);
+      }
     }
     // Each flier sits on a perch near its home.
     const first = this.def.characters.length, fliers = this.def.fliers ?? [];
@@ -221,6 +231,10 @@ export class Level {
       }
       this.highlight.update(this.props, this.player ? this.physics.target(this.player) : null);
       this.collidersView?.update();
+    }
+    if (this.flies) {
+      this.flies.update(dt, this.ibises, camera);
+      sound?.buzz(this.flies.buzz, camera);
     }
     fx.update(dt, this.ibises, camera);
     for (const flier of this.fliers) fx.hitLines(flier, dt, camera);

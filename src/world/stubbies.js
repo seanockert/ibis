@@ -165,14 +165,14 @@ function glassMaterial(shared) {
         // The far wall: its inside faces the eye. On a round bottle its normal is this one mirrored
         // about the view direction, and it is as thick.
         vec2 lamp = lampLight(n);
-        vec3 far = night(mix(uShade, uLit, max(toonBand(2.0 * dot(n, v) * v - n, uSun), lamp.x)), lamp) * ${f(GLASS.back)};
+        vec3 far = night(mix(uShade, uLit, lampBand(toonBand(2.0 * dot(n, v) * v - n, uSun), lamp)), lamp) * ${f(GLASS.back)};
         // The disc in the mouth: only the inside shows there.
         if (abs(vLocal.y - ${f((MOUTH[1] - 0.5) * H)}) < 0.002 && length(vLocal.xz) < ${f((MOUTH[0] + 0.01) * r)}) {
-          gl_FragColor = vec4(night(mix(uShade, uLit, max(toonBand(n, uSun), lamp.x)), lamp) * ${f(GLASS.back)}, thick);
+          gl_FragColor = vec4(night(mix(uShade, uLit, lampBand(toonBand(n, uSun), lamp)), lamp) * ${f(GLASS.back)}, thick);
           #include <colorspace_fragment>
           return;
         }
-        float band = max(toonBand(n, uSun), lamp.x);
+        float band = lampBand(toonBand(n, uSun), lamp);
         vec3 col = mix(uShade, uLit, band);
         float facing = 1.0 - edge;
         col = mix(col, min(uLit * 1.2, vec3(1.0)), ${f(GLASS.glow)} * facing * facing);

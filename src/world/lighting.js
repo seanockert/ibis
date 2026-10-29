@@ -34,6 +34,7 @@ varying vec3 vToonWorld;
 const vec3 NIGHT_MOON = vec3(0.13, 0.17, 0.33);
 const vec3 NIGHT_LAMP = vec3(1.0, 0.8, 0.52);
 const float LAMP_RIM = 0.62;
+const float LAMP_FILL = 0.5;
 float lampShadow(int i, vec3 p, vec3 n, vec3 l) {
     vec4 c = uLampMatrix[i] * vec4(p + n * 0.04 + l * 0.06, 1.0);
     c.xyz /= c.w;
@@ -64,7 +65,9 @@ vec2 lampLight(vec3 n) {
     if (lit > 0.0 && receiveShadow) lit *= lampShadow(k, p, n, l);
     return vec2(lit, mix(LAMP_RIM, 1.0, step(uLampCone.y, l.y)));
 }
-// Moonlit or lamplit colour, with the dusk or morning cast. Make col with the band max(band, lamp.x).
+// The band in a pool. The lamp lifts a sun or moon shadow by LAMP_FILL only, so the shadow continues into the pool.
+float lampBand(float band, vec2 lamp) { return max(band, lamp.x * LAMP_FILL); }
+// Moonlit or lamplit colour, with the dusk or morning cast. Make col with the band lampBand(band, lamp).
 vec3 night(vec3 col, vec2 lamp) {
     if (uNight <= 0.0) return col;
     return mix(col, col * max(NIGHT_MOON, mix(NIGHT_MOON, NIGHT_LAMP * lamp.y, lamp.x)), uNight) * uTint;
@@ -72,7 +75,7 @@ vec3 night(vec3 col, vec2 lamp) {
 // mix(shade, lit, band) with the lamps and the night.
 vec3 toonLit(vec3 shade, vec3 lit, float band, vec3 n) {
     vec2 lamp = lampLight(n);
-    return night(mix(shade, lit, max(band, lamp.x)), lamp);
+    return night(mix(shade, lit, lampBand(band, lamp)), lamp);
 }
 `;
 

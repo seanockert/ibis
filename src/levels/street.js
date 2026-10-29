@@ -8,7 +8,8 @@
 // fliers: species (FLIERS in species.js), home [x, z] (each sits on the highest perch near it and guards
 // it, sentry.js) and the options of their Flight (src/miner/flight.js): height and radius of the circle
 // over the player when they attack, and which way round (dir).
-// props: kind (kinds.js), at [x, z], heading, and the options of the kind. The height comes from
+// props: kind (kinds.js), at [x, z], heading, and the options of the kind, and flies: the number of
+// flies round it (a bin, flies.js). The height comes from
 // place.js: a prop stands on the ground or on a prop before it in the list. Two props at the same place
 // stack.
 import { Backdrop } from '../world/backdrop.js';
@@ -83,10 +84,11 @@ export const STREET = {
   props: [
     // The football on the nature strip, for the feet and the head.
     { kind: 'ball', at: [1.4, 1.3], heading: 0.7 },
-    // Wheelie bins: one on the near nature strip, two on the far one.
-    { kind: 'bin', at: [-10, -1], heading: -2.5 },
+    // Wheelie bins: one on the near nature strip, two on the far one. Flies round the general waste
+    // bins (flies.js), not the recycling.
+    { kind: 'bin', at: [-10, -1], heading: -2.5, flies: 5 },
     { kind: 'bin', at: [-9, -19.7], heading: 0.2, small: true, lid: 'yellow' },
-    { kind: 'bin', at: [10, -20], heading: -0.3 },
+    { kind: 'bin', at: [10, -20], heading: -0.3, flies: 5 },
     // Cardboard boxes, 60 to 70% of the bird's height: two on the nature strip, one on the footpath.
     { kind: 'box', at: [-3.6, 1.2], size: [1.25, 1.3, 1.1], heading: 0.3 },
     { kind: 'box', at: [-5.6, -0.3], size: [1.0, 1.2, 1.0], heading: -0.5 },
