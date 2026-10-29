@@ -11,16 +11,15 @@
 // no taller than its distance to the nearest prop, so the grass doesn't go through a box on it. Tufts near
 // the camera shrink to nothing too, so a tall tuft never fills the screen.
 //
-//   const tufts = new Tufts({ beds, poles, clear });   // beds: mulch (street.js), no tufts; poles: [x, z], long grass round each; clear: [{ at, radius }], no tufts
+//   const tufts = new Tufts({ ground, beds, poles, posts, clear });   // beds: mulch (street.js), no tufts; poles: [x, z], long grass round each; posts: fence posts (Vector3), long grass round each; clear: [{ at, radius }], no tufts
 //   scene.add(tufts.object);
 //   tufts.update(camera, dt, ibises, solids);   // every frame. solids: [{ body, half, round }] from the props
 //   tufts.rustle                                 // { amount, at, dry }: the grass that moves now, for the sound
 import { DynamicDrawUsage, InstancedBufferAttribute, InstancedBufferGeometry, Float32BufferAttribute, Mesh, ShaderMaterial, Vector3, Vector4 } from 'three';
 import { lightUniforms, TOON, TOON_VERTEX } from '../ibis/materials.js';
 import { hash } from '../ibis/motion/spring.js';
-import { fencePosts } from './fence.js';
 import { inPuddle, PUDDLE } from './puddle.js';
-import { BLADES, GRASS, grassUniforms, inBed, JOINT, streetHeight, stripAt, STRIPS } from './street.js';
+import { BLADES, GRASS, grassUniforms, inBed, JOINT, STRIPS } from './street.js';
 import { srgb, f } from './util.js';
 
 
@@ -57,8 +56,8 @@ const HULL = [[0.53, 0], [0.66, 0.45], [0.66, 0.62], [0.5, 0.85], [0.3, 1.0], [0
 const DRY = [srgb(0.80, 0.77, 0.66), srgb(0.56, 0.58, 0.62)];   // dry tufts: lit straw, cool grey shade
 
 export class Tufts {
-  constructor({ beds = [], poles = [], clear = [] } = {}) {
-    const tufts = place(beds, poles, clear);
+  constructor({ ground, beds = [], poles = [], posts = [], clear = [] }) {
+    const tufts = place(ground, beds, poles, posts, clear);
     const g = new InstancedBufferGeometry();
     // Upright card: the hull, left and right side by side, as a strip of quads up the tuft.
     g.setAttribute('position', new Float32BufferAttribute(HULL.flatMap(([x, y]) => [-x, y, 0, x, y, 0]), 3));
@@ -67,7 +66,7 @@ export class Tufts {
     g.setAttribute('aLeafy', new InstancedBufferAttribute(new Float32Array(tufts.map(t => t[4])), 1));
     this.dry = tufts.map(t => dryness(t[0], t[1]));
     g.setAttribute('aLook', new InstancedBufferAttribute(new Float32Array(tufts.flatMap((t, i) => [this.dry[i], t[5]])), 2));
-    g.setAttribute('aGround', new InstancedBufferAttribute(new Float32Array(tufts.map(t => streetHeight(t[1]))), 1));   // the joints are on the raised footpath
+    g.setAttribute('aGround', new InstancedBufferAttribute(new Float32Array(tufts.map(t => ground.height(t[0], t[1]))), 1));   // the joints are on the raised footpath
     this.bend = new InstancedBufferAttribute(new Float32Array(tufts.length * 2), 2).setUsage(DynamicDrawUsage);
     g.setAttribute('aBend', this.bend);
     g.instanceCount = tufts.length;
@@ -184,12 +183,16 @@ function noise2(x, z, seed) {
 }
 
 // [x, z, height, seed, leafy] for each tuft.
-function place(beds, poles, clear) {
+function place(ground, beds, poles, posts, clear) {
   const { area, tries, density, spread, edgeStep, size, seed } = TUFTS;
   let n = seed * 7919;
-  const r = () => hash(n++);
+  let r = () => hash(n++);
+  // A rule with its own stream of random values, so a change to one rule (a post more) does not move
+  // the tufts of the others. key: a number for the rule, or a place.
+  const own = key => { let k = Math.imul(Math.floor(key * 1000), 2654435761) ^ seed; r = () => hash(k++); };
   const out = [];
-  const onGrass = z => stripAt(z) === 'grass' && stripAt(z + 0.25) === 'grass' && stripAt(z - 0.25) === 'grass';
+  const kind = ground.kind;
+  const onGrass = (x, z) => kind(x, z) === 'grass' && kind(x, z + 0.25) === 'grass' && kind(x, z - 0.25) === 'grass';
   // None in the puddle or on its mud bank. The seed is taken first, so the other tufts don't move.
   const add = (x, z, h, leafy, wide = 1) => {
     const tuft = [x, z, h, r(), Math.min(Math.max(leafy, 0), 1), wide];
@@ -200,14 +203,14 @@ function place(beds, poles, clear) {
   for (let i = 0; i < tries; i++) {
     const cx = area.x[0] + (area.x[1] - area.x[0]) * r(), cz = area.z[0] + (area.z[1] - area.z[0]) * r();
     const d = noise2(cx * density, cz * density, seed);
-    if (r() > (d - 0.45) * 3 || !onGrass(cz)) continue;
+    if (r() > (d - 0.45) * 3 || !onGrass(cx, cz)) continue;
     const big = size[0] + (size[1] - size[0]) * r(), leafy = r();
     add(cx, cz, big, leafy);
     const count = 1 + Math.floor(r() * 4);
     for (let j = 0; j < count; j++) {
       const a = r() * 2 * Math.PI, dist = spread[0] + (spread[1] - spread[0]) * r();
       const x = cx + Math.cos(a) * dist, z = cz + Math.sin(a) * dist;
-      if (onGrass(z)) add(x, z, big * (0.4 + 0.35 * r()), leafy + 0.3 * (r() - 0.5));
+      if (onGrass(x, z)) add(x, z, big * (0.4 + 0.35 * r()), leafy + 0.3 * (r() - 0.5));
     }
   }
   // Runs along each edge between grass and a hard strip, on the grass side, with gaps from the noise.
@@ -233,35 +236,38 @@ function place(beds, poles, clear) {
   // Long thin grass round the foot of each fence post, where the mower can't reach. Each side of the
   // post along the fence, and behind it in the yard. Not on the footpath.
   const { count, size: tall, ring } = TUFTS.posts;
-  for (const post of fencePosts()) {
-    const yard = stripAt(post.z + 0.3) === 'grass' ? 1 : -1;
+  for (const post of posts) {
+    own(post.x * 7.3 + post.z * 131.1);
+    const yard = kind(post.x, post.z + 0.3) === 'grass' ? 1 : -1;
     const n = count[0] + Math.floor(r() * (count[1] - count[0] + 1));
     for (let j = 0; j < n; j++) {
       const x = post.x + (r() < 0.5 ? -1 : 1) * (ring[0] + (ring[1] - ring[0]) * r());
       // Half in the thin grass in front of the fence line, half behind it.
       const z = post.z + yard * (r() < 0.5 ? -0.09 * r() : 0.3 * r());
-      if (stripAt(z) === 'grass') add(x, z, tall[0] + (tall[1] - tall[0]) * r(), 0.2 * r());
+      if (kind(x, z) === 'grass') add(x, z, tall[0] + (tall[1] - tall[0]) * r(), 0.2 * r());
     }
   }
   // Long thin grass all round the foot of each lamp post.
   for (const [px, pz] of poles) {
+    own(px * 7.3 + pz * 131.1 + 0.5);
     const { count: pc, size: ps, ring: pr } = TUFTS.poles;
     const n = pc[0] + Math.floor(r() * (pc[1] - pc[0] + 1));
     for (let j = 0; j < n; j++) {
       const a = (j + 0.6 * r()) / n * 2 * Math.PI, dist = pr[0] + (pr[1] - pr[0]) * r();
       const x = px + Math.cos(a) * dist, z = pz + Math.sin(a) * dist;
-      if (stripAt(z) === 'grass') add(x, z, ps[0] + (ps[1] - ps[0]) * r(), 0.2 * r());
+      if (kind(x, z) === 'grass') add(x, z, ps[0] + (ps[1] - ps[0]) * r(), 0.2 * r());
     }
   }
   // Patches of long thin grass on a jittered grid, shorter toward the patch edge.
   const long = TUFTS.long;
+  own(-1);
   for (let x = area.x[0]; x < area.x[1]; x += long.step) {
     for (let z = area.z[0]; z < area.z[1]; z += long.step) {
       const d = noise2(x * long.density, z * long.density, seed + 2);
       if (d < long.above) continue;
       const px = x + long.step * r(), pz = z + long.step * r(), deep = Math.min((d - long.above) / 0.08, 1);
       const tall = long.size[0] + (long.size[1] - long.size[0]) * deep * (0.75 + 0.25 * r());
-      if (onGrass(pz)) add(px, pz, tall, 0.25 * r(), long.wide);
+      if (onGrass(px, pz)) add(px, pz, tall, 0.25 * r(), long.wide);
     }
   }
   return out;

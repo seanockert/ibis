@@ -1,7 +1,7 @@
 // Street lamps: a steel pole that curves over into an arm, a round head over the gutter. At night each
 // near lamp fills a slot of LIGHT (lighting.js): a pool of light with a shadow from one atlas tile.
 //
-//   const lamps = new Lamps(asset, physics, [{ at: [x, z], reach: -1 }]);   // reach: arm direction along z
+//   const lamps = new Lamps(asset, physics, [{ at: [x, z], reach: -1 }], { ground });   // reach: arm direction along z
 //   lamps.update(camera);                  // every frame
 //   lamps.renderShadows(renderer, scene);  // before the frame
 //
@@ -16,7 +16,6 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 import { hash } from '../ibis/motion/spring.js';
 import { LIGHT, MAX_LAMPS } from './lighting.js';
 import { toonParts } from './props.js';
-import { streetHeight } from './street.js';
 import { f, srgb } from './util.js';
 
 // Units (1 is about 35 cm): 13 tall (4.5 m). head, lens: half sizes along the arm, up, across.
@@ -43,10 +42,10 @@ const HALO = { size: 2.6, strength: 0.55 };
 const BEAM = { strength: 0.07 };
 
 export class Lamps {
-  constructor(asset, physics = null, list = [], { tile = LAMP.tile } = {}) {
+  constructor(asset, physics = null, list = [], { ground, tile = LAMP.tile }) {
     this.object = new Group();
     this.lamps = list.map(({ at: [x, z], reach }, i) => {
-      const foot = new Vector3(x, streetHeight(z), z);
+      const foot = new Vector3(x, ground.height(x, z), z);
       const { head, lens } = headAt(foot, reach);
       if (physics) {
         const r = LAMP.solid, h = LAMP.pole[0];

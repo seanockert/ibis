@@ -16,7 +16,8 @@ import { Flier } from './miner/flier.js';
 import { flightDemo } from './miner/flight.js';
 import { Character } from './ibis/motion/character.js';
 import { IbisSound } from './ibis/sound.js';
-import { STREET } from './levels/street.js';
+import { buildLevel } from './levels/load.js';
+import SUBURB from './levels/suburb.json';
 import { ARENA, MOVES, playScript, startMove } from './moves.js';
 import { renderFarShadow } from './world/farShadow.js';
 import { Level } from './world/level.js';
@@ -39,7 +40,7 @@ const sound = config.sound ? new IbisSound() : null;
 sound?.load('honk', '/sfx/honk.m4a');
 sound?.load('chip', '/sfx/miner-chip.m4a');
 sound?.load('scold', '/sfx/miner-scold.m4a');
-const level = new Level(STREET, { asset, birds, scene, env: config.env, props: config.props, terrain: config.terrain, sound, weather: config.weather });
+const level = new Level(buildLevel(SUBURB), { asset, birds, scene, env: config.env, props: config.props, terrain: config.terrain, sound, weather: config.weather });
 
 // Free play: the level's characters and props. Other views: ibises in a grid that play moves in place,
 // in the walk circle of the moves.

@@ -1,14 +1,13 @@
 // White clover patches with bees (bees.js): a low base, outlined clump domes and white heads on stems.
 // All patches: one toon and one outline draw (toonParts()).
 //
-//   const clover = new Clover(asset, [{ at: [x, z], radius: 1.3, bees: [0, 3] }]);   // bees: n or [min, max]
+//   const clover = new Clover(asset, [{ at: [x, z], radius: 1.3, bees: [0, 3] }], ground);   // bees: n or [min, max]
 //   clover.update(camera, dt, ibises);
 //   clover.height(x, z)   // top of the clover, or the ground
 import { BufferGeometry, CylinderGeometry, Float32BufferAttribute, Group, SphereGeometry, Vector3 } from 'three';
 import { hash } from '../ibis/motion/spring.js';
 import { Bees } from './bees.js';
 import { toonParts } from './props.js';
-import { streetHeight, stripAt } from './street.js';
 import { srgb } from './util.js';
 
 // Units (1 is about 35 cm). height: base. clumps, flowers: per square unit. edge: wobble of the patch
@@ -27,11 +26,13 @@ const COLOURS = {
 const SINK = 0.01;   // below the ground, so no gap shows
 
 export class Clover {
-  constructor(asset, patches) {
+  // ground: height(x, z) and kind(x, z).
+  constructor(asset, patches, ground) {
+    this.ground = ground;
     let n = CLOVER.seed * 7919;
     const r = () => hash(n++);
-    this.patches = patches.map(def => patch(def, r));
-    const parts = this.patches.flatMap(p => [[base(p), COLOURS.leaf], ...p.clumps.map(c => [dome(c), COLOURS.leaf]), ...p.heads.flatMap(h => [[ball(h), COLOURS.head], [stalk(h), COLOURS.stem]])]);
+    this.patches = patches.map(def => patch(def, r, ground));
+    const parts = this.patches.flatMap(p => [[base(p, ground), COLOURS.leaf], ...p.clumps.map(c => [dome(c, ground), COLOURS.leaf]), ...p.heads.flatMap(h => [[ball(h), COLOURS.head], [stalk(h), COLOURS.stem]])]);
     this.bees = new Bees(this.patches.map(p => ({ at: p.at, radius: p.radius, count: p.bees, flowers: p.tops })), (x, z) => this.height(x, z));
     this.object = new Group().add(...toonParts(parts, asset.uniforms), this.bees.object);
   }
@@ -43,12 +44,12 @@ export class Clover {
   height(x, z) {
     let h = 0;
     for (const p of this.patches) h = Math.max(h, top(p, x, z));
-    return streetHeight(z) + h;
+    return this.ground.height(x, z) + h;
   }
 }
 
 // A patch: edge, clumps, heads, head tops (for the bees) and bee count.
-function patch({ at, radius = 1.2, bees = [0, 3] }, r) {
+function patch({ at, radius = 1.2, bees = [0, 3] }, r, ground) {
   const { clumps, clump, flowers, inner, head, stem } = CLOVER;
   const range = ([a, b]) => a + (b - a) * r();
   const p = { at, radius, phase: r() * 6.3, clumps: [], heads: [], tops: [] };
@@ -60,12 +61,12 @@ function patch({ at, radius = 1.2, bees = [0, 3] }, r) {
   };
   for (let i = 0, count = Math.round(clumps * area); i < count; i++) {
     const [x, z] = spot(0.85);
-    if (stripAt(z) === 'grass') p.clumps.push({ x, z, radius: range(clump.radius), height: range(clump.height) });
+    if (ground.kind(x, z) === 'grass') p.clumps.push({ x, z, radius: range(clump.radius), height: range(clump.height) });
   }
   for (let i = 0, count = Math.round(flowers * area); i < count; i++) {
     const [x, z] = spot(inner), size = range(head);
-    if (stripAt(z) !== 'grass') continue;
-    const leaves = streetHeight(z) + top(p, x, z), y = leaves + range(stem);
+    if (ground.kind(x, z) !== 'grass') continue;
+    const leaves = ground.height(x, z) + top(p, x, z), y = leaves + range(stem);
     p.heads.push({ x, y, z, size, leaves });
     p.tops.push(new Vector3(x, y + 0.85 * size, z));
   }
@@ -92,9 +93,9 @@ function top(p, x, z) {
 }
 
 // The base: a polar grid.
-function base(p) {
+function base(p, ground) {
   const { rings, segments } = CLOVER, pos = [], index = [];
-  const at = (x, z) => pos.push(x, streetHeight(z) + low(p, x, z), z);
+  const at = (x, z) => pos.push(x, ground.height(x, z) + low(p, x, z), z);
   at(...p.at);
   for (let i = 1; i <= rings; i++) {
     for (let j = 0; j < segments; j++) {
@@ -115,8 +116,8 @@ function base(p) {
 }
 
 // A clump: half a flat ellipsoid.
-function dome({ x, z, radius, height }) {
-  return new SphereGeometry(1, 14, 5, 0, 2 * Math.PI, 0, Math.PI / 2).scale(radius, height, radius).translate(x, streetHeight(z) - SINK, z);
+function dome({ x, z, radius, height }, ground) {
+  return new SphereGeometry(1, 14, 5, 0, 2 * Math.PI, 0, Math.PI / 2).scale(radius, height, radius).translate(x, ground.height(x, z) - SINK, z);
 }
 
 // A stem: from in the leaves to the head.

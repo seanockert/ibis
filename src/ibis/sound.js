@@ -48,6 +48,7 @@ export const SOUND = {
     clack: 1,           // the bill snaps shut
     pick: 0.8,          // the bill takes hold of a prop (a peck picks it up)
     turn: 0.6,          // the bill turns a tap handle
+    creak: 0.45,        // a rusty gate hinge as the gate opens
     slam: { bin: 1, box: 1, cereal: 1, glass: 0.45 },   // props that fall or hit. glass: the stubbies
     squash: 0.8,        // a cereal box crushed flat
     splash: 0.6,        // a foot or a jump in the puddle
@@ -183,6 +184,22 @@ export class IbisSound {
     this.tone(v, { length: 0.35, gain: 0.9, f0: 95 * this.vary(0.1), f1: 45 });
     this.burst(v, { length: 0.25, gain: 0.7, filter: ['bandpass', 380, 180, 2.5] });
     this.burst(v, { length: 0.08, gain: 0.4, filter: ['bandpass', 1400, 900, 1.5] });
+  }
+
+  // A rusty hinge (a 'creak' event from the gate): stick and slip, a run of short rough pulses that
+  // drift in pitch, and a little grit. A faster turn: shorter, higher and louder.
+  creak(e, camera) {
+    if (this.ctx.state !== 'running') return;
+    this.camera = camera;
+    const s = e.strength, v = this.voice(this.at.copy(e.at), (0.4 + 0.6 * s) * L.creak);
+    if (!v) return;
+    const length = 0.45 - 0.2 * s, base = (620 + 260 * s) * this.vary(0.12), rise = 1 + 0.25 * this.vary(1) * (this.vary(1) > 1 ? 1 : -1);
+    for (let t = 0, k = 0; t < length; k++) {
+      const u = t / length, f = base * (1 + (rise - 1) * u) * (1 + 0.04 * Math.sin(k * 2.3));
+      this.tone(v, { at: t, length: 0.035, gain: 0.22 * Math.sin(Math.PI * Math.min(u * 1.5, 1)) + 0.05, f0: f, f1: f * 0.97, type: 'sawtooth' });
+      t += 0.022 * this.vary(0.35);
+    }
+    this.burst(v, { length, gain: 0.08, hold: true, filter: ['bandpass', 2600, 2200, 3] });
   }
 
   // Cereal box crushed flat: a crumple of card and a crunch of flakes.

@@ -1,7 +1,7 @@
 // A level: the scenery, ground, physics, props and characters of one play space, made from level data
-// (src/levels/). It steps them each frame and sends their events to the effects and the sounds.
+// (src/levels/load.js). It steps them each frame and sends their events to the effects and the sounds.
 //
-//   const level = new Level(STREET, { asset, birds, scene });
+//   const level = new Level(buildLevel(SUBURB), { asset, birds, scene });
 //   level.player.input.move.set(0, 1);   // the player's input, then:
 //   level.update(dt, camera);       // every frame
 //   level.updateView(camera, dt);   // after the camera moves: the parts that follow it, then render
@@ -36,6 +36,7 @@ const HURT = { freeze: 0.12, rate: 0.05, lines: 2.2, hold: 0.6 };
 // write depth, so the order changes no pixel. Not the puddle and the footprints: they write no depth and
 // must draw after the ground.
 const BEFORE_GROUND = -2;
+const NO_DUST = new Set(['glass']);   // slams with no dust: the stubbies
 function beforeGround(object) {
   object.traverse(o => { if (o.isMesh && o.renderOrder === 0 && ![o.material].flat().some(m => m.transparent)) o.renderOrder = BEFORE_GROUND; });
 }
@@ -58,7 +59,7 @@ export class Level {
     this.brains = new Map();     // ibis to brain
     this.targets = new Map();    // ibis to { mud, wet }: where its mud and wet go
     this.physics = props ? new Physics({ ground: this.ground.profile }) : null;
-    this.parts = env ? def.scenery(asset, this.physics) : [];
+    this.parts = env ? def.scenery({ asset, physics: this.physics, ground: this.ground, bounds: this.bounds }) : [];
     this.puddle = env && def.puddle ? new Puddle(asset.sun) : null;
     for (const part of this.parts) beforeGround(part.object);
     for (const part of [...this.parts, this.puddle]) if (part) scene.add(part.object);
@@ -221,8 +222,9 @@ export class Level {
       for (const prop of this.props) {
         prop.update(this.ibises, dt, camera);
         for (const e of prop.events) {
-          if (e.type === 'slam') { if (e.kind !== 'glass') fx.burst(e.points, e.centre); sound?.slam(e, camera); }
+          if (e.type === 'slam') { if (!NO_DUST.has(e.kind)) fx.burst(e.points, e.centre); sound?.slam(e, camera); }
           if (e.type === 'squash') { fx.burst(e.points, e.centre); sound?.squash(e, camera); }
+          if (e.type === 'creak') sound?.creak(e, camera);
           // Sprinkler drops on a bird: wetter, and the mud washes off.
           if (e.type === 'soak') {
             const target = this.targets.get(e.ibis);

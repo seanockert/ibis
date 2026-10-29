@@ -3,13 +3,13 @@
 // through toonParts() (props.js), lit and shade colours and an outline. The leaves are round clumps of
 // balls in one draw, with two tones (shade, lit) and a light edge of round leaf lobes, as in the concept art.
 //
-//   const plants = new Plants(asset, physics, [{ kind: 'gum', at: [x, z], seed: 3 }, ...]);
+//   const plants = new Plants(asset, physics, [{ kind: 'gum', at: [x, z], seed: 3 }, ...], { ground, bounds });
 //   scene.add(plants.object);
 //   plants.update(camera, dt);   // every frame: the wind (wind.js) sways them, with their outlines and shadows
 //
 // Options of a plant: kind (a key of PLANTS), at [x, z], seed (default: its place in the list), scale
 // (default 1), flowers (a shrub: 'yellow', 'pink' or none), perch (a bottlebrush: [x, z], the world
-// direction of a bare perch branch for a miner, or none). A plant in PLAY gets a solid in the physics: a
+// direction of a bare perch branch for a miner, or none). A plant in bounds gets a solid in the physics: a
 // tree its trunk, a shrub a core (its branches), so the bird goes into the leaves at the edge but not
 // through the middle. The street puts most of them in the yards. A plant that the camera is in or near
 // fades all over (seeIds() in props.js), as a prop in seeInside().
@@ -20,8 +20,7 @@ import { lightUniforms, NOISE, TOON, TOON_VERTEX } from '../ibis/materials.js';
 import { hash } from '../ibis/motion/spring.js';
 import { FAR_LAYER } from './farShadow.js';
 import { outlineMaterial, SEE, SEE_THROUGH, SEE_VERTEX, seeIds, seeOn, toonParts } from './props.js';
-import { inPlay, streetHeight } from './street.js';
-import { srgb, f } from './util.js';
+import { inBox, srgb, f } from './util.js';
 import { swayReach, swayWeight, WIND_SWAY, windDepthMaterial, windTime } from './wind.js';
 
 
@@ -84,13 +83,14 @@ const SINK = 0.4;          // a shrub's low balls are this part of their radius 
 const HIDDEN = 0.97;       // a leaf triangle with its corners this far inside another ball is left out          // chunk width along x: a chunk is a few draws, culled as one
 
 export class Plants {
-  constructor(asset, physics = null, list = []) {
+  // ground: height(x, z). bounds: { x, z }: a plant in it gets a solid.
+  constructor(asset, physics = null, list = [], { ground, bounds }) {
     // The plants in chunks along x, so the camera and the shadow skip the chunks out of their view.
     const chunks = new Map();
     this.spots = [];
     this.volumes = [];
     list.forEach((def, i) => {
-      const plant = grow(def, def.seed ?? i), key = Math.floor(def.at[0] / CHUNK);
+      const plant = grow(def, def.seed ?? i, ground, bounds), key = Math.floor(def.at[0] / CHUNK);
       this.spots.push(...plant.perches);
       this.volumes.push(plant.volume);
       // The plant's id (seeIds()) on all its vertices: its place in the list.
@@ -139,14 +139,14 @@ function chunkMeshes(bark, balls, leaf, shared, see) {
 // One plant in world space: bark parts for toonParts() ([geometry, colours]), leaf balls ({ centre,
 // radius, clump: the centre and half sizes of its clump, colours }), the solid (points) or null, and
 // the volume that the camera can be in (inside()).
-function grow(def, seed) {
+function grow(def, seed, ground, bounds) {
   let n = 0;
   const rand = () => hash(seed * 7919 + 101 * n++);
   const range = ([a, b]) => a + (b - a) * rand();
   const kind = PLANTS[def.kind], scale = def.scale ?? 1;
   const out = def.kind === 'shrub' ? shrub(kind, def, rand, range) : tree(kind, rand, range);
   // To the world: a turn about y from the seed, the scale, and the ground at its place.
-  const [x, z] = def.at, base = new Vector3(x, streetHeight(z), z);
+  const [x, z] = def.at, base = new Vector3(x, ground.height(x, z), z);
   const turn = new Quaternion().setFromAxisAngle(new Vector3(0, 1, 0), rand() * Math.PI * 2);
   const place = p => p.multiplyScalar(scale).applyQuaternion(turn).add(base);
   const perches = [];
@@ -195,7 +195,7 @@ function grow(def, seed) {
   }
   // The solid: an upright prism of 8 sides round the foot (out.solid: radius and height).
   let solid = null;
-  if (inPlay(x, z)) {
+  if (inBox(bounds, x, z)) {
     const [w, h] = out.solid.map(v => v * scale);
     solid = Array.from({ length: 8 }, (_, i) => i / 8 * Math.PI * 2)
       .flatMap(a => [0, h].flatMap(y => [base.x + Math.cos(a) * w, base.y + y, base.z + Math.sin(a) * w]));

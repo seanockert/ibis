@@ -1,0 +1,87 @@
+{
+  "id": "suburb",
+  "sky": true,
+  "backdrop": true,
+  "ambience": { "mower": [38, 18] },
+  "areas": [
+    {
+      "id": "street",
+      "type": "street",
+      "bounds": { "x": [-48, 48], "z": [-26.5, 6.5] },
+      "puddle": true,
+      "fences": [
+        [[-48.6, 7.1], [48.6, 7.1]],
+        [[-48.6, -27.1], [48.6, -27.1]]
+      ],
+      "plants": [
+        { "kind": "bottlebrush", "at": [20, 1.6], "perch": [-1, -0.6] },
+        { "kind": "gum", "at": [-21, -36] },
+        { "kind": "gum", "at": [15, -37] },
+        { "kind": "gum", "at": [40, -35] },
+        { "kind": "bottlebrush", "at": [-4, -32] },
+        { "kind": "bottlebrush", "at": [27, -31.5] },
+        { "kind": "bottlebrush", "at": [-36, -32] },
+        { "kind": "shrub", "at": [-14, -29], "flowers": "yellow" },
+        { "kind": "shrub", "at": [-11.5, -29.6] },
+        { "kind": "shrub", "at": [4, -29] },
+        { "kind": "shrub", "at": [9, -29.4], "flowers": "pink" },
+        { "kind": "shrub", "at": [19, -29] },
+        { "kind": "shrub", "at": [32, -29.2], "flowers": "yellow" },
+        { "kind": "shrub", "at": [-28, -29.3], "flowers": "pink" },
+        { "kind": "shrub", "at": [-42, -29] },
+        { "kind": "shrub", "at": [40, 0.8] },
+        { "kind": "shrub", "at": [42.8, -1.2], "flowers": "yellow" },
+        { "kind": "shrub", "at": [45.3, 1] }
+      ],
+      "lamps": [
+        { "at": [6, -2.4], "reach": -1 },
+        { "at": [-30, -2.4], "reach": -1 },
+        { "at": [-14, -19.3], "reach": 1 },
+        { "at": [26, -19.3], "reach": 1 }
+      ],
+      "clover": [
+        { "at": [3.8, -0.8], "radius": 1.3 },
+        { "at": [-15, 0.5], "radius": 1.5 },
+        { "at": [16, -21], "radius": 1.4 },
+        { "at": [-20, -21.2], "radius": 1.2 }
+      ],
+      "characters": [
+        { "species": "ibis", "at": [0, 0], "heading": 0, "player": true }
+      ],
+      "fliers": [
+        { "species": "miner", "home": [-10, -27], "height": 4.5, "radius": 5, "dir": 1 },
+        { "species": "miner", "home": [-10, -27], "height": 4, "radius": 4, "dir": -1 },
+        { "species": "miner", "home": [12, -27], "height": 4.5, "radius": 5, "dir": 1 },
+        { "species": "miner", "home": [20, 1.6], "height": 4.5, "radius": 5, "dir": -1 }
+      ],
+      "props": [
+        { "kind": "ball", "at": [1.4, 1.3], "heading": 0.7 },
+        { "kind": "bin", "at": [-10, -1], "heading": -2.5, "flies": [2, 4] },
+        { "kind": "bin", "at": [-9, -19.7], "heading": 0.2, "small": true, "lid": "yellow" },
+        { "kind": "bin", "at": [10, -20], "heading": -0.3, "flies": [2, 4] },
+        { "kind": "sprinkler", "at": [-2, -20.8], "heading": 0, "tap": [-0.5, -26.75] },
+        { "kind": "box", "at": [-3.6, 1.2], "size": [1.25, 1.3, 1.1], "heading": 0.3 },
+        { "kind": "box", "at": [-5.6, -0.3], "size": [1.0, 1.2, 1.0], "heading": -0.5 },
+        { "kind": "box", "at": [-4.2, 4.2], "size": [1.3, 1.4, 1.05], "heading": 0.1 },
+        { "kind": "box", "at": [7, -20], "size": [1.3, 1.4, 1.05], "heading": 0.1 },
+        { "kind": "box", "at": [7.1, -19.7], "size": [1.5, 0.8, 0.8], "heading": 0.4 },
+        { "kind": "cereal", "at": [7, -20], "size": [0.52, 0.74, 0.18], "heading": 0.5, "print": "berry" },
+        { "kind": "cereal", "at": [-2.4, 4.6], "size": [0.6, 0.86, 0.2], "heading": -0.4, "print": "sunny" },
+        { "kind": "cereal", "at": [-1.6, 3.9], "size": [0.52, 0.74, 0.18], "heading": 0.5, "print": "berry" },
+        { "kind": "stubbies", "at": [1.8, -6.2] },
+        { "kind": "gate", "at": [4, 7.1], "heading": 0, "width": 3 }
+      ]
+    },
+    {
+      "id": "park",
+      "type": "open",
+      "note": "Behind the near fence, through the gate. The street's yard grass until it gets its own ground.",
+      "bounds": { "x": [-14, 14], "z": [7.6, 24] },
+      "fences": [
+        [[-14.6, 7.1], [-14.6, 24.6]],
+        [[-14.6, 24.6], [14.6, 24.6]],
+        [[14.6, 24.6], [14.6, 7.1]]
+      ]
+    }
+  ]
+}

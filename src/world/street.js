@@ -204,6 +204,10 @@ export const printOn = (x, z) => PRINTS[stripAt(z)];
 // The strip kind at z.
 export const stripAt = z => STRIPS.find(([, edge]) => z > edge)[0];
 
+// The street as a ground (level.js): profile (for the physics), height(x, z), kind(x, z) (the strip) and
+// print(x, z) (the footprint look).
+export const STREET_GROUND = { profile: PROFILE, height: (x, z) => streetHeight(z), kind: (x, z) => stripAt(z), print: printOn };
+
 // Grass colour uniforms, for the ground and the tufts.
 const GRASS_TONES = ['grass', 'grassSun', 'grassDark'];
 export function grassUniforms() {
