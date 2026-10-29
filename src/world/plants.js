@@ -83,7 +83,6 @@ const SINK = 0.4;          // a shrub's low balls are this part of their radius 
 const HIDDEN = 0.97;       // a leaf triangle with its corners this far inside another ball is left out          // chunk width along x: a chunk is a few draws, culled as one
 
 export class Plants {
-  // ground: height(x, z). bounds: { x, z }: a plant in it gets a solid.
   constructor(asset, physics = null, list = [], { ground, bounds }) {
     // The plants in chunks along x, so the camera and the shadow skip the chunks out of their view.
     const chunks = new Map();

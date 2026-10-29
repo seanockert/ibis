@@ -1,8 +1,7 @@
-// A low front fence: white posts, a white top rail between them, and a chain wire mesh below, as on an
-// Australian suburban front yard (or in Bluey). The same toon look as the props: a lit and a shade colour
-// and an outline. Along straight runs from the level data.
+// A low front fence: white posts, a top rail and chain wire, as on an Australian front yard. Toon look
+// as the props. Straight runs from the level data.
 //
-//   const fence = new Fence(asset, physics, { runs, gates, ground });   // runs: [[[x, z], [x, z]], ...]; gates: [{ at, width }], a gap in a run; physics optional: a solid wall
+//   const fence = new Fence(asset, physics, { runs, gates, ground });   // runs: [[[x, z], [x, z]], ...]; gates: [{ at, width }]
 //   scene.add(fence.object);
 //   fence.perches();   // where a flying miner can land: the post tops and the middle of each rail
 //   fence.update(camera);   // every frame: the fade of the posts and rails near the camera
@@ -19,8 +18,8 @@ import { srgb, f } from './util.js';
 
 // Sizes in units: the bird is 2 tall (about 70 cm), so 1 unit is about 35 cm. A real front fence is about
 // 1.2 m (3.4 units); this one is a little lower, as the rest of the street. The posts are higher than the
-// bird's flutter (2.0), so it can't jump over. out: the fence line, this far outside the play area (the
-// physics fence for light props is 0.5 outside it, so a ball stops at the posts). post: width, height. rail:
+// bird's flutter (2.0), so it can't jump over. out: the fence line past the play area (the light prop
+// fence is 0.5 past it). post: width, height. rail:
 // height of its top, height, depth. wire: bottom and top height; cell: diamond width and height (larger
 // than real chain wire, as in a cartoon); width: line.
 export const FENCE = {
@@ -109,8 +108,8 @@ const closest = new Vector3();   // scratch
 const postCount = (a, b) => Math.max(1, Math.round(a.distanceTo(b) / FENCE.spacing));
 
 // Post places: at the ends of each run and spaced along it. Corners are shared. The tufts (tufts.js) grow
-// round them. runs: from fenceRuns().
-export function fencePosts(runs) {
+// round them.
+function fencePosts(runs) {
   const posts = new Map();
   for (const [a, b] of runs) {
     const n = postCount(a, b);
@@ -122,15 +121,14 @@ export function fencePosts(runs) {
   return [...posts.values()];
 }
 
-// Straight runs [a, b] on the ground, from [[x, z], [x, z]] pairs. gates: [{ at: [x, z], width }]: a gate
-// within GATE_ON of a run cuts a gap width wide in it, centred on at. The posts at the ends of the gap
-// are the gate posts.
-export function fenceRuns(list, ground, gates = []) {
+// Runs [a, b] on the ground. A gate within GATE_ON of a run cuts a gap in it; the gap's end posts are
+// the gate posts.
+function fenceRuns(list, ground, gates = []) {
   const at = ([x, z]) => new Vector3(x, ground.height(x, z), z);
   return list.flatMap(([a, b]) => {
     const len = Math.hypot(b[0] - a[0], b[1] - a[1]), ux = (b[0] - a[0]) / len, uz = (b[1] - a[1]) / len;
     const point = t => [a[0] + ux * t, a[1] + uz * t];
-    // Each gate as a distance along the run and from it.
+    // t: along the run. off: from it.
     const cuts = gates.map(({ at: [x, z], width }) => ({ t: (x - a[0]) * ux + (z - a[1]) * uz, off: Math.abs((x - a[0]) * uz - (z - a[1]) * ux), half: width / 2 }))
       .filter(c => c.off < GATE_ON && c.t > c.half && c.t < len - c.half).sort((p, q) => p.t - q.t);
     const runs = [];

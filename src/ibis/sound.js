@@ -7,7 +7,7 @@
 //   sound.update(ibises, camera);   // every frame, after ibis.update(dt)
 //   sound.slam(event, camera);      // a 'slam' event from a prop (props.js)
 //   sound.squash(event, camera);    // a 'squash' event: a cereal box crushed flat
-//   sound.splash(event, camera);    // a 'splash' event: a foot or a jump in the puddle (puddle.js)
+//   sound.splash(event, camera);    // a 'splash' event: a foot or a jump in mud (level.js)
 //   sound.minerCall(event, camera); // a 'call' event of a flying noisy miner (src/miner/flight.js)
 //   sound.rustle(tufts.rustle, camera);       // every frame: the grass that moves (tufts.js)
 //   sound.buzz(flies.buzz, camera);           // every frame: the flies round a bin (flies.js)
@@ -19,7 +19,7 @@
 // (0.6 s, a burst of four alarm chips, for the alert) and public/sfx/miner-scold.m4a (0.8 s, three harsh
 // scold notes, for the attack). All other sounds are filtered noise and tones made here, with no files:
 // steps (softer on grass, with a squelch when wet or muddy), scuffs, the grass rustle, wing beats, landings, thumps, the threat hiss, bill
-// clacks, the bill's snap on a prop it picks up, puddle splashes, the bin and box slams, the flies' buzz, the sprinkler's hiss and the tap's squeak. Each sound pans and fades with its place in the camera's view.
+// clacks, the bill's snap on a prop it picks up, mud splashes, the bin and box slams, the flies' buzz, the sprinkler's hiss and the tap's squeak. Each sound pans and fades with its place in the camera's view.
 // Browsers start audio only after a user input, so a key or tap starts it. Until then, and while
 // muted, the context is suspended: no sound plays or queues, and the audio thread does no work.
 import { Vector3 } from 'three';
@@ -48,10 +48,10 @@ export const SOUND = {
     clack: 1,           // the bill snaps shut
     pick: 0.8,          // the bill takes hold of a prop (a peck picks it up)
     turn: 0.6,          // the bill turns a tap handle
-    creak: 0.45,        // a rusty gate hinge as the gate opens
+    creak: 0.45,        // the gate hinge
     slam: { bin: 1, box: 1, cereal: 1, glass: 0.45 },   // props that fall or hit. glass: the stubbies
     squash: 0.8,        // a cereal box crushed flat
-    splash: 0.6,        // a foot or a jump in the puddle
+    splash: 0.6,        // a foot or a jump in mud
     rustle: 0.25,       // grass that moves round a bird: a quiet support, under the other sounds
     grassStep: 0.5,     // a step on grass, part of a step
     buzz: 0.04,         // flies round a bin: faint, it plays all the time near a bin
@@ -59,7 +59,7 @@ export const SOUND = {
     cicada: 0.3,        // a phrase of cicadas in a gum tree
     mower: 0.05,        // a lawnmower far off
     cricket: 0.025,     // a cricket chirp, round the listener
-    frog: 0.06,         // a frog call at the puddle
+    frog: 0.06,         // a frog call at the mud
     spray: 0.05,        // the sprinkler's hiss
   },
   runSpeed: 1.4,        // steps are louder above this speed
@@ -84,7 +84,7 @@ export const SOUND = {
   spray: { band: [2400, 0.5], swell: [0.3, 0.4], tone: 4000 },
 };
 
-// Puddle slosh: lumps of low noise, each [start (s), filter from (Hz), filter to (Hz), gain].
+// Mud slosh: lumps of low noise, each [start (s), filter from (Hz), filter to (Hz), gain].
 const SLOSH = {
   step: [[0, 320, 750, 0.5], [0.07, 650, 280, 0.4], [0.15, 350, 520, 0.22]],
   land: [[0, 400, 900, 0.6], [0.06, 800, 300, 0.5], [0.14, 380, 650, 0.4], [0.23, 550, 260, 0.25]],
@@ -186,8 +186,7 @@ export class IbisSound {
     this.burst(v, { length: 0.08, gain: 0.4, filter: ['bandpass', 1400, 900, 1.5] });
   }
 
-  // A rusty hinge (a 'creak' event from the gate): stick and slip, a run of short rough pulses that
-  // drift in pitch, and a little grit. A faster turn: shorter, higher and louder.
+  // Rusty gate hinge: short rough pulses that drift in pitch (stick and slip), and grit.
   creak(e, camera) {
     if (this.ctx.state !== 'running') return;
     this.camera = camera;
@@ -213,7 +212,7 @@ export class IbisSound {
     this.burst(v, { length: 0.2, gain: 0.3, filter: ['lowpass', 1200, 400, 0.7] });
   }
 
-  // Puddle splash: a slosh of soft lumps of low noise, each with a slow filter sweep (water that moves
+  // Mud splash: a slosh of soft lumps of low noise, each with a slow filter sweep (water that moves
   // round the foot), then a low squelch. A jump has more lumps and a few dull drops. No tones and no
   // fast attacks: they made a step sound sharp.
   splash(e, camera) {

@@ -26,7 +26,6 @@ const COLOURS = {
 const SINK = 0.01;   // below the ground, so no gap shows
 
 export class Clover {
-  // ground: height(x, z) and kind(x, z).
   constructor(asset, patches, ground) {
     this.ground = ground;
     let n = CLOVER.seed * 7919;

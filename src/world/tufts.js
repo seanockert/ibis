@@ -7,18 +7,19 @@
 // is a hull round the blades, not a quad, so the shader runs on about half the pixels.
 // Placed by rules: clusters where a noise is high (one big tuft and small ones round it), and runs along
 // the edges of the footpaths and kerbs, long grass round the fence posts and the lamp posts, and patches of
-// long grass where a second noise is high. None in the mulch beds. Far tufts shrink to nothing, so they don't shimmer. A tuft is
+// long grass where a second noise is high. None in the mulch beds. Far tufts shrink to nothing, so they don't shimmer (TUFTS.lod). A tuft is
 // no taller than its distance to the nearest prop, so the grass doesn't go through a box on it. Tufts near
 // the camera shrink to nothing too, so a tall tuft never fills the screen.
 //
-//   const tufts = new Tufts({ ground, beds, poles, posts, clear });   // beds: mulch (street.js), no tufts; poles: [x, z], long grass round each; posts: fence posts (Vector3), long grass round each; clear: [{ at, radius }], no tufts
+//   const tufts = new Tufts({ ground, beds, poles, posts, clear, keep });   // keep(x, z): false for none
+//   const tufts = new Tufts({ ground, tufts: list });   // [x, z, height, seed, leafy, wide], from land.js
+//   beds (mulch), clear ([{ at, radius }]): no tufts. poles ([x, z]), posts (Vector3): long grass round each.
 //   scene.add(tufts.object);
 //   tufts.update(camera, dt, ibises, solids);   // every frame. solids: [{ body, half, round }] from the props
 //   tufts.rustle                                 // { amount, at, dry }: the grass that moves now, for the sound
 import { DynamicDrawUsage, InstancedBufferAttribute, InstancedBufferGeometry, Float32BufferAttribute, Mesh, ShaderMaterial, Vector3, Vector4 } from 'three';
 import { lightUniforms, TOON, TOON_VERTEX } from '../ibis/materials.js';
 import { hash } from '../ibis/motion/spring.js';
-import { inPuddle, PUDDLE } from './puddle.js';
 import { BLADES, GRASS, grassUniforms, inBed, JOINT, STRIPS } from './street.js';
 import { srgb, f } from './util.js';
 
@@ -34,6 +35,8 @@ export const TUFTS = {
   poles: { count: [6, 9], size: [0.45, 0.85], ring: [0.3, 0.6] },     // and round each lamp post: all round, out from its base (radius 0.25)
   size: [0.18, 0.38],      // height of the big tuft, units (the bird is 2). Small ones are 0.4 to 0.75 of it
   fade: [26, 38],          // distance from the camera where tufts shrink to nothing
+  // LOD (docs/environment.md): taller tufts fade up to reach times farther; past fade[0] they thin to keep, wider by 1 / sqrt(keep).
+  lod: { tall: [0.5, 1.8], reach: 2.2, keep: 0.35, shrink: 0.12 },
   near: [1.2, 2.5],        // and near the camera
   wind: { dir: [0.8, 0.6], speed: 1.4, wave: 0.35, bend: 0.12 },   // wave: crests per unit; bend: of the height
   // Patches of long grass: grid step, and width (1: as wide as the other tufts). size: height at the patch
@@ -56,8 +59,8 @@ const HULL = [[0.53, 0], [0.66, 0.45], [0.66, 0.62], [0.5, 0.85], [0.3, 1.0], [0
 const DRY = [srgb(0.80, 0.77, 0.66), srgb(0.56, 0.58, 0.62)];   // dry tufts: lit straw, cool grey shade
 
 export class Tufts {
-  constructor({ ground, beds = [], poles = [], posts = [], clear = [] }) {
-    const tufts = place(ground, beds, poles, posts, clear);
+  constructor({ ground, beds = [], poles = [], posts = [], clear = [], keep = () => true, tufts: list = null }) {
+    const tufts = list ?? place(ground, beds, poles, posts, clear, keep);
     const g = new InstancedBufferGeometry();
     // Upright card: the hull, left and right side by side, as a strip of quads up the tuft.
     g.setAttribute('position', new Float32BufferAttribute(HULL.flatMap(([x, y]) => [-x, y, 0, x, y, 0]), 3));
@@ -174,7 +177,7 @@ function dryness(x, z) {
 }
 
 // Smooth value noise, 0 to 1, from hash().
-function noise2(x, z, seed) {
+export function noise2(x, z, seed) {
   const ix = Math.floor(x), iz = Math.floor(z), fx = x - ix, fz = z - iz;
   const h = (i, j) => hash(Math.imul(ix + i, 73856093) ^ Math.imul(iz + j, 19349663) ^ seed);
   const sx = fx * fx * (3 - 2 * fx), sz = fz * fz * (3 - 2 * fz);
@@ -182,37 +185,40 @@ function noise2(x, z, seed) {
   return a + (b - a) * sz;
 }
 
+// Clusters where a noise is high: one big tuft and 1 to 4 small ones round it, of one kind (leafy). r:
+// random values. ok(x, z): a place for a tuft. add(x, z, height, leafy).
+export function tuftClusters(r, area, tries, seed, ok, add) {
+  const { density, spread, size } = TUFTS;
+  for (let i = 0; i < tries; i++) {
+    const cx = area.x[0] + (area.x[1] - area.x[0]) * r(), cz = area.z[0] + (area.z[1] - area.z[0]) * r();
+    if (r() > (noise2(cx * density, cz * density, seed) - 0.45) * 3 || !ok(cx, cz)) continue;
+    const big = size[0] + (size[1] - size[0]) * r(), leafy = r();
+    add(cx, cz, big, leafy);
+    for (let j = 0, count = 1 + Math.floor(r() * 4); j < count; j++) {
+      const a = r() * 2 * Math.PI, d = spread[0] + (spread[1] - spread[0]) * r();
+      const x = cx + Math.cos(a) * d, z = cz + Math.sin(a) * d;
+      if (ok(x, z)) add(x, z, big * (0.4 + 0.35 * r()), leafy + 0.3 * (r() - 0.5));
+    }
+  }
+}
+
 // [x, z, height, seed, leafy] for each tuft.
-function place(ground, beds, poles, posts, clear) {
-  const { area, tries, density, spread, edgeStep, size, seed } = TUFTS;
+function place(ground, beds, poles, posts, clear, keep) {
+  const { area, tries, edgeStep, size, seed } = TUFTS;
   let n = seed * 7919;
   let r = () => hash(n++);
-  // A rule with its own stream of random values, so a change to one rule (a post more) does not move
-  // the tufts of the others. key: a number for the rule, or a place.
+  // Own random stream for a rule, so an edit to one rule moves no other tufts.
   const own = key => { let k = Math.imul(Math.floor(key * 1000), 2654435761) ^ seed; r = () => hash(k++); };
   const out = [];
   const kind = ground.kind;
   const onGrass = (x, z) => kind(x, z) === 'grass' && kind(x, z + 0.25) === 'grass' && kind(x, z - 0.25) === 'grass';
-  // None in the puddle or on its mud bank. The seed is taken first, so the other tufts don't move.
+  // The seed is taken first, so a rejected tuft moves no other.
   const add = (x, z, h, leafy, wide = 1) => {
     const tuft = [x, z, h, r(), Math.min(Math.max(leafy, 0), 1), wide];
     const cleared = clear.some(({ at, radius }) => Math.hypot(x - at[0], z - at[1]) < radius + CLEAR_MARGIN);
-    if (!inPuddle(x, z, PUDDLE.bank + 0.1) && !inBed(beds, x, z, 0.1) && !cleared) out.push(tuft);
+    if (!inBed(beds, x, z, 0.1) && !cleared && keep(x, z)) out.push(tuft);
   };
-  // Clusters: one big tuft and 1 to 4 small ones round it, all of one kind (leafy), where the noise is high.
-  for (let i = 0; i < tries; i++) {
-    const cx = area.x[0] + (area.x[1] - area.x[0]) * r(), cz = area.z[0] + (area.z[1] - area.z[0]) * r();
-    const d = noise2(cx * density, cz * density, seed);
-    if (r() > (d - 0.45) * 3 || !onGrass(cx, cz)) continue;
-    const big = size[0] + (size[1] - size[0]) * r(), leafy = r();
-    add(cx, cz, big, leafy);
-    const count = 1 + Math.floor(r() * 4);
-    for (let j = 0; j < count; j++) {
-      const a = r() * 2 * Math.PI, dist = spread[0] + (spread[1] - spread[0]) * r();
-      const x = cx + Math.cos(a) * dist, z = cz + Math.sin(a) * dist;
-      if (onGrass(x, z)) add(x, z, big * (0.4 + 0.35 * r()), leafy + 0.3 * (r() - 0.5));
-    }
-  }
+  tuftClusters(r, area, tries, seed, onGrass, add);
   // Runs along each edge between grass and a hard strip, on the grass side, with gaps from the noise.
   for (let i = 0; i < STRIPS.length - 1; i++) {
     const edge = STRIPS[i][1], near = STRIPS[i][0], far = STRIPS[i + 1][0];
@@ -301,7 +307,11 @@ function tuftMaterial() {
       void main() {
         vec3 base = vec3(aTuft.x, aGround, aTuft.y);
         float far = distance(base, cameraPosition);
-        float h = aTuft.z * (1.0 - smoothstep(${f(TUFTS.fade[0])}, ${f(TUFTS.fade[1])}, far)) * smoothstep(${f(TUFTS.near[0])}, ${f(TUFTS.near[1])}, far);
+        float reach = mix(1.0, ${f(TUFTS.lod.reach)}, smoothstep(${f(TUFTS.lod.tall[0])}, ${f(TUFTS.lod.tall[1])}, aTuft.z));
+        float h = aTuft.z * (1.0 - smoothstep(${f(TUFTS.fade[0])} * reach, ${f(TUFTS.fade[1])} * reach, far)) * smoothstep(${f(TUFTS.near[0])}, ${f(TUFTS.near[1])}, far);
+        float keep = mix(1.0, ${f(TUFTS.lod.keep)}, smoothstep(${f(TUFTS.fade[0])}, ${f(TUFTS.fade[1])} * reach, far));
+        h *= clamp((keep + ${f(TUFTS.lod.shrink)} - fract(aTuft.w * 91.7)) / ${f(TUFTS.lod.shrink)}, 0.0, 1.0);
+        float wide = inversesqrt(keep);
         // Props: the tuft is no taller than the distance from its root to the nearest one (its blades
         // spread about as wide as it is tall), so none goes into a box, and none shows under one.
         for (int i = 0; i < ${MAX_SOLIDS}; i++) {
@@ -323,7 +333,7 @@ function tuftMaterial() {
         vec2 dir = vec2(${f(dir.x)}, ${f(dir.z)});
         float wave = sin(dot(base.xz, dir) * ${f(wind.wave * 2 * Math.PI)} - uTime * ${f(wind.speed)});
         vec2 bend = dir * (${f(wind.bend)} * (0.6 + 0.4 * wave) + 0.03 * sin(uTime * 3.1 + aTuft.w * 40.0)) + aBend;
-        vec3 offset = right * position.x * h * aLook.y + vec3(bend.x * h * y, position.y * h * (1.0 - 0.3 * dot(bend, bend)), bend.y * h * y);
+        vec3 offset = right * position.x * h * aLook.y * wide + vec3(bend.x * h * y, position.y * h * (1.0 - 0.3 * dot(bend, bend)), bend.y * h * y);
         vec4 world = vec4(base + offset, 1.0);
         vUv = vec2(position.x * (fract(aTuft.w * 13.7) < 0.5 ? -1.0 : 1.0), position.y);
         vX = position.x;

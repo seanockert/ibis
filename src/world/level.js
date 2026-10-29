@@ -8,11 +8,12 @@
 //
 // Without env there is no scenery and the ground is flat at 0 (the fixed views, which match sdf.html).
 // Without props there is no physics.
+import { Vector3 } from 'three';
 import { SENTRY, Sentry } from '../characters/sentry.js';
 import { FLIERS, SPECIES } from '../characters/species.js';
 import { Wander } from '../characters/wander.js';
 import { IbisEffects } from '../ibis/effects.js';
-import { hash } from '../ibis/motion/spring.js';
+import { clamp, hash } from '../ibis/motion/spring.js';
 import { Ambience } from './ambience.js';
 import { Flies } from './flies.js';
 import { Highlight } from './highlight.js';
@@ -20,7 +21,7 @@ import { PROPS } from './kinds.js';
 import { seeInside } from './props.js';
 import { Physics } from './physics.js';
 import { stack } from './place.js';
-import { Puddle, splashMud } from './puddle.js';
+import { splashMud } from './mud.js';
 import { Terrain } from './terrain.js';
 
 const FLAT = { profile: null, height: () => 0 };
@@ -33,12 +34,27 @@ const NOTICE_LOOK = 1.5;    // seconds the player looks at a miner that goes on 
 const HURT = { freeze: 0.12, rate: 0.05, lines: 2.2, hold: 0.6 };
 // Solid scenery and props draw before the ground (renderOrder -1), so the depth test skips the ground
 // pixels under them: the ground has the most costly shader (about 0.7 ms less in free play). They all
-// write depth, so the order changes no pixel. Not the puddle and the footprints: they write no depth and
+// write depth, so the order changes no pixel. Not the footprints: they write no depth and
 // must draw after the ground.
 const BEFORE_GROUND = -2;
 const NO_DUST = new Set(['glass']);   // slams with no dust: the stubbies
 function beforeGround(object) {
   object.traverse(o => { if (o.isMesh && o.renderOrder === 0 && ![o.material].flat().some(m => m.transparent)) o.renderOrder = BEFORE_GROUND; });
+}
+
+// out { y, n } from a height function.
+function groundOf(height, x, z, out) {
+  const e = 0.25, y = height(x, z);
+  out.y = y;
+  out.n.set(height(x - e, z) - height(x + e, z), 2 * e, height(x, z - e) - height(x, z + e)).normalize();
+  return out;
+}
+// Floor and feet of a controller with no physics.
+const probe = { y: 0, n: new Vector3() };
+function floorOf(c) {
+  c.groundAt(c.position.x, c.position.z, probe);
+  c.floor = probe.y;
+  for (const foot of c.feet) { foot.y = probe.y; foot.n.copy(probe.n); }
 }
 
 export class Level {
@@ -60,9 +76,8 @@ export class Level {
     this.targets = new Map();    // ibis to { mud, wet }: where its mud and wet go
     this.physics = props ? new Physics({ ground: this.ground.profile }) : null;
     this.parts = env ? def.scenery({ asset, physics: this.physics, ground: this.ground, bounds: this.bounds }) : [];
-    this.puddle = env && def.puddle ? new Puddle(asset.sun) : null;
     for (const part of this.parts) beforeGround(part.object);
-    for (const part of [...this.parts, this.puddle]) if (part) scene.add(part.object);
+    for (const part of this.parts) scene.add(part.object);
     this.ambience = null;   // background sounds (ambience.js), with env and sound
     this.fx = new IbisEffects(asset);
     if (env) {
@@ -86,7 +101,8 @@ export class Level {
   // Makes the characters and the props (with physics only) of the level data. The characters go first,
   // so their solids go into the physics before the props.
   populate() {
-    this.def.characters.forEach((c, seed) => this.add(SPECIES[c.species](this.birds, seed), c));
+    // Seeds: an item's seed, or its place in the list.
+    this.def.characters.forEach((c, i) => this.add(SPECIES[c.species](this.birds, c.seed ?? i), { seed: i, ...c }));
     // Where the fliers can land: the scenery parts that have perches (the fence), and the props.
     this.perches = this.parts.flatMap(p => p.perches?.() ?? []);
     if (this.physics) {
@@ -95,7 +111,7 @@ export class Level {
       for (const [i, d] of defs.entries()) {
         const prop = this.addProp(new PROPS[d.kind](this.physics, this.asset, { ...d, base: bases[i], height: this.ground.height }));
         // flies: n or [min, max]
-        const flies = Array.isArray(d.flies) ? d.flies[0] + Math.floor(hash(i * 17 + 1) * (d.flies[1] - d.flies[0] + 1)) : d.flies;
+        const flies = Array.isArray(d.flies) ? d.flies[0] + Math.floor(hash((d.seed ?? i) * 17 + 1) * (d.flies[1] - d.flies[0] + 1)) : d.flies;
         if (flies) hosts.push({ prop, count: flies });
       }
       this.perches.push(...this.props.filter(p => p.perch));
@@ -107,23 +123,24 @@ export class Level {
     // Each flier sits on a perch near its home.
     const first = this.def.characters.length, fliers = this.def.fliers ?? [];
     if (fliers.length) this.sentry = new Sentry(first);
-    fliers.forEach(({ species, home, ...flight }, i) => this.sentry.add(this.addFlier(FLIERS[species](this.birds, first + i, flight)), home, this.perches));
+    fliers.forEach(({ species, home, seed = first + i, ...flight }, i) => this.sentry.add(this.addFlier(FLIERS[species](this.birds, seed, flight)), home, this.perches));
   }
 
   // Adds a character. at: [x, z], or none to keep where it is. player: the one the input drives. brain:
   // a key of BRAINS, for a character that no player drives.
-  add(ibis, { at, heading = 0, player = false, brain = null } = {}) {
+  add(ibis, { at, heading = 0, player = false, brain = null, seed = this.ibises.length } = {}) {
     const c = ibis.character;
     if (at) {
       c.controller.position.set(at[0], this.ground.height(...at), at[1]);
       c.controller.heading = c.controller.wantHeading = heading;
     }
     c.controller.bounds = this.bounds;
+    if (!this.physics) c.controller.groundAt = (x, z, out) => groundOf(this.ground.floor ?? this.ground.height, x, z, out);
     ibis.mud = this.weather.mud;
     ibis.wet = this.weather.wet;
     this.targets.set(ibis, { ...this.weather });
     if (player) this.player = ibis;
-    if (brain) this.brains.set(ibis, BRAINS[brain](this.ibises.length, at ?? [c.position.x, c.position.z], this.bounds));
+    if (brain) this.brains.set(ibis, BRAINS[brain](seed, at ?? [c.position.x, c.position.z], this.bounds));
     if (ibis.bird.solid) this.physics?.addBird(ibis);
     this.ibises.push(ibis);
     this.scene.add(ibis.object);
@@ -145,7 +162,7 @@ export class Level {
     return prop;
   }
 
-  // The mud and wet targets of a character: the puddle, the sprinkler and a shake set them.
+  // The mud and wet targets of a character: mud, the sprinkler and a shake set them.
   target(ibis) { return this.targets.get(ibis); }
 
   // Wireframes of the colliders. It loads the debug renderer only when called.
@@ -154,7 +171,7 @@ export class Level {
     this.scene.add(this.collidersView.object);
   }
 
-  // One frame: brains, characters, puddle, physics, props, effects and sounds. The player's input (or a
+  // One frame: brains, characters, physics, props, effects and sounds. The player's input (or a
   // move script) must be set before.
   update(dt, camera) {
     const { fx, sound } = this;
@@ -164,7 +181,23 @@ export class Level {
       this.brains.get(ibis)?.update(ibis.character, dt);
       const target = this.targets.get(ibis), step = WEATHER_RATE * dt;
       for (const key of ['mud', 'wet']) ibis[key] = Math.min(Math.max(target[key], ibis[key] - step), ibis[key] + step);
+      if (!this.physics) floorOf(ibis.character.controller);
       ibis.update(dt);
+      // A step in mud (land.js): mud on the bird, blobs, a splash sound and a ring.
+      if (this.ground !== FLAT && this.def.under) {
+        const p = ibis.object.position, c = ibis.character;
+        for (const e of c.events) {
+          if ((e.type !== 'step' && e.type !== 'land') || this.def.under(p.x, p.z) !== 'mud') continue;
+          const land = e.type === 'land';
+          const strength = land ? clamp(0.45 + e.impact / 8, 0.45, 1) : 0.35 + 0.65 * clamp((Math.abs(c.controller.speed) - 0.5) / 2.5, 0, 1);
+          const at = new Vector3(p.x, this.ground.height(p.x, p.z), p.z);
+          ibis.mud = splashMud(ibis.mud, { land, strength });
+          target.mud = Math.max(target.mud, ibis.mud);
+          for (const part of this.parts) part.splash?.(at.x, at.z, strength);
+          fx.splash(at, strength, land);
+          sound?.splash({ type: 'splash', ibis, at, strength, land }, camera);
+        }
+      }
       // A body shake throws off half the water and half the mud, as drops that fly off.
       if (ibis.character.events.some(e => e.type === 'shakeOff')) {
         fx.shakeOff(ibis);
@@ -207,15 +240,6 @@ export class Level {
         }
         if (e.type === 'call') sound?.minerCall(e, camera);
       }
-    }
-    // Puddle splashes: mud on the bird at once (the target too, so it stays), mud blobs and a splash sound.
-    this.puddle?.update(dt, this.ibises);
-    for (const e of this.puddle?.events ?? []) {
-      e.ibis.mud = splashMud(e.ibis.mud, e);
-      const target = this.targets.get(e.ibis);
-      target.mud = Math.max(target.mud, e.ibis.mud);
-      fx.splash(e.at, e.strength, e.land);
-      sound?.splash(e, camera);
     }
     if (this.physics) {
       this.physics.step(dt);

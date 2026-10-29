@@ -14,17 +14,20 @@ The physics is in `physics.md`.
 
 ## Level data
 
-- A level is a JSON file in `src/levels/`, as `suburb.json`. `buildLevel()` (`src/levels/load.js`) makes the definition that `Level` takes. A future level editor reads and writes the same JSON.
-- Level keys: `id`, `sky` and `backdrop` (true: the `Sky` and the `Backdrop`), `ambience` (`mower`: `[x, z]`), and `areas`: a list of areas.
+- A level is a JSON file in `src/levels/`, as `suburb.json` or `meadow.json` (land only). `LEVELS` (`load.js`) holds every file there by name; `?level=meadow` picks one (default `suburb`). `buildLevel()` (`src/levels/load.js`) makes the definition that `Level` takes. A future level editor reads and writes the same JSON.
+- Level keys: `id`, `sky` and `backdrop` (true: the `Sky` and the `Backdrop`), `ambience` (`mower`, `frogs`: `[x, z]`), and `areas`: a list of areas.
 - Area keys: `id`, `type` (a key of `AREAS` in `src/levels/areas.js`), `bounds` (`{ x, z }`), the scenery lists of its type, and `props`, `characters` and `fliers`.
-  - `street`: the strips of `street.js`. `fences` (`[[x, z], [x, z]]` runs), `plants`, `lamps`, `clover` (the options of `Plants`, `Lamps`, `Clover`), `puddle: true`. A tree gets a mulch bed (gum 2.6, bottlebrush 2.0; `bed` sets the radius). The tufts grow round the lamps and the fence posts, and not in the beds, the clover or a gate's swing.
-  - `open`: only `fences`. It has no ground of its own: the first area's ground goes on under it. The park uses it until it gets its terrain.
+  - `street`: the strips of `street.js`. `fences` (`[[x, z], [x, z]]` runs), `plants`, `lamps`, `clover` (the options of `Plants`, `Lamps`, `Clover`). A tree gets a mulch bed (gum 2.6, bottlebrush 2.0; `bed` sets the radius). The tufts grow round the lamps and the fence posts, and not in the beds, the clover or a gate's swing.
+  - `land`: `box` and `features` (`land.md`), `plants`, `rows` (plants in a row), `clover`, `fences`. It owns the ground from `box.z[0]` to the near side; the street ends there.
 - All places are world `[x, z]`. A `note` key is a comment: the loader ignores it.
 - The loader throws on an unknown area type, prop kind or species, with the path (`Level suburb: areas[0].props[3]: unknown kind "x"`).
-- The level joins the areas' lists in area order. The seeds of the characters, the props (fly counts) and the plants come from the place in a list. To keep the seeds of the others, add a new item at the end of a list.
-- `bounds`: the box round all areas. The fence walls keep the bird in an area, so an area joins another only through a gap (a gate).
-- A new area type: add `{ ground(area), parts(area, ctx) }` to `AREAS`. `ctx`: `{ asset, physics, ground, bounds, gates }`. `ground: null` for a type that has none (it can't be the first area).
-- Ground (`level.ground`): `profile` (for the physics ground), `height(x, z)`, `kind(x, z)` (`grass`, `path`, `kerb`, `road`) and `print(x, z)` (the footprint look). The street's is `STREET_GROUND` in `street.js`. This is the one source of the ground height and kind for the scenery, the props, the characters, the footprints and tap to walk. Scenery must not import `streetHeight()` or `stripAt()`: it gets the ground in `ctx`.
+- Seeds: a plant, prop (fly count), character or flier takes its `seed`, or else its place in its list (plants: in the area's list; the others: in the level's list, areas in order). Give every item its own seed, unique in the level, so an edit to one list changes no other item. `suburb.json` has them. Two plants with the same seed grow the same (the park's gums had the street's seeds 1 to 6).
+- `bounds`: the box round all areas: the characters stay in it. The fence walls keep the bird in the street, so it goes into the park only through the gate. The park has no fence: its bounds stop the bird before the rows of plants.
+- A new area type: add `{ ground(area), parts(area, ctx) }` to `AREAS`. `ctx`: `{ asset, physics, ground, own, bounds, gates }`: `ground` is the level's, `own` the area's. `ground: null` for a type that has none. The first area must be a ground that is not land (the street).
+- The first area is the base ground: a street, or a land area (then the only land: its mesh goes flat all round the box, and the physics is its mesh only, so keep `bounds` inside `box`).
+- Not generic yet: the street runs along x at the z of `STRIPS` (constants in `street.js`, in its shader, mesh, physics and tuft rules), so a level has at most one, in the same place. A land area after a street owns all z from `box.z[0]` toward +z. The sprinkler's wet patch is one per level (`GROUND_WET`). The street's tuft rules use `TUFTS.area` and the strips.
+- `joinGrounds()` (`load.js`): the level's ground is the first area's, with each land area over it from its `from` (`box.z[0]`). `cut` is where the first land starts; `profile` is the street's, cut there.
+- Ground (`level.ground`): `profile` (for the physics ground), `height(x, z)`, `kind(x, z)` (`grass`, `path`, `kerb`, `road`, and on land `dirt`, `mud`) and `print(x, z)` (the footprint look). The street's is `STREET_GROUND` in `street.js`. This is the one source of the ground height and kind for the scenery, the props, the characters, the footprints and tap to walk. Scenery must not import `streetHeight()` or `stripAt()`: it gets the ground in `ctx`.
 - Without `env`, the level uses flat ground at 0 and no scenery, so the fixed views still match `sdf.html`.
 - Scenery parts: a part with `update(camera, dt, ibises, solids)` gets it each frame.
 - Tufts: each placement rule has its own stream of random values (`own()` in `tufts.js`): each fence post and lamp post by its place, the long grass by itself. With one stream, a new post moved all the tufts after it. The clusters, edges and joints still share the first stream.
@@ -45,7 +48,7 @@ The physics is in `physics.md`.
 
 - `SPECIES` in `src/characters/species.js` makes a character from its name and the bird assets (`birds` of the `Level`).
 - The noisy miner on the ground (`SPECIES.miner`) uses the ibis `Character` and motion, scaled by `MINER_SCALE`. It only stands: a scaled bird that walks takes steps that are too short for its speed. It has no solid in the physics (`solid: false` in `src/miner/bird.js`). The street does not use it.
-- `fliers` in the level data: birds in the air (`FLIERS`, `src/miner/flier.js`), with a `home` (`[x, z]`) and the options of their `Flight` (circle `height`, `radius`, `dir`). They are not in `level.ibises`: no footprints, puddle or tap. `Sentry` (`src/characters/sentry.js`) makes each one a guard dog of a territory:
+- `fliers` in the level data: birds in the air (`FLIERS`, `src/miner/flier.js`), with a `home` (`[x, z]`) and the options of their `Flight` (circle `height`, `radius`, `dir`). They are not in `level.ibises`: no footprints, mud or tap. `Sentry` (`src/characters/sentry.js`) makes each one a guard dog of a territory:
   - Perch: the highest perch within `SENTRY.home` of the home (`level.perches`: the props with `perch()`, and the `perches()` of the scenery parts, as the fence post tops and rail middles, and tree perch branches). Of perches at about the same height, the nearest. A tree perch is on a bare branch that a level asks for (`perch: [x, z]` on a bottlebrush in the area's `plants`: the world direction of the branch). The branch is about level, 3.3 above the foot, from the low limb that points most that way, out past the other limbs (`PLANTS.bottlebrush.perch`, `perchBranch()` in `plants.js`). A perch on a limb at the fork was hidden between the limbs, so point the branch to where the player comes from. Only the street tree has one, with a miner: no post is within `SENTRY.home` of it. It is higher than the post tops (3.2), so do not put one near a fence miner. It starts on it (`Flight.settle()`).
   - Watch: it sits and looks round.
   - Alert: the player is within the alert distance of the perch (on the ground): `SENTRY.alert`, plus `SENTRY.wary` times the noise. It turns to face the player, bobs, flicks its wings, glares and calls (`chip`), faster as the player comes nearer (`SENTRY.chip`). It calms down when the player goes `SENTRY.calm` past the alert distance.
@@ -61,7 +64,7 @@ The physics is in `physics.md`.
 - A brain writes `character.input` (move, fast, jump), the same input that a player gives. So a brain works for any species with a `Controller`.
 - `Wander` (`src/characters/wander.js`): walks to a random point within `WANDER.range` of its home, waits, and picks another. It sometimes runs (`WANDER.run`). It gives up on a goal after `WANDER.stuck` seconds with no progress (a prop in the way).
 - Random values come from `hash()` with the seed, not `Math.random()`.
-- Each character has its own mud and wet targets (`level.target(ibis)`). A puddle splash, the sprinkler's drops or a shake change only that character.
+- Each character has its own mud and wet targets (`level.target(ibis)`). A step in mud, the sprinkler's drops or a shake change only that character.
 - Only the player gets the peck highlight and the camera follow.
 - Every character with physics has a solid (`addBird()`), so characters collide with the props and with each other, and push each other (`bird` layer and bird push, see `physics.md`).
 - Plans for other species: a brush turkey (a walk and a short flight, as the ibis), a ringtail possum (a walk on four legs). Each needs its own controller and animator. The brain shape stays the same.
@@ -73,7 +76,7 @@ The physics is in `physics.md`.
 3. A new species is a maker in `SPECIES` (`src/characters/species.js`): `(birds, seed)` to an object with `object` (a three.js `Object3D`), `character` (a `Controller` and an `Animator`, as `Character`) and `update(dt)`.
 4. A new species also needs work outside `src/characters/`, because these parts take the ibis as given:
    - `Physics.addBird()` and the code that it calls (`feetGround()`, `makeRoom()`, `placeLimbs()`, grab) read the ibis rig (`rig.footL`, `rig.footR`, `rig.head`, `rig.headRot`) and the ibis sizes in `BIRD`. Give the species its own solid sizes and rig points, or a simpler path (for example only the solid and one ground ray).
-   - `IbisEffects`, `IbisSound` and `Puddle` read the rig feet and head, and `ibis.mud` and `ibis.wet`.
+   - `IbisEffects` and `IbisSound` read the rig feet and head, and `ibis.mud` and `ibis.wet`.
    - `Ibis.prod()` and `Ibis.hit()` for the tap, and `ibis.inPlace`.
    - A flier (the miner bird) is not on the ground: the `Controller`, the ground rays and the bounds need a flight mode. Keep it off the `bird` layer push while it is in the air, or give it its own layer.
-5. Check it: walk the player into it and run into its side (the push), let it wander for a minute near props and the puddle, and run `npm run build`.
+5. Check it: walk the player into it and run into its side (the push), let it wander for a minute near props and mud, and run `npm run build`.

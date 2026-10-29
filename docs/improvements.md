@@ -22,9 +22,9 @@ Notes:
 
 ## GPU
 
-- **Noise from a texture: ground done.** The ground and the tufts use `noise2()` (`src/world/noise.js`). Still on `noise3()`: the sky (6 for each pixel, but the sky draws only where nothing covers it), the backdrop (3), the puddle. The ibis materials too, but a change there changes the ibis.
+- **Noise from a texture: ground done.** The ground and the tufts use `noise2()` (`src/world/noise.js`). Still on `noise3()`: the sky (6 for each pixel, but the sky draws only where nothing covers it), the backdrop (3), the mud water (`mud.js`). The ibis materials too, but a change there changes the ibis.
 - **MSAA.** The 4x target of `grade.js` costs about 1.3 ms at ratio 1.5 (2x: about 0.4 ms less). The tufts and the fence wire need it for `alphaToCoverage`. On phones (tile GPUs) MSAA costs little: measure on a phone before you cut it.
-- **Birds before the ground.** The birds (0.9 ms) draw after the ground, so the ground shades the pixels under them. They must stay after the puddle and the footprints, which write no depth.
+- **Birds before the ground.** The birds (0.9 ms) draw after the ground, so the ground shades the pixels under them. They must stay after the footprints, which write no depth.
 - **Dynamic resolution.** `RES` in `stage.js` only steps the ratio down, when frames stay over 22 ms. A 120 Hz screen or a phone near the limit would do better with a step down and up round a target frame time (the GPU time of `Meter` where there are timer queries).
 - **Ibis body early-z.** The body program has `discard` (the lid cut), which can turn off early depth on the whole body. Compile the `discard` only into the material that draws the lids (a define), and draw the wings and the scarf before the torso, so the torso pixels that they hide skip the line march. The lids are in group 0 now: they would need their own group.
 
@@ -40,7 +40,7 @@ These are small. The bird and the physics take about 0.24 ms a frame at a run, s
 
 ## Clean-up
 
-- **Shared GLSL helpers.** The pixel-wide step `1 - smoothstep(w - px, w + px, d)` is written in about 8 places (`street.js`, `puddle.js`, `fence.js`, `materials.js`). The world position and `toonShadowCoord` vertex shader is the same in `street.js`, `puddle.js` and `fence.js`. The lit and shade uniform pairs and `tone()` are made 3 times (`street.js`, `puddle.js`, `sky.js`).
+- **Shared GLSL helpers.** The pixel-wide step `1 - smoothstep(w - px, w + px, d)` is written in about 8 places (`street.js`, `mud.js`, `fence.js`, `materials.js`). The world position and `toonShadowCoord` vertex shader is the same in `street.js`, `puddle.js` and `fence.js`. The lit and shade uniform pairs and `tone()` are made 3 times (`street.js`, `mud.js`, `sky.js`).
 - **Ground normals.** `groundGeometry()` takes each normal from the two neighbour points, so a flat strip next to a slope leans a very small amount (about 0.002°). Give the end points of each curve the true normal (up). The visible change is less than a pixel.
 - **Footprints at a path edge.** A print near the edge of the raised footpath can hang over the grass. Skip a print whose toes are off the flat top.
 - **Demo buttons.** Three blocks in `src/app/ui.js` make buttons by hand, and `aria-pressed` is set in 5 places. A `button(label, onPress)` helper would do. `PAD` lists the 13 moves to leave out of the top bar; a list of the moves to keep is shorter, but then a new move does not show by default (a design choice).

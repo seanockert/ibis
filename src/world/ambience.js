@@ -18,7 +18,7 @@ const L = SOUND.levels;
 const AHEAD = 0.1;   // seconds: each sound is set up this far before it starts
 
 export class Ambience {
-  // sound: an IbisSound. cicadas: [x, z] of each tree. mower: [x, z] of the lawn. frogs: [x, z] of the puddle.
+  // sound: an IbisSound. cicadas: [x, z] of each tree. mower: [x, z] of the lawn. frogs: [x, z] of the mud.
   constructor(sound, { cicadas = [], mower = null, frogs = null } = {}) {
     this.sound = sound;
     const r = () => sound.rand(), range = v => this.range(v);

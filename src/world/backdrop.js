@@ -3,7 +3,7 @@
 // cuts a bumpy canopy line and shades the clumps: lit on top, cool below. The far ring is taller and
 // more in the haze. Soft edges, as if out of focus.
 //
-//   const backdrop = new Backdrop();
+//   const backdrop = new Backdrop(bounds);   // bounds: the level's { x, z }
 //   scene.add(backdrop.object);
 import { BufferGeometry, Float32BufferAttribute, Group, Mesh, ShaderMaterial } from 'three';
 import { NOISE } from '../ibis/materials.js';
@@ -15,22 +15,23 @@ const SKY = SKY_COLOURS.horizon;   // far things fade toward it
 const SKY_NIGHT = NIGHT_COLOURS.horizon;
 const DARK = srgb(0.30, 0.36, 0.52);   // night multiply
 
-// box: [x min, x max, z min, z max] of the ring. height: [base, bumps] of the canopy line: big, slow
+// out: distance past the level bounds: along x, at -z, at +z. height: [base, bumps] of the canopy line: big, slow
 // bumps for the crowns. clump: width of the round leaf clumps on top. haze: 0 to 1.
 export const RINGS = [
-  { box: [-102, 102, -60, 40], height: [5, 4], clump: 5, freq: 0.05, lit: srgb(0.56, 0.71, 0.60), shade: srgb(0.46, 0.62, 0.62), haze: 0.45, seed: 7 },
-  { box: [-86, 86, -42, 28], height: [2.5, 4.5], clump: 3.5, freq: 0.08, lit: srgb(0.58, 0.74, 0.44), shade: srgb(0.36, 0.56, 0.47), haze: 0.15, seed: 3 },
+  { out: [54, 33.5, 33.5], height: [5, 4], clump: 5, freq: 0.05, lit: srgb(0.56, 0.71, 0.60), shade: srgb(0.46, 0.62, 0.62), haze: 0.45, seed: 7 },
+  { out: [38, 15.5, 21.5], height: [2.5, 4.5], clump: 3.5, freq: 0.08, lit: srgb(0.58, 0.74, 0.44), shade: srgb(0.36, 0.56, 0.47), haze: 0.15, seed: 3 },
 ];
 const CORNER = 14;       // corner radius of the ring
 const STEP = 1.0;        // quad width along the ring
 
 export class Backdrop {
-  constructor() {
+  constructor({ x: [x0, x1], z: [z0, z1] }) {
     this.object = new Group();
     RINGS.forEach((ring, i) => {
       // Top of the quads: the highest the canopy line can go, plus the soft edge.
       const top = ring.height[0] + ring.height[1] + ring.clump * 0.45 + 0.5;
-      const mesh = new Mesh(ringGeometry(ring.box, top), ringMaterial(ring));
+      const [ox, far, near] = ring.out;
+      const mesh = new Mesh(ringGeometry([x0 - ox, x1 + ox, z0 - far, z1 + near], top), ringMaterial(ring));
       mesh.frustumCulled = false;
       mesh.renderOrder = i;   // after the opaque scene, far ring first
       this.object.add(mesh);

@@ -170,7 +170,9 @@ export class Controller {
       this.vy -= (this.vy > 0 ? JUMP.gravity : JUMP.fallGravity) * dt;
     }
     this.position.y += this.vy * dt;
-    if (this.position.y <= this.floor) {
+    // Land only on the way down. Uphill the floor (a toe ahead) is above the root, so a take-off
+    // would land at once.
+    if (this.position.y <= this.floor && this.vy <= 0) {
       const impact = -this.vy;
       this.position.y = this.floor;
       this.vy = 0;

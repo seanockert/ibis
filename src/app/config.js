@@ -6,7 +6,8 @@
 // sound), terrain (1: steps and a ramp in free play, to test the foot placement), lite (0 or 1: less GPU
 // work; on for touch screens), ui (0: no buttons and joystick, for tools/strip.mjs), bird (miner: the
 // fixed views show the noisy miner, src/birds.js), fly (with bird=miner in the fixed views: 1 the flight,
-// 2 dives, on the spot; src/miner/flight.js), time (with env: day, dusk, night or morning; night=1 is time=night).
+// 2 dives, on the spot; src/miner/flight.js), time (with env: day, dusk, night or morning; night=1 is time=night),
+// level (a file name in src/levels/, without .json; default suburb).
 import { pageBird } from '../birds.js';
 
 // Lite: less GPU work, for touch screens (phones and tablets). The pixel ratio cap (1.5 otherwise): about
@@ -44,5 +45,6 @@ export function readConfig(search = location.search) {
     sound: fixedTime === null && bench === null && params.get('sound') !== '0',
     ui: params.get('ui') !== '0',
     time: params.get('time') ?? (params.get('night') === '1' ? 'night' : 'day'),
+    level: params.get('level') ?? 'suburb',
   };
 }

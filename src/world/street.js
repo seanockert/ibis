@@ -28,7 +28,7 @@ export const STRIPS = [
 export const PLAY = { x: [-48, 48], z: [-26.5, 6.5] };   // to 0.5 on the yard grass; the fence (fence.js) is just outside it
 export const ROAD = { centre: -10.8, dash: [3, 3], dashWidth: 0.22 };   // centre line: dash and gap length
 export const JOINT = 3;   // footpath joints along x
-const HAZE_FROM = [25, 220];   // distance where the ground starts to fade into the haze, and where it is all haze
+export const HAZE_FROM = [25, 220];   // distance where the ground starts to fade into the haze, and where it is all haze
 // Painted grass marks on the ground: a small tuft in some cells of a grid, drawn as if upright to the
 // camera. cell: grid size, chance: part of the cells with a mark, size: height, units.
 export const MARKS = { cell: 1.1, chance: 0.45, size: [0.08, 0.15] };
@@ -50,7 +50,7 @@ const REACH = 450;   // half size of the ground mesh
 // Height across the street: [z, y] points from the near side (+z) to the far side, straight between.
 export const PROFILE = profile();
 const FORM = 0.75;          // N.L below this: the cool form tone. Flat ground is above it
-const DEPTH_BIAS = 0.2;    // the ground writes its depth this far behind it, along the view ray
+export const DEPTH_BIAS = 0.2;    // the ground writes its depth this far behind it, along the view ray
 // Ground mesh cells: cell units within x of the camera along x (the mesh follows it) and inside z,
 // larger by grow for each unit away. Small cells keep the depth bias of each vertex true between them.
 const GRID = { cell: 3, grow: 0.3, x: 24, z: [-30, 26] };
@@ -69,7 +69,7 @@ const CRACKS = { chance: 0.35, width: 0.035 };
 // size, and w 1 when on. tint: the colour times this where it is wet. edge: the wetness of the edge, with
 // noise (its amount, and its frequency: scale) so the patch is blotchy.
 export const GROUND_WET = { map: { value: null }, area: { value: new Vector4() } };
-const WET = { tint: srgb(0.72, 0.78, 0.84), edge: 0.3, noise: 0.35, scale: 0.9 };
+export const WET = { tint: srgb(0.72, 0.78, 0.84), edge: 0.3, noise: 0.35, scale: 0.9 };
 
 // lit, shade, sRGB, picked from the concept art: warm yellow-green and peach in the sun, cool teal and
 // lavender in the shade. The two are far apart on purpose: the warm and cool split carries the cartoon
@@ -91,12 +91,13 @@ const COLOURS = {
 };
 
 export class Street {
-  constructor(sun, beds = []) {
+  // profile: PROFILE, or cut where a land area starts.
+  constructor(sun, beds = [], profile = PROFILE) {
     const material = groundMaterial(sun, beds);
-    // Draws after the solid scenery and props (BEFORE_GROUND in level.js), before the puddle, the footprints
+    // Draws after the solid scenery and props (BEFORE_GROUND in level.js), before the footprints
     // and the birds; the sky draws after the opaque scene. Its depth is DEPTH_BIAS behind it, so it can't
     // cover the outline round the feet, but a kerb still hides what is below it on the road.
-    this.object = new Mesh(groundGeometry(), material);
+    this.object = new Mesh(groundGeometry(profile), material);
     this.object.receiveShadow = true;
     this.object.renderOrder = -1;
     this.object.frustumCulled = false;
@@ -145,19 +146,19 @@ function profile() {
 // for each vertex and straight between them, so the cells are small near the play area (GRID) and grow
 // away from it. The rows go from the lowest to the highest, so a higher strip draws over the lower one it
 // hides (the road behind a kerb, from the top side) where the depth bias is too small to sort them.
-function groundGeometry() {
+function groundGeometry(profile) {
   const xs = steps(REACH, x => Math.max(x - GRID.x, 0)), zs = [];
   const half = [...xs].reverse().map(x => -x).concat(xs.slice(1));
-  PROFILE.forEach(([z, y], i) => {
+  profile.forEach(([z, y], i) => {
     if (!i) return zs.push([z, y]);
-    const [z0, y0] = PROFILE[i - 1];
+    const [z0, y0] = profile[i - 1];
     for (const d of steps(z0 - z, d => Math.max(GRID.z[0] - (z0 - d), z0 - d - GRID.z[1], 0)).slice(1)) zs.push([z0 - d, y0 + (y - y0) * d / (z0 - z), i]);
   });
   const position = [], normal = [], rows = [];
   zs.forEach(([z, y, seg], j) => {
     // The normal of the profile point, or of the segment between two points.
-    const i = PROFILE.findIndex(p => p[0] === z);
-    const [za, ya] = i >= 0 ? PROFILE[Math.max(i - 1, 0)] : PROFILE[seg - 1], [zb, yb] = i >= 0 ? PROFILE[Math.min(i + 1, PROFILE.length - 1)] : PROFILE[seg];
+    const i = profile.findIndex(p => p[0] === z);
+    const [za, ya] = i >= 0 ? profile[Math.max(i - 1, 0)] : profile[seg - 1], [zb, yb] = i >= 0 ? profile[Math.min(i + 1, profile.length - 1)] : profile[seg];
     const n = [0, za - zb, yb - ya], len = Math.hypot(n[1], n[2]);
     for (const x of half) {
       position.push(x, y, z);
@@ -193,7 +194,7 @@ function steps(length, away) {
 // Footprint on each strip: lit, shade, strength for a dry foot, and lit, shade for a wet one. Dry: on grass
 // the foot presses it darker; on the footpath, the kerb and the road it leaves dust (light on the dark road).
 // Wet: darker than the surface.
-const PRINTS = {
+export const PRINTS = {
   grass: { lit: srgb(0.50, 0.66, 0.27), shade: srgb(0.21, 0.41, 0.45), alpha: 0.55, wet: [srgb(0.40, 0.56, 0.24), srgb(0.17, 0.34, 0.40)] },
   path: { lit: srgb(0.80, 0.66, 0.55), shade: srgb(0.47, 0.46, 0.66), alpha: 0.5, wet: [srgb(0.70, 0.56, 0.46), srgb(0.42, 0.40, 0.60)] },
   road: { lit: srgb(0.58, 0.55, 0.58), shade: srgb(0.36, 0.36, 0.50), alpha: 0.5, wet: [srgb(0.25, 0.25, 0.33), srgb(0.16, 0.17, 0.29)] },
@@ -204,8 +205,7 @@ export const printOn = (x, z) => PRINTS[stripAt(z)];
 // The strip kind at z.
 export const stripAt = z => STRIPS.find(([, edge]) => z > edge)[0];
 
-// The street as a ground (level.js): profile (for the physics), height(x, z), kind(x, z) (the strip) and
-// print(x, z) (the footprint look).
+// The street as a level ground.
 export const STREET_GROUND = { profile: PROFILE, height: (x, z) => streetHeight(z), kind: (x, z) => stripAt(z), print: printOn };
 
 // Grass colour uniforms, for the ground and the tufts.
@@ -282,70 +282,8 @@ float tuft(vec2 p, float s, float leafy, out float across) {
 }
 `;
 
-// Is a world point in the inner part of a mulch bed (MULCH.clear of the radius), or within margin of it?
-export const inBed = (beds, x, z, margin = 0) => beds.some(({ at, radius }) => Math.hypot(x - at[0], z - at[1]) < radius * MULCH.clear + margin);
-
-// Is a world point in the play area?
-export const inPlay = (x, z) => x >= PLAY.x[0] && x <= PLAY.x[1] && z >= PLAY.z[0] && z <= PLAY.z[1];
-
-function groundMaterial(sun, beds) {
-  // Each bed: x, z, radius (0: none), seed.
-  const uBeds = Array.from({ length: MULCH.max }, (_, i) => {
-    const b = beds[i];
-    return b ? new Vector4(b.at[0], b.at[1], b.radius, i * 7.3) : new Vector4();
-  });
-  if (beds.length > MULCH.max) console.warn(`Street: only ${MULCH.max} mulch beds`);
-  const uniforms = {
-    ...lightUniforms(), ...grassUniforms(), uHaze: haze, uSun: { value: sun }, uBeds: { value: uBeds },
-    uWetMap: GROUND_WET.map, uWetArea: GROUND_WET.area, uWetTint: { value: WET.tint },
-  };
-  const other = Object.keys(COLOURS).filter(n => !GRASS_TONES.includes(n));
-  for (const name of other) {
-    const [lit, shade] = COLOURS[name];
-    uniforms[`u_${name}Lit`] = { value: lit };
-    uniforms[`u_${name}Shade`] = { value: shade };
-  }
-  const tone = name => `mix(u_${name}Shade, u_${name}Lit, lit)`;
-  // One mix for each strip edge, a pixel wide, from the near side.
-  const strips = STRIPS.slice(1).map(([kind], i) => `
-    col = mix(col, ${kind}, smoothstep(-w, w, ${f(STRIPS[i][1])} - z));`).join('');
-  return new ShaderMaterial({
-    lights: true,
-    uniforms,
-    vertexShader: /* glsl */`
-      ${TOON_VERTEX}
-      varying vec3 vWorld, vNormal;
-      void main() {
-        vec4 world = modelMatrix * vec4(position, 1.0);
-        vWorld = world.xyz;
-        vNormal = normal;
-        gl_Position = projectionMatrix * viewMatrix * world;
-        // Depth DEPTH_BIAS behind the ground along the view ray, at the same pixel. In the vertex shader,
-        // not gl_FragDepth: a depth write in the fragment shader turns off the early depth test, so every
-        // ground pixel ran the full shader, even under a prop (about 0.9 ms).
-        vec4 back = projectionMatrix * viewMatrix * vec4(world.xyz + normalize(world.xyz - cameraPosition) * ${f(DEPTH_BIAS)}, 1.0);
-        gl_Position.z = back.z / back.w * gl_Position.w;
-        toonShadowCoord(world, normal);
-      }`,
-    fragmentShader: /* glsl */`
-      ${TOON}
-      #define FRAGMENT
-      ${GRASS}
-      ${BLADES}
-      ${other.map(n => `uniform vec3 u_${n}Lit, u_${n}Shade;`).join('\n')}
-      uniform vec3 uHaze, uSun;
-      uniform vec4 uBeds[${MULCH.max}];
-      uniform sampler2D uWetMap;
-      uniform vec4 uWetArea;
-      uniform vec3 uWetTint;
-      varying vec3 vWorld, vNormal;
-      // 1 on a line of width (units) at u = 0, with w (one pixel, units) of blur.
-      float line(float u, float width, float w) {
-        w = max(w, 1e-5);
-        return 1.0 - smoothstep(width / 2.0 - w, width / 2.0 + w, abs(u));
-      }
-      // The same, a pixel of blur at any distance. Not for a u that wraps: its fwidth jumps there.
-      float line(float u, float width) { return line(u, width, fwidth(u)); }
+// GLSL, fragment only, after GRASS and BLADES: grassMarks() and the Upright frame. Street and land.
+export const GRASS_MARKS = /* glsl */`
       float hash12(vec2 c) { return fract(sin(dot(c, vec2(127.1, 311.7))) * 43758.5453); }
       // Frame for things drawn upright to the camera on the ground (marks, pebbles): side and away (from
       // the camera) along the ground, and stretch, which scales a ground distance away from the camera to
@@ -362,22 +300,6 @@ function groundMaterial(sun, beds) {
         vec2 f = vec2(dot(p.xz, u.side), dot(p.xz, u.away) * u.stretch);
         u.px = max(max(fwidth(f.x), fwidth(f.y)), 1e-5);
         return u;
-      }
-      // Distance across a kerb from its road edge, or -1 off the kerbs.
-      float kerbFromRoad(float z) {
-        ${STRIPS.map(([kind, far], i) => kind !== 'kerb' ? '' : `if (z < ${f(STRIPS[i - 1][1])} && z > ${f(far)}) return ${STRIPS[i + 1]?.[0] === 'road' ? `z - ${f(far)}` : `${f(STRIPS[i - 1][1])} - z`};`).filter(Boolean).join('\n        ')}
-        return -1.0;
-      }
-      // Distance outside the nearest footpath (less than 0 on it).
-      float pathOut(float z) {
-        float d = 1e3;
-        ${STRIPS.map(([kind, far], i) => kind !== 'path' ? '' : `d = min(d, max(z - ${f(STRIPS[i - 1][1])}, ${f(far)} - z));`).filter(Boolean).join('\n        ')}
-        return d;
-      }
-      float edgeDistance(float z) {
-        float edge = 1e3;
-        ${STRIPS.slice(0, -1).map(([, z]) => `edge = min(edge, abs(z - ${f(z)}));`).join('\n        ')}
-        return edge;
       }
       // Painted marks: a small tuft in some cells, upright to the camera. Returns the cover, 0 to 1, and
       // in light 0 for a dark mark, 1 for a light one.
@@ -399,6 +321,112 @@ function groundMaterial(sun, beds) {
           if (m > cover) { cover = m; light = step(0.5, hash12(c + 4.4)); }
         }
         return cover;
+      }
+      // A mark's colour over the grass: light 1 for a light mark.
+      vec3 markColour(vec3 grass, float light, float lit) {
+        return light > 0.5 ? mix(grass, mix(u_grassSunShade, u_grassSunLit, lit) * vec3(1.06, 1.06, 0.92), 0.7) : grass * vec3(0.84, 0.91, 0.88);
+      }
+`;
+
+// GLSL, vertex, after gl_Position: depth bias units behind the point along the view ray, at the same
+// pixel, so outlines round the feet show. Not gl_FragDepth: that turns off the early depth test (0.9 ms).
+export const DEPTH_BEHIND = /* glsl */`
+      void depthBehind(vec3 world, float bias) {
+        vec4 back = projectionMatrix * viewMatrix * vec4(world + normalize(world - cameraPosition) * bias, 1.0);
+        gl_Position.z = back.z / back.w * gl_Position.w;
+      }
+`;
+
+// GLSL, fragment, after NOISE_TEX: wetGround(), the sprinkler's wet patch: darker, a blotchy edge.
+export const WET_GROUND = /* glsl */`
+      uniform sampler2D uWetMap;
+      uniform vec4 uWetArea;
+      uniform vec3 uWetTint;
+      vec3 wetGround(vec3 col, vec2 xz) {
+        if (uWetArea.w == 0.0) return col;
+        vec2 q = (xz - uWetArea.xy) / uWetArea.z;
+        if (q.x <= 0.0 || q.y <= 0.0 || q.x >= 1.0 || q.y >= 1.0) return col;
+        float wet = texture2D(uWetMap, q).r + ${f(WET.noise)} * (noise2(xz * ${f(WET.scale)} + vec2(53.0, 11.0)) - 0.5);
+        return col * mix(vec3(1.0), uWetTint, smoothstep(${f(WET.edge - 0.03)}, ${f(WET.edge + 0.03)}, wet));
+      }
+`;
+export const wetUniforms = () => ({ uWetMap: GROUND_WET.map, uWetArea: GROUND_WET.area, uWetTint: { value: WET.tint } });
+
+// Is a world point in the inner part of a mulch bed (MULCH.clear of the radius), or within margin of it?
+export const inBed = (beds, x, z, margin = 0) => beds.some(({ at, radius }) => Math.hypot(x - at[0], z - at[1]) < radius * MULCH.clear + margin);
+
+// Is a world point in the play area?
+export const inPlay = (x, z) => x >= PLAY.x[0] && x <= PLAY.x[1] && z >= PLAY.z[0] && z <= PLAY.z[1];
+
+function groundMaterial(sun, beds) {
+  // Each bed: x, z, radius (0: none), seed.
+  const uBeds = Array.from({ length: MULCH.max }, (_, i) => {
+    const b = beds[i];
+    return b ? new Vector4(b.at[0], b.at[1], b.radius, i * 7.3) : new Vector4();
+  });
+  if (beds.length > MULCH.max) console.warn(`Street: only ${MULCH.max} mulch beds`);
+  const uniforms = {
+    ...lightUniforms(), ...grassUniforms(), uHaze: haze, uSun: { value: sun }, uBeds: { value: uBeds },
+    ...wetUniforms(),
+  };
+  const other = Object.keys(COLOURS).filter(n => !GRASS_TONES.includes(n));
+  for (const name of other) {
+    const [lit, shade] = COLOURS[name];
+    uniforms[`u_${name}Lit`] = { value: lit };
+    uniforms[`u_${name}Shade`] = { value: shade };
+  }
+  const tone = name => `mix(u_${name}Shade, u_${name}Lit, lit)`;
+  // One mix for each strip edge, a pixel wide, from the near side.
+  const strips = STRIPS.slice(1).map(([kind], i) => `
+    col = mix(col, ${kind}, smoothstep(-w, w, ${f(STRIPS[i][1])} - z));`).join('');
+  return new ShaderMaterial({
+    lights: true,
+    uniforms,
+    vertexShader: /* glsl */`
+      ${TOON_VERTEX}
+      ${DEPTH_BEHIND}
+      varying vec3 vWorld, vNormal;
+      void main() {
+        vec4 world = modelMatrix * vec4(position, 1.0);
+        vWorld = world.xyz;
+        vNormal = normal;
+        gl_Position = projectionMatrix * viewMatrix * world;
+        depthBehind(world.xyz, ${f(DEPTH_BIAS)});
+        toonShadowCoord(world, normal);
+      }`,
+    fragmentShader: /* glsl */`
+      ${TOON}
+      #define FRAGMENT
+      ${GRASS}
+      ${BLADES}
+      ${other.map(n => `uniform vec3 u_${n}Lit, u_${n}Shade;`).join('\n')}
+      uniform vec3 uHaze, uSun;
+      uniform vec4 uBeds[${MULCH.max}];
+      ${WET_GROUND}
+      varying vec3 vWorld, vNormal;
+      // 1 on a line of width (units) at u = 0, with w (one pixel, units) of blur.
+      float line(float u, float width, float w) {
+        w = max(w, 1e-5);
+        return 1.0 - smoothstep(width / 2.0 - w, width / 2.0 + w, abs(u));
+      }
+      // The same, a pixel of blur at any distance. Not for a u that wraps: its fwidth jumps there.
+      float line(float u, float width) { return line(u, width, fwidth(u)); }
+      ${GRASS_MARKS}
+      // Distance across a kerb from its road edge, or -1 off the kerbs.
+      float kerbFromRoad(float z) {
+        ${STRIPS.map(([kind, far], i) => kind !== 'kerb' ? '' : `if (z < ${f(STRIPS[i - 1][1])} && z > ${f(far)}) return ${STRIPS[i + 1]?.[0] === 'road' ? `z - ${f(far)}` : `${f(STRIPS[i - 1][1])} - z`};`).filter(Boolean).join('\n        ')}
+        return -1.0;
+      }
+      // Distance outside the nearest footpath (less than 0 on it).
+      float pathOut(float z) {
+        float d = 1e3;
+        ${STRIPS.map(([kind, far], i) => kind !== 'path' ? '' : `d = min(d, max(z - ${f(STRIPS[i - 1][1])}, ${f(far)} - z));`).filter(Boolean).join('\n        ')}
+        return d;
+      }
+      float edgeDistance(float z) {
+        float edge = 1e3;
+        ${STRIPS.slice(0, -1).map(([, z]) => `edge = min(edge, abs(z - ${f(z)}));`).join('\n        ')}
+        return edge;
       }
       // Pebbles: round mounds in some cells near the strip edges, upright to the camera as the marks: a
       // light top, a cool shaded underside and a small contact shadow. More of them nearer an edge.
@@ -488,8 +516,7 @@ function groundMaterial(sun, beds) {
           grassPatches(p.xz, 1.0, sun, lush);
           grass = grassColour(sun, lush, lit, near);
           if (near > 0.0) mark = near * grassMarks(p, u, light);
-          vec3 markCol = light > 0.5 ? mix(grass, mix(u_grassSunShade, u_grassSunLit, lit) * vec3(1.06, 1.06, 0.92), 0.7) : grass * vec3(0.84, 0.91, 0.88);
-          grass = mix(grass, markCol, mark);
+          grass = mix(grass, markColour(grass, light, lit), mark);
           // Mulch round the trees: patches with a hard toon edge, tinted over the grass so they blend, and chips.
           float mi = mulchIn(p.xz);
           if (mi > -px) {
@@ -539,14 +566,7 @@ function groundMaterial(sun, beds) {
           bool hard = ${STRIPS.map(([kind, z], i) => (kind === 'kerb' || kind === 'road') ? `(z < ${f(STRIPS[i - 1][1])} && z > ${f(z)})` : null).filter(Boolean).join(' || ')};
           if (!hard && edgeDistance(z) < ${f(PEBBLES.band + PEBBLES.cell / 2)}) col = mix(col, pebbles(p, u, col, lit), near);
         }
-        // Wet ground: darker, with a blotchy edge.
-        if (uWetArea.w > 0.0) {
-          vec2 q = (p.xz - uWetArea.xy) / uWetArea.z;
-          if (q.x > 0.0 && q.y > 0.0 && q.x < 1.0 && q.y < 1.0) {
-            float wet = texture2D(uWetMap, q).r + ${f(WET.noise)} * (noise2(p.xz * ${f(WET.scale)} + vec2(53.0, 11.0)) - 0.5);
-            col *= mix(vec3(1.0), uWetTint, smoothstep(${f(WET.edge - 0.03)}, ${f(WET.edge + 0.03)}, wet));
-          }
-        }
+        col = wetGround(col, p.xz);
         col = night(col, lamp);
         col = mix(col, uHaze, smoothstep(${f(HAZE_FROM[0])}, ${f(HAZE_FROM[1])}, distance(p, cameraPosition)));
         gl_FragColor = vec4(col, 1.0);

@@ -35,10 +35,11 @@ What each source file does.
 | `src/app/ui.js` | `Ui`: free play Threat, Squawk, Peck and Jump diamond (hold Jump to flutter), the other action (Shake) in the top bar after the time of day. Other views: one button for each move |
 | `src/app/screen.js` | `lockScreen()`: stops browser zoom and page gestures on touch screens (iOS ignores `user-scalable=no` and `touch-action` for a second-finger double tap), full screen on the first touch where it can. Touch gives no click, so `ui.js` buttons act on pointerdown for touch. The canvas fills `100lvh` (under the iOS Safari bars); `Stage` sizes from the canvas, not `innerHeight`. Manifest and icons: `public/manifest.webmanifest`, `public/icon-*.png` |
 | `src/sw.js` | Service worker: the built game starts offline. `swPlugin` in `vite.config.js` adds `VERSION` and `FILES` (every file in `dist`) and writes `dist/sw.js`. Cache first. Registered only in the build, so the dev server and the tools always get fresh files. Cache matches use `ignoreVary`: Vite's module scripts are `crossorigin`, and a server that sends `Vary: Origin` makes the match miss |
-| `src/levels/suburb.json` | The suburb level as JSON: the street area and the park area behind the near fence (format in `docs/levels.md`) |
-| `src/levels/load.js` | `buildLevel()`: level JSON to the definition that `Level` takes. Checks the names |
-| `src/levels/areas.js` | `AREAS`: area types (`street`, `open`) to their ground and scenery |
-| `src/world/level.js` | `Level`: makes a level from data, steps characters, brains, puddle, physics and props, and sends events to effects and sounds. Mud and wet targets for each character |
+| `src/levels/suburb.json` | The suburb level as JSON: the street area and the park (a land area) behind the near fence (format in `docs/levels.md`) |
+| `src/levels/meadow.json` | A small land-only level, to test levels with no street (`?level=meadow`) |
+| `src/levels/load.js` | `buildLevel()`: level JSON to the definition that `Level` takes. Checks the names. `LEVELS`: every level file by name. `joinGrounds()`: the street with the land areas over it |
+| `src/levels/areas.js` | `AREAS`: area types (`street`, `land`) to their ground and scenery. `plantRows()` |
+| `src/world/level.js` | `Level`: makes a level from data, steps characters, brains, physics and props, and mud splashes, and sends events to effects and sounds. Mud and wet targets for each character |
 | `src/world/place.js` | `stack()`: the base height of each prop from the ground and the props before it, so props stack and never start inside each other |
 | `src/world/kinds.js` | `PROPS`: prop kind names in level data to classes |
 | `src/world/gate.js` | `Gate`: a swing gate in a fence gap: a leaf on a hinge with a spring back to shut, a hinge creak as it opens, rust round the hinges. `GATE` |
@@ -50,13 +51,14 @@ What each source file does.
 | `src/world/util.js` | `srgb()` (a colour from sRGB values) and `f()` (a number as a GLSL float), for the world files |
 | `src/world/sprinkler.js` | `Sprinkler`: an oscillating lawn sprinkler on a hose (a light prop) from a tap with a handle that a peck turns (a switch): a drop spray (one instanced draw, flights in the vertex shader), soak events, and a wet patch on the ground (`GROUND_WET`). `SPRINKLER` |
 | `src/world/stubbies.js` | `Stubbies`: ten empty beer stubbies as bowling pins, see-through glass, four instanced draws. `STUBBY`, `GLASS` |
+| `src/world/land.js` | `Field` (heights and dirt and mud from the features of a land area, on a grid), `Land` (its mesh, shader and physics mesh), `wildTufts()`. `LAND` |
 | `src/world/terrain.js` | `Terrain`: a test course (steps, a top, a ramp) of static prisms, for the foot placement. `COURSE` |
 | `src/world/street.js` | `Street`: the ground mesh and shader (grass, footpath, kerb, road strips along x), `STRIPS`, `KERB`, `PROFILE` (heights across z), `streetHeight()`, `PLAY` (the play area box) |
 | `src/world/plants.js` | `Plants`: trees and shrubs (`PLANTS`: gum, bottlebrush, shrub), each grown from a seed (branches, clumps, flowers). In chunks along x (four draws each). Bark and flowers through `toonParts()`; leaves are balls with their own toon shader, hidden triangles left out, and an outline only round the outside of a crown. A plant in `PLAY` gets a solid trunk on the `terrain` layer |
 | `src/world/farShadow.js` | `renderFarShadow()`: a static sun shadow map of the plants (`FAR_LAYER`) over the whole level, drawn once. `sunShadow()` uses it past the sun's map |
 | `src/world/wind.js` | `WIND`, `sway()` (GLSL), `windDepthMaterial()`: the plants sway in the wind, with their outlines and shadows. `wind: true` on the prop toon materials turns it on |
 | `src/world/fence.js` | `Fence`: white posts, a top rail and chain wire along the runs of the level data (`FENCE`), with a gap for each gate on a run (`fenceRuns()`). Instanced toon posts and rails; the wire is a shader pattern. With physics, a static wall on the `terrain` layer |
-| `src/world/puddle.js` | `Puddle`: a muddy puddle on the nature strip (`PUDDLE`, `shape()`), splash events from steps and landings, ripples. `SPLASH`, `splashMud()`: the mud a splash puts on the bird |
+| `src/world/mud.js` | The shared mud model for land mud (`land.js`): `splashMud()` (`SPLASH`), `Ripples` (rings), `MUD_WATER` and `mudUniforms()` (the water and its colours) |
 | `src/world/ambience.js` | `Ambience`: background sounds of a level: cicadas and a far lawnmower by day, crickets and frogs at night. `AMBIENCE` tuning |
 | `src/world/flies.js` | `Flies`: flies round the lid of a bin (`flies: N` or `[min, max]` on a prop). They dart and land on the lid, scatter from a bird or a bin that moves, and come back one by one. One instanced draw. `buzz` for the sound. `FLIES` tuning |
 | `src/world/clover.js` | `Clover`: clover patches (`clover` of an area in the level JSON), one toon draw. `height(x, z)`. Makes the `Bees` |

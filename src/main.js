@@ -16,8 +16,7 @@ import { Flier } from './miner/flier.js';
 import { flightDemo } from './miner/flight.js';
 import { Character } from './ibis/motion/character.js';
 import { IbisSound } from './ibis/sound.js';
-import { buildLevel } from './levels/load.js';
-import SUBURB from './levels/suburb.json';
+import { buildLevel, LEVELS } from './levels/load.js';
 import { ARENA, MOVES, playScript, startMove } from './moves.js';
 import { renderFarShadow } from './world/farShadow.js';
 import { Level } from './world/level.js';
@@ -40,7 +39,7 @@ const sound = config.sound ? new IbisSound() : null;
 sound?.load('honk', '/sfx/honk.m4a');
 sound?.load('chip', '/sfx/miner-chip.m4a');
 sound?.load('scold', '/sfx/miner-scold.m4a');
-const level = new Level(buildLevel(SUBURB), { asset, birds, scene, env: config.env, props: config.props, terrain: config.terrain, sound, weather: config.weather });
+const level = new Level(buildLevel(LEVELS[config.level] ?? LEVELS.suburb), { asset, birds, scene, env: config.env, props: config.props, terrain: config.terrain, sound, weather: config.weather });
 
 // Free play: the level's characters and props. Other views: ibises in a grid that play moves in place,
 // in the walk circle of the moves.
@@ -73,8 +72,8 @@ if (config.env) renderFarShadow(stage.renderer, scene, asset.sun);   // the plan
 let turning = 0;
 if (config.colliders && level.physics) await level.showColliders();
 const bird = level.player ?? level.ibises[0];
-const { physics, props, highlight, puddle, fx } = level;
-window.demo = { cycle, level, ibises: level.ibises, physics, props, highlight, puddle, fx, sound, camera, controls, world: level.parts, sun, grade: stage.grade, renderer: stage.renderer, scene, render: () => stage.render() };   // for the console
+const { physics, props, highlight, fx } = level;
+window.demo = { cycle, level, ibises: level.ibises, physics, props, highlight, fx, sound, camera, controls, world: level.parts, sun, grade: stage.grade, renderer: stage.renderer, scene, render: () => stage.render() };   // for the console
 
 // Scripted moves: the grid plays move i on ibis i, and a single ibis plays the anim move. In free play,
 // only Walk and Run are scripts; the other buttons are one-shot actions. Only the player plays scripts:
@@ -127,7 +126,7 @@ function frame() {
   }
   level.update(dt, camera);
   ui.update();
-  stage.keepAbove();
+  stage.keepAbove(level.ground.height);
   if (follow) {
     // A miner that goes on alert out of view: the camera glances toward its head.
     // A snap that hurts a miner shakes the view.

@@ -276,7 +276,7 @@ export class IbisEffects {
       return { mesh, color, shade, list: [] };   // list: { matrix, rgb, shade, alpha, age }
     });
     // (x, z) => { lit, shade, alpha, wet: [lit, shade] } for a print on the surface there, null for dust, or
-  // false for no print (in a puddle).
+  // false for no print.
     this.surface = null;
     this.height = null;   // (x, z) => height of the ground: footprints go on it. Null: flat at 0
     this.time = 0;
@@ -316,7 +316,7 @@ export class IbisEffects {
     }
   }
 
-  // Mud splash from a puddle: blobs of mud thrown up and out, that fall back. strength 0 to 1. land: a
+  // Mud splash: blobs of mud thrown up and out, that fall back. strength 0 to 1. land: a
   // jump into it, a ring of blobs low and wide as well.
   splash(at, strength, land) {
     const n = Math.round((land ? 10 : 4) + 6 * strength);

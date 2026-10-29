@@ -46,9 +46,9 @@ Spaces, materials, colours, light, lines, mud and wet on the ibis.
 - Mud: solid below a noisy line at bind height `0.05 + 0.80 * uMud`, with splashes above it. Colours are `MUD_LIT` and `MUD_SHADE`.
 - Wet: darker colour, streaks that run down, and a hard broken highlight in the lit band.
 - Only the game shows mud and wet. `sdf.html` does not. No bake is needed.
-- Demo: the sprinkler's drops (`props.md`) raise the wet target and wash the mud off; a shake takes half off. Mud comes only from the puddle. Wet and mud follow their targets at `WEATHER_RATE` (`level.js`). URL parameters `mud` and `wet` set them for screenshots, for example `index.html?anim=1&t=0.5&mud=1`.
+- Demo: the sprinkler's drops (`props.md`) raise the wet target and wash the mud off; a shake takes half off. Mud comes only from mud on land. Wet and mud follow their targets at `WEATHER_RATE` (`level.js`). URL parameters `mud` and `wet` set them for screenshots, for example `index.html?anim=1&t=0.5&mud=1`.
 - With `uMud = 0` and `uWet = 0`, the render is the same as without the effects.
-- Puddle (`puddle.js`, with `env`): a flat mesh on the nature strip, not in the physics. `Puddle.update(dt, ibises)` reads `step` and `land` events and tests the feet with `inPuddle()`; each hit gives a `splash` event (`strength` 0 to 1 from the speed or the landing impact, `land`). The demo then sets `ibis.mud` at once with `splashMud()` (a walk muddies the feet, a run the legs, a jump the belly: `SPLASH`), raises the mud target so it stays, and calls `fx.splash()` (mud blobs that fall back, with `fall` and `floor` in `puff()`) and `sound.splash()`. The sprinkler washes it off. No footprints in the water (`fx.surface` returns `false`) and no tufts on the puddle or its bank. `shape()` is in JS and in the shader: change both.
+- Mud (`mud.js`, land areas: `land.md`): a step or a landing on `mud` (`under`) is a splash (`level.js`): `splashMud()` sets `ibis.mud` at once (a walk muddies the feet, a run the legs, a jump the belly: `SPLASH`) and raises the mud target so it stays, `fx.splash()` throws mud blobs (`fall` and `floor` in `puff()`), `sound.splash()` sloshes, and `Land.splash()` makes a ring (`Ripples`). The sprinkler washes it off. The street had a `Puddle` mesh; land `pool` features replaced it.
 
 ## Known traps
 

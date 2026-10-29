@@ -10,7 +10,7 @@ const FOCAL = 3.2;   // the SDF view's lens: vertical half-angle atan(1 / FOCAL)
 const CAM_DIST_PLAY = 12.5;  // free play: the whole walk circle is in view, then the camera follows
 const CAM_MAX_PLAY = 18;     // free play: the zoom can't take the camera farther than this
 export const TARGET_PLAY = new THREE.Vector3(0, 0.9, 0);
-const CAM_MIN_Y = 0.3;      // the orbit can't take the camera lower than this
+const CAM_MIN_Y = 0.3;      // the orbit can't take the camera lower than this above the ground
 const GROUND_LIT = new THREE.Color().setRGB(0.925, 0.902, 0.855, 'srgb');
 const GROUND_SHADE = new THREE.Color().setRGB(0.80, 0.78, 0.86, 'srgb');
 // Free play sun shadow: half size of the area, the sun's distance from the area's centre (above the
@@ -120,9 +120,11 @@ export class Stage {
   }
 
   // Keeps the camera above the ground: the lowest polar angle for this distance.
-  keepAbove() {
+  // height(x, z): the ground under the camera.
+  keepAbove(height = () => 0) {
     const { camera, controls } = this, reach = camera.position.distanceTo(controls.target);
-    controls.maxPolarAngle = Math.PI / 2 + Math.asin(Math.min(Math.max((controls.target.y - CAM_MIN_Y) / reach, -1), 1));
+    const floor = CAM_MIN_Y + height(camera.position.x, camera.position.z);
+    controls.maxPolarAngle = Math.PI / 2 + Math.asin(Math.min(Math.max((controls.target.y - floor) / reach, -1), 1));
   }
 
   // Close views: aim the shadow camera after the sun turns. Free play: shadowTo().

@@ -3,6 +3,7 @@
 //
 //   const physics = new Physics({ ground });   // ground: [z, y] heights across the street, or flat
 //   physics.addFence({ x: [x0, x1], z: [z0, z1] });   // walls round a box: keep props in the play area
+//   physics.addMesh(positions, indices);       // static ground of triangles: a land area (land.js)
 //   physics.addBird(ibis);                     // the controller then can't walk through props
 //   const id = physics.addBox(size, { position, mass });
 //   const hinge = physics.addHinge(id, lidId, point, axis, normal, [min, max]);   // a lid or a door
@@ -46,14 +47,14 @@
 import {
   CastRayStatus, MotionType, MotorState, SpringMode, addBroadphaseLayer, addObjectLayer, box, capsule, castRay, convexHull,
   createClosestCastRayCollector, createDefaultCastRaySettings, createWorld, createWorldSettings, enableCollision, filter,
-  compound, hingeConstraint, kcc, motionProperties, offsetCenterOfMass, registerConstraints, registerShapes, rigidBody, sphere, updateWorld,
+  compound, hingeConstraint, kcc, motionProperties, offsetCenterOfMass, registerConstraints, registerShapes, rigidBody, sphere, triangleMesh, updateWorld,
 } from 'crashcat';
 import { Matrix4, Quaternion, Vector3 } from 'three';
 import { Character } from '../ibis/motion/character.js';
 import { GROUND } from '../ibis/motion/controller.js';
 import { HEAD_SCALE, solveRig } from '../ibis/rig.js';
 
-registerShapes([sphere.def, box.def, capsule.def, convexHull.def, offsetCenterOfMass.def, compound.def]);
+registerShapes([sphere.def, box.def, capsule.def, convexHull.def, offsetCenterOfMass.def, compound.def, triangleMesh.def]);
 registerConstraints([hingeConstraint.def]);
 
 const STEP = 1 / 120;   // longest sub step, seconds, as in Character
@@ -115,7 +116,7 @@ export const GRAB = {
 const LIMB_TELEPORT = 1;       // a limb that moves farther than this in a frame jumps there: no kick
 
 const GROUND_HALF = 100;   // half size of the ground, x and z: past the play area (PLAY in street.js)
-const GROUND_DEPTH = 1;   // the ground solids go this far down
+const GROUND_DEPTH = 1.5;   // ground solids and rays go this far below 0: under the deepest mud (land.js)
 
 export class Physics {
   // ground: [z, y] points from +z to -z (PROFILE in street.js), straight between. Without it: flat at 0.
@@ -190,6 +191,14 @@ export class Physics {
         shape: convexHull.create({ positions: points, convexRadius: 0 }), position: [0, 0, 0],
       });
     }
+  }
+
+  // Static ground of triangles (land.js), counter-clockwise from above. No inside: keep it above -GROUND_DEPTH.
+  addMesh(positions, indices) {
+    return rigidBody.create(this.world, {
+      motionType: MotionType.STATIC, objectLayer: this.layers.fixed, friction: GROUND_FRICTION,
+      shape: triangleMesh.create({ positions, indices }), position: [0, 0, 0],
+    }).id;
   }
 
   // Static ground the bird walks on: a convex hull round points (flat array [x, y, z, ...], world).

@@ -1,56 +1,67 @@
-// Level data (JSON) to the level definition that Level (src/world/level.js) takes.
+// Level JSON to a Level definition. Format: docs/levels.md.
 //
-//   import SUBURB from './suburb.json';
-//   const level = new Level(buildLevel(SUBURB), { asset, birds, scene });
-//
-// The format is in docs/levels.md. A "note" key anywhere is a comment: the loader ignores it.
+//   const level = new Level(buildLevel(LEVELS.suburb), { asset, birds, scene });
 import { FLIERS, SPECIES } from '../characters/species.js';
 import { Backdrop } from '../world/backdrop.js';
 import { PROPS } from '../world/kinds.js';
-import { inPuddle, PUDDLE } from '../world/puddle.js';
 import { Sky } from '../world/sky.js';
 import { AREAS } from './areas.js';
+
+// Every level in src/levels/, by file name.
+export const LEVELS = Object.fromEntries(Object.entries(import.meta.glob('./*.json', { eager: true, import: 'default' })).map(([path, data]) => [path.slice(2, -5), data]));
 
 export function buildLevel(data) {
   check(data);
   const { areas } = data;
-  // The first area's ground is the level's ground.
-  if (!AREAS[areas[0].type].ground) throw new Error(`Level ${data.id}: the first area must have a ground`);
-  const ground = AREAS[areas[0].type].ground(areas[0]);
-  const puddle = areas.some(a => a.puddle);
+  const owns = areas.map(a => AREAS[a.type].ground?.(a) ?? null);
+  const lands = owns.slice(1).filter(Boolean);
+  if (!owns[0]) throw new Error(`Level ${data.id}: the first area must have a ground`);
+  if (owns[0].from !== undefined && lands.length) throw new Error(`Level ${data.id}: a land first area must be the only land`);
+  const ground = joinGrounds(owns[0], lands);
   const all = key => areas.flatMap(a => a[key] ?? []);
   const gates = all('props').filter(p => p.kind === 'gate');
+  const bounds = {
+    x: [Math.min(...areas.map(a => a.bounds.x[0])), Math.max(...areas.map(a => a.bounds.x[1]))],
+    z: [Math.min(...areas.map(a => a.bounds.z[0])), Math.max(...areas.map(a => a.bounds.z[1]))],
+  };
   return {
     id: data.id,
     ground,
-    // What a foot prints on (fx), and what it is on, for the sound of a step. None in the puddle.
-    surface: (x, z) => (puddle && inPuddle(x, z) ? false : ground.print(x, z)),
-    under: (x, z) => (puddle && inPuddle(x, z) ? 'puddle' : ground.kind(x, z)),
-    // The box round all areas: the characters stay in it. Walls (the fence) keep them in an area.
-    bounds: {
-      x: [Math.min(...areas.map(a => a.bounds.x[0])), Math.max(...areas.map(a => a.bounds.x[1]))],
-      z: [Math.min(...areas.map(a => a.bounds.z[0])), Math.max(...areas.map(a => a.bounds.z[1]))],
-    },
+    surface: ground.print,
+    under: ground.kind,
+    bounds,
     scenery: ctx => [
       ...(data.sky ? [new Sky(ctx.asset.sun)] : []),
-      ...areas.flatMap(a => AREAS[a.type].parts(a, { ...ctx, bounds: a.bounds, gates })),
-      ...(data.backdrop ? [new Backdrop()] : []),
+      ...areas.flatMap((a, i) => AREAS[a.type].parts(a, { ...ctx, own: owns[i], bounds: a.bounds, gates })),
+      ...(data.backdrop ? [new Backdrop(bounds)] : []),
     ],
-    puddle,
-    // Background sounds (ambience.js): cicadas in the gums, the mower, frogs at the puddle.
     ambience: {
       cicadas: all('plants').filter(p => p.kind === 'gum').map(p => p.at),
       mower: data.ambience?.mower,
-      frogs: puddle ? PUDDLE.at : undefined,
+      frogs: data.ambience?.frogs,
     },
-    // Seeds come from the place in these lists, so the order of the areas matters.
+    // Seeds come from list order.
     characters: all('characters'),
     fliers: all('fliers'),
     props: all('props'),
   };
 }
 
-// Throws on a name that has no type, kind or species, with the path to it.
+// Base ground with each land over it from z = land.from. The profile stops at cut: the land has its own mesh.
+function joinGrounds(base, lands) {
+  if (!lands.length) return base;
+  const cut = Math.min(...lands.map(l => l.from));
+  const at = (x, z) => (z < cut ? base : lands.find(l => z >= l.from) ?? base);
+  const profile = [[cut, base.height(0, cut)], ...base.profile.filter(([z]) => z < cut)];
+  return {
+    profile, cut,
+    height: (x, z) => at(x, z).height(x, z),
+    floor: (x, z) => { const g = at(x, z); return g.floor ? g.floor(x, z) : g.height(x, z); },
+    kind: (x, z) => at(x, z).kind(x, z),
+    print: (x, z) => at(x, z).print(x, z),
+  };
+}
+
 function check({ id, areas }) {
   const fail = (path, message) => { throw new Error(`Level ${id}: ${path}: ${message}`); };
   if (!areas?.length) fail('areas', 'no areas');
