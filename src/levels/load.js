@@ -26,6 +26,7 @@ export function buildLevel(data) {
   };
   return {
     id: data.id,
+    mission: data.mission ?? null,
     ground,
     surface: ground.print,
     under: ground.kind,

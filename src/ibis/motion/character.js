@@ -17,6 +17,7 @@ const TRIP_SPEED = 1.7;    // a prod at this speed or more trips the bird: a run
 // A knock into a heavy prop trips the bird only at about a full run, and only sometimes (never the first):
 // most knocks are a headbutt push.
 const KNOCK_TRIP = { speed: 2.8, chance: 0.25 };
+const FLING_TAP = 0.18;    // a peck held less than this with a prop in the bill drops it, not a fling
 
 export class Character {
   constructor({ seed = 0 } = {}) {
@@ -27,6 +28,11 @@ export class Character {
     // back out of solid things (src/world/physics.js).
     this.collide = null;
     this.snapAt = null;   // a miner that a peck snaps at now (world point, from sentry.js), or null
+    this.inside = null;   // the disguise the bird is in (src/world/disguise.js), or null
+    this.hop = false;     // a peck to hop in or out of a disguise (disguise.js reads and clears it)
+    this.canHide = null;  // () => true when a disguise is in reach (disguise.js), or null
+    this.aiming = null;   // seconds the peck is held with a prop in the bill (aim()), or null
+    this.flung = 0;       // seconds of the aim of the last fling, for its power (fling.js)
   }
 
   get input() { return this.controller.input; }
@@ -38,6 +44,9 @@ export class Character {
   // A peck with a prop in the bill drops it. With a miner to snap at (snapAt), a peck is a snap at it,
   // with the head turned to it.
   act(name, options) {
+    // A peck in a disguise, or near one (canHide: set by disguise.js), hops out or in.
+    if (name === 'peck' && (this.inside || this.canHide?.())) { this.hop = true; return; }
+    if (this.inside) return;   // no other actions in a disguise
     if (name === 'peck' && this.controller.carry !== null) name = 'drop';
     else if (name === 'peck' && this.snapAt) {
       name = 'snap';
@@ -47,6 +56,22 @@ export class Character {
     this.animator.play(name, options);
   }
   turnTo(heading) { this.controller.turnTo(heading); }
+
+  // The peck button goes down: with a prop in the bill, aim a fling (hold); else a peck.
+  peckDown() {
+    if (this.controller.carry !== null && !this.inside) { this.aiming = 0; this.animator.play('aim'); }
+    else this.act('peck');
+  }
+
+  // The peck button comes up: a short hold drops the prop, a longer one flings it.
+  peckUp() {
+    if (this.aiming === null) return;
+    const t = this.aiming;
+    this.aiming = null;
+    if (t < FLING_TAP) { this.animator.stop(); this.act('peck'); return; }
+    this.flung = t;
+    this.animator.play('fling');
+  }
 
   // A prod (a click or a tap) at a point in character space. Each prod soon after the last one annoys
   // the bird more: it looks away, then glares, then shakes its head, then shakes itself, then turns and
@@ -90,6 +115,10 @@ export class Character {
     this.events.length = 0;
     const n = Math.max(1, Math.ceil(dt / STEP - 1e-6));
     const c = this.controller, a = this.animator;
+    if (this.aiming !== null) {
+      this.aiming += dt;
+      if (c.carry === null) { this.aiming = null; a.stop(); }   // knocked out of the bill
+    }
     for (let i = 0; i < n; i++) {
       // Root motion and input lock from the action. After its cancel time, input ends a locking action.
       const wants = c.input.move.lengthSq() > 0.01 || c.input.jump;

@@ -20,13 +20,22 @@
 // come from hash() with the seed.
 //
 //   const sentry = new Sentry(seed);
-//   sentry.add(flier, home, perches);            // home: [x, z]. The flier sits on its perch at once
+//   sentry.add(flier, home, perches, gaze);      // home: [x, z]. gaze: options of GAZE, or null. The flier
+//                                                // sits on its perch at once
 //   sentry.update(player, dt, perches);          // every frame, before the fliers' update. Then
 //                                                // sentry.events: 'alert' { flier } as one goes on alert,
 //                                                // 'hurt' { flier } as a snap hurts one
 //   sentry.bite();                               // the player's snap bites now ('bite' event)
 //   sentry.prey();                               // the miner a peck snaps at now (outlined), or null
 //   sentry.hear(at, loud);                       // a noise at a world point: loud, a kind of SENTRY.loud
+//   sentry.knock(flier, from);                   // a thrown prop hits it (fling.js): hurt, as by a snap
+// Gaze (an option of each miner in the level data): in place of the alert distance, the miner on its
+// perch looks along a direction (the fan on the ground, fans.js) and fills a meter (0 to 1) when it sees
+// the player: fast when the bird is in the open, slow when a disguise (disguise.js) moves, and not at all
+// when the disguise is still. A full meter is an attack. The '?' shows while the meter is up. It looks
+// at each of gaze.look (world headings) for gaze.hold seconds, turning at gaze.turn, or turns all the
+// time at gaze.spin (radians per second). In an attack, a player that hides in a still disguise for
+// GAZE.lose seconds is lost: the miner goes back.
 import { Vector3 } from 'three';
 import { clamp, hash } from '../ibis/motion/spring.js';
 
@@ -55,6 +64,13 @@ export const SENTRY = {
 // ground. cool: seconds with no alert and no attack after a hurt. All distances world units.
 export const SNAP = { range: 3.5, reach: 1.2, window: 0.2, away: 16, cool: 5 };
 
+// Gaze. range, angle: the fan, on the ground (world units), and half its width (radians). hold, turn:
+// seconds at each look, and the turn between (radians per second). open: seconds to fill the meter when
+// the bird is in view in the open; move: when a disguise moves in view, times the disguise's slow (a
+// bin looks more at home); fade: the meter lost per second out of view or still. still: a disguise
+// slower than this (units per second) is still. lose: see above.
+export const GAZE = { range: 10, angle: 0.5, hold: 2.5, turn: 1.6, open: 0.45, move: 1.3, fade: 0.5, still: 0.15, lose: 1 };
+
 export class Sentry {
   constructor(seed = 0) {
     this.seed = seed;
@@ -72,8 +88,12 @@ export class Sentry {
   // flier: Flier (src/miner/flier.js). home: [x, z]. perches: what it can sit on: each has perch() (a
   // world point, or null when it can't take a bird now) and optional face (a ground direction to land
   // along). It starts on its perch, or circles over its home when there is none.
-  add(flier, home, perches) {
-    const G = { flier, home: new Vector3(home[0], 0, home[1]), perch: null, spot: new Vector3(), state: 'back', time: 0, wait: 0, fuse: 0, noise: 0, cool: 0 };
+  add(flier, home, perches, gaze = null) {
+    const G = { flier, home: new Vector3(home[0], 0, home[1]), perch: null, spot: new Vector3(), state: 'back', time: 0, wait: 0, fuse: 0, noise: 0, cool: 0, lost: 0 };
+    if (gaze) {
+      const look = gaze.look ?? [0];
+      G.gaze = { ...GAZE, ...gaze, look, i: 0, t: 0, dir: look[0], meter: 0 };
+    }
     this.guards.push(G);
     flier.flight.centre.copy(G.home);
     if (!this.pick(G, perches)) return;
@@ -106,6 +126,16 @@ export class Sentry {
   // The player's snap bites now: for SNAP.window seconds, a miner near the head is hurt.
   bite() { this.biting = SNAP.window; }
 
+
+  // A thrown prop hits flier at the world point from (fling.js): hurt, as by a snap. Gives true if it
+  // could (a miner that tumbles already can't be hit again).
+  knock(flier, from) {
+    const G = this.guards.find(g => g.flier === flier);
+    if (!G || G.flier.flight.tumble || !this.player) return false;
+    this.hurt(G, this.player.object.position, this.perches ?? [], from);
+    return true;
+  }
+
   // The miner (Flier) that a peck of the player snaps at now, or null: the nearest one in the air within
   // SNAP.range of the head.
   prey() {
@@ -125,6 +155,8 @@ export class Sentry {
     if (!player) return;
     player.object.updateMatrixWorld();
     this.head.copy(player.rig.head).applyMatrix4(player.object.matrixWorld);
+    this.player = player;
+    this.perches = perches;
     const at = player.object.position, c = player.character.controller;
     if (Math.abs(c.speed) >= SENTRY.run && c.grounded) this.hear(at, SENTRY.loud.run * dt);
     for (const G of this.guards) {
@@ -144,11 +176,14 @@ export class Sentry {
         } else G.spot.copy(now);
       }
       const d = Math.hypot(at.x - G.spot.x, at.z - G.spot.z);
-      if (G.state === 'watch') this.watch(G, d, dt);
+      if (G.gaze) this.look(G, dt);
+      if (G.state === 'watch' && G.gaze) this.gazeWatch(G, d, dt);
+      else if (G.state === 'watch') this.watch(G, d, dt);
       else if (G.state === 'alert') this.alert(G, d, dt);
       else if (G.state === 'attack') this.attack(G, d, dt);
       else this.back(G, d, dt, perches);
-      G.flier.mark = G.state === 'alert' ? '?' : G.state === 'attack' && G.time < SENTRY.exclaim ? '!' : null;
+      const unsure = G.state === 'alert' || (G.gaze && G.state === 'watch' && G.gaze.meter > 0.02);
+      G.flier.mark = unsure ? '?' : G.state === 'attack' && G.time < SENTRY.exclaim ? '!' : null;
     }
     this.biting = Math.max(this.biting - dt, 0);
     this.dive(dt);
@@ -156,9 +191,9 @@ export class Sentry {
 
   // A snap hurts G: it tumbles away and takes a new home on the free perch nearest to it that is at
   // least SNAP.away from the player (at). With none, a home that far, straight away from the player.
-  hurt(G, at, perches) {
+  hurt(G, at, perches, from = this.head) {
     const f = G.flier.flight, p = f.position;
-    f.hurt(this.head);
+    f.hurt(from);
     const taken = new Set(this.guards.map(g => g !== G && g.perch));
     let best = null;
     for (const perch of perches) {
@@ -188,6 +223,7 @@ export class Sentry {
     G.time = 0;
     G.wait = 0;
     G.fuse = 0;
+    G.lost = 0;
     if (state === 'alert') this.events.push({ type: 'alert', flier: G.flier });
   }
 
@@ -204,6 +240,41 @@ export class Sentry {
     f.watch = null;
     f.agitation = Math.max(f.agitation - SENTRY.settle * dt, 0);
     if (G.cool <= 0 && d < this.reach(G)) this.go(G, 'alert');
+  }
+
+  // The gaze direction: hold each look, then turn to the next; or turn all the time (spin).
+  look(G, dt) {
+    const g = G.gaze;
+    if (g.spin) { g.dir += g.spin * dt; return; }
+    const to = g.look[g.i], off = Math.atan2(Math.sin(to - g.dir), Math.cos(to - g.dir));
+    if (Math.abs(off) > 1e-3) { g.dir += Math.sign(off) * Math.min(Math.abs(off), g.turn * dt); return; }
+    if ((g.t += dt) > g.hold) { g.t = 0; g.i = (g.i + 1) % g.look.length; }
+  }
+
+  // Is the player in the gaze fan of G? d: its distance on the ground.
+  sees(G, d) {
+    const g = G.gaze, at = this.player.object.position;
+    if (d > g.range) return false;
+    if (d < 0.8) return true;
+    const a = Math.atan2(at.x - G.spot.x, at.z - G.spot.z);
+    return Math.abs(Math.atan2(Math.sin(a - g.dir), Math.cos(a - g.dir))) < g.angle;
+  }
+
+  // On the perch with a gaze: it looks along it, and the meter fills while it sees the player.
+  gazeWatch(G, d, dt) {
+    const f = G.flier.flight, g = G.gaze, c = this.player.character, inside = c.inside;
+    f.watch = new Vector3(G.spot.x + 5 * Math.sin(g.dir), G.spot.y, G.spot.z + 5 * Math.cos(g.dir));
+    const moving = Math.abs(c.controller.speed) > g.still || !c.controller.grounded;
+    const seen = f.landed && G.cool <= 0 && this.sees(G, d);
+    const fill = !seen || (inside && !moving) ? -g.fade : inside ? 1 / (g.move * inside.slow) : 1 / g.open;
+    g.meter = clamp(g.meter + fill * dt, 0, 1);
+    f.agitation = g.meter;
+    if (g.meter < 1) return;
+    g.meter = 0;
+    f.call('scold');
+    this.go(G, 'attack');
+    G.time = SENTRY.spot;   // straight off the perch: the full meter was the warning
+    G.wait = this.random(...SENTRY.scold);
   }
 
   // On the perch, it faces the player and calls, faster and more agitated as the player comes nearer or
@@ -237,7 +308,12 @@ export class Sentry {
       f.call('scold');
       G.wait = this.random(...SENTRY.scold);
     }
-    if (d > this.far(G)) this.go(G, 'back');
+    if (d > this.far(G)) { this.go(G, 'back'); return; }
+    // With a gaze: a player still in a disguise for GAZE.lose seconds is lost.
+    const c = this.player.character;
+    if (G.gaze && c.inside && Math.abs(c.controller.speed) < G.gaze.still) {
+      if ((G.lost += dt) > G.gaze.lose) this.go(G, 'back');
+    } else G.lost = 0;
   }
 
   // Back to the perch. It attacks again if the player comes within the attack distance.
@@ -245,12 +321,12 @@ export class Sentry {
     const f = G.flier.flight;
     f.centre.copy(G.home);
     f.agitation = Math.max(f.agitation - SENTRY.settle * dt, 0);
-    if (d < SENTRY.attack && !f.landed && G.cool <= 0) {
+    if (!G.gaze && d < SENTRY.attack && !f.landed && G.cool <= 0) {
       f.takeOff();
       this.go(G, 'attack');
       return;
     }
-    if (f.landed) { this.go(G, d < SENTRY.alert && G.cool <= 0 ? 'alert' : 'watch'); return; }
+    if (f.landed) { this.go(G, !G.gaze && d < SENTRY.alert && G.cool <= 0 ? 'alert' : 'watch'); return; }
     if (!f.circling) return;
     if (!G.perch && !this.pick(G, perches)) return;
     f.land(G.spot, G.perch.face ?? null);

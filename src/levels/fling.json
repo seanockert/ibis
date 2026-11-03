@@ -1,0 +1,520 @@
+{
+  "id": "fling",
+  "note": "Toy level for the fling (docs/game-findings.md): no mission, only a few challenges. Lemons under a lemon bush to throw; miners on fence posts, on the Hills Hoist and on the bin; stubbies and a stack of boxes to knock over.",
+  "sky": true,
+  "backdrop": true,
+  "mission": {
+    "goal": "Fling toy: pick up a lemon, hold peck to aim, let go to throw.",
+    "challenges": [
+      {
+        "kind": "hits",
+        "text": "Miners knocked down",
+        "need": 5
+      },
+      {
+        "kind": "air",
+        "text": "Hit a miner in the air"
+      },
+      {
+        "kind": "far",
+        "text": "Long shot (12+)",
+        "need": 12
+      },
+      {
+        "kind": "stubbies",
+        "text": "Stubbies down",
+        "need": 10
+      }
+    ]
+  },
+  "areas": [
+    {
+      "id": "yard",
+      "type": "land",
+      "bounds": {
+        "x": [
+          -19.3,
+          19.3
+        ],
+        "z": [
+          -25.3,
+          19.3
+        ]
+      },
+      "box": {
+        "x": [
+          -44,
+          44
+        ],
+        "z": [
+          -44,
+          44
+        ]
+      },
+      "features": [
+        {
+          "type": "noise",
+          "scale": 0.08,
+          "height": 0.2
+        },
+        {
+          "type": "patches",
+          "scale": 0.14,
+          "above": 0.7,
+          "wear": 0.35
+        },
+        {
+          "type": "dirt",
+          "note": "Under the lemon bush.",
+          "at": [
+            -4,
+            -9
+          ],
+          "radius": 2.8,
+          "wear": 0.6
+        },
+        {
+          "type": "dirt",
+          "note": "Under the hoist.",
+          "at": [
+            0,
+            6
+          ],
+          "radius": 2.4,
+          "wear": 0.6
+        }
+      ],
+      "fences": [
+        [
+          [
+            -20,
+            -26
+          ],
+          [
+            20,
+            -26
+          ]
+        ],
+        [
+          [
+            20,
+            -26
+          ],
+          [
+            20,
+            20
+          ]
+        ],
+        [
+          [
+            20,
+            20
+          ],
+          [
+            -20,
+            20
+          ]
+        ],
+        [
+          [
+            -20,
+            20
+          ],
+          [
+            -20,
+            -26
+          ]
+        ]
+      ],
+      "plants": [
+        {
+          "kind": "shrub",
+          "note": "The lemon bush.",
+          "at": [
+            -4,
+            -9
+          ],
+          "flowers": "yellow",
+          "seed": 0
+        },
+        {
+          "kind": "gum",
+          "at": [
+            -27,
+            26
+          ],
+          "seed": 1
+        },
+        {
+          "kind": "gum",
+          "at": [
+            27,
+            -30
+          ],
+          "seed": 2
+        },
+        {
+          "kind": "bottlebrush",
+          "at": [
+            26,
+            10
+          ],
+          "seed": 3
+        }
+      ],
+      "rows": [
+        {
+          "from": [
+            -28,
+            25
+          ],
+          "to": [
+            28,
+            25
+          ],
+          "every": 4.5,
+          "jitter": 1,
+          "seed": 5,
+          "kinds": [
+            "shrub",
+            {
+              "kind": "shrub",
+              "flowers": "pink"
+            },
+            "shrub",
+            "bottlebrush"
+          ]
+        },
+        {
+          "from": [
+            -28,
+            -32
+          ],
+          "to": [
+            28,
+            -32
+          ],
+          "every": 4.5,
+          "jitter": 1,
+          "seed": 7,
+          "kinds": [
+            "shrub",
+            "shrub",
+            {
+              "kind": "shrub",
+              "flowers": "yellow"
+            }
+          ]
+        }
+      ],
+      "characters": [
+        {
+          "species": "ibis",
+          "at": [
+            0,
+            -12
+          ],
+          "heading": 0,
+          "player": true,
+          "seed": 0
+        }
+      ],
+      "fliers": [
+        {
+          "species": "miner",
+          "note": "On the back fence.",
+          "home": [
+            -10,
+            20
+          ],
+          "height": 4.5,
+          "radius": 4,
+          "dir": 1,
+          "seed": 1
+        },
+        {
+          "species": "miner",
+          "note": "On the back fence.",
+          "home": [
+            10,
+            20
+          ],
+          "height": 4.5,
+          "radius": 4,
+          "dir": -1,
+          "seed": 2
+        },
+        {
+          "species": "miner",
+          "note": "On the left fence.",
+          "home": [
+            -20,
+            5
+          ],
+          "height": 4.5,
+          "radius": 4,
+          "dir": 1,
+          "seed": 3
+        },
+        {
+          "species": "miner",
+          "note": "On top of the Hills Hoist: a high shot.",
+          "home": [
+            0,
+            6
+          ],
+          "height": 6.5,
+          "radius": 4,
+          "dir": -1,
+          "seed": 4
+        },
+        {
+          "species": "miner",
+          "note": "On the bin lid.",
+          "home": [
+            12,
+            8
+          ],
+          "height": 5,
+          "radius": 4,
+          "dir": 1,
+          "seed": 5
+        }
+      ],
+      "props": [
+        {
+          "kind": "hoist",
+          "at": [
+            0,
+            6
+          ],
+          "spin": 0.25,
+          "seed": 6
+        },
+        {
+          "kind": "bin",
+          "at": [
+            12,
+            8
+          ],
+          "heading": -0.4,
+          "flies": [
+            2,
+            3
+          ],
+          "seed": 7
+        },
+        {
+          "kind": "stubbies",
+          "at": [
+            8,
+            -3
+          ],
+          "seed": 8
+        },
+        {
+          "kind": "box",
+          "at": [
+            -10,
+            4
+          ],
+          "size": [
+            1.3,
+            1.4,
+            1.05
+          ],
+          "heading": 0.2,
+          "seed": 9
+        },
+        {
+          "kind": "box",
+          "at": [
+            -10,
+            4
+          ],
+          "size": [
+            1.1,
+            1.0,
+            0.9
+          ],
+          "heading": -0.1,
+          "seed": 10
+        },
+        {
+          "kind": "cereal",
+          "at": [
+            -10,
+            4
+          ],
+          "size": [
+            0.52,
+            0.74,
+            0.18
+          ],
+          "heading": 0.5,
+          "print": "berry",
+          "seed": 11
+        },
+        {
+          "kind": "cereal",
+          "at": [
+            2.5,
+            -10.5
+          ],
+          "size": [
+            0.52,
+            0.74,
+            0.18
+          ],
+          "heading": -0.3,
+          "print": "sunny",
+          "seed": 12
+        },
+        {
+          "kind": "ball",
+          "at": [
+            -6,
+            0
+          ],
+          "heading": 0.7,
+          "seed": 13
+        },
+        {
+          "kind": "lemon",
+          "at": [
+            -3.59,
+            -7.66
+          ],
+          "heading": 0.51,
+          "seed": 20
+        },
+        {
+          "kind": "lemon",
+          "at": [
+            -2.23,
+            -8.31
+          ],
+          "heading": 2.04,
+          "seed": 21
+        },
+        {
+          "kind": "lemon",
+          "at": [
+            -2.62,
+            -9.81
+          ],
+          "heading": 3.57,
+          "seed": 22
+        },
+        {
+          "kind": "lemon",
+          "at": [
+            -3.45,
+            -11.23
+          ],
+          "heading": 4.93,
+          "seed": 23
+        },
+        {
+          "kind": "lemon",
+          "at": [
+            -4.92,
+            -10.19
+          ],
+          "heading": 6.46,
+          "seed": 24
+        },
+        {
+          "kind": "lemon",
+          "at": [
+            -5.99,
+            -9.22
+          ],
+          "heading": 7.82,
+          "seed": 25
+        },
+        {
+          "kind": "lemon",
+          "at": [
+            -5.83,
+            -7.16
+          ],
+          "heading": 9.35,
+          "seed": 26
+        },
+        {
+          "kind": "lemon",
+          "at": [
+            -5.15,
+            -8.66
+          ],
+          "heading": 8.5,
+          "seed": 27
+        },
+        {
+          "kind": "lemon",
+          "at": [
+            -1.81,
+            -7.26
+          ],
+          "heading": 1.53,
+          "seed": 28
+        },
+        {
+          "kind": "lemon",
+          "at": [
+            -4.56,
+            -11.13
+          ],
+          "heading": 5.78,
+          "seed": 29
+        },
+        {
+          "kind": "lemon",
+          "at": [
+            3,
+            -12
+          ],
+          "heading": 0.5,
+          "seed": 30
+        },
+        {
+          "kind": "lemon",
+          "at": [
+            6,
+            -8
+          ],
+          "heading": 0.5,
+          "seed": 31
+        },
+        {
+          "kind": "lemon",
+          "at": [
+            -1,
+            -4
+          ],
+          "heading": 0.5,
+          "seed": 32
+        },
+        {
+          "kind": "lemon",
+          "at": [
+            10,
+            -10
+          ],
+          "heading": 0.5,
+          "seed": 33
+        },
+        {
+          "kind": "lemon",
+          "at": [
+            -8,
+            -2
+          ],
+          "heading": 0.5,
+          "seed": 34
+        }
+      ]
+    }
+  ]
+}

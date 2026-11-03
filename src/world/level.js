@@ -16,11 +16,14 @@ import { IbisEffects } from '../ibis/effects.js';
 import { clamp, hash } from '../ibis/motion/spring.js';
 import { Ambience } from './ambience.js';
 import { Flies } from './flies.js';
+import { Fling } from './fling.js';
 import { Highlight } from './highlight.js';
 import { PROPS } from './kinds.js';
 import { seeInside } from './props.js';
 import { Physics } from './physics.js';
 import { stack } from './place.js';
+import { Hiding } from './disguise.js';
+import { GazeFans } from './fans.js';
 import { splashMud } from './mud.js';
 import { Terrain } from './terrain.js';
 
@@ -90,6 +93,9 @@ export class Level {
     this.props = [];
     this.highlight = null;   // a white outline round the prop that a peck of the player would pick up now
     this.flies = null;       // flies round the props with flies in the level data (flies.js)
+    this.hiding = null;      // the disguises' rules (disguise.js), when the level has disguises
+    this.fans = null;        // the miners' gaze on the ground (fans.js), when a miner has a gaze
+    this.fling = null;       // the player's throws (fling.js), with physics
     if (!this.physics) return;
     const [x0, x1] = this.bounds.x, [z0, z1] = this.bounds.z;
     this.physics.addFence({ x: [x0 - PROP_FENCE, x1 + PROP_FENCE], z: [z0 - PROP_FENCE, z1 + PROP_FENCE] });
@@ -115,6 +121,9 @@ export class Level {
         if (flies) hosts.push({ prop, count: flies });
       }
       this.perches.push(...this.props.filter(p => p.perch));
+      // Disguises: the bird hides in them (disguise.js).
+      const disguises = this.props.filter(p => p.disguise);
+      if (disguises.length) this.hiding = new Hiding(this, disguises);
       if (hosts.length) {
         this.flies = new Flies(hosts, this.ground.height);
         this.scene.add(this.flies.object);
@@ -123,7 +132,14 @@ export class Level {
     // Each flier sits on a perch near its home.
     const first = this.def.characters.length, fliers = this.def.fliers ?? [];
     if (fliers.length) this.sentry = new Sentry(first);
-    fliers.forEach(({ species, home, seed = first + i, ...flight }, i) => this.sentry.add(this.addFlier(FLIERS[species](this.birds, seed, flight)), home, this.perches));
+    fliers.forEach(({ species, home, seed = first + i, gaze = null, ...flight }, i) => this.sentry.add(this.addFlier(FLIERS[species](this.birds, seed, flight)), home, this.perches, gaze));
+    // The player's throws: hold the peck with a prop in the bill.
+    if (this.physics && this.player) this.fling = new Fling(this);
+    // The gaze fans on the ground of the miners that have one.
+    if (this.sentry?.guards.some(G => G.gaze)) {
+      this.fans = new GazeFans(this.sentry, this.ground.height);
+      this.scene.add(this.fans.object);
+    }
   }
 
   // Adds a character. at: [x, z], or none to keep where it is. player: the one the input drives. brain:
@@ -182,6 +198,7 @@ export class Level {
       const target = this.targets.get(ibis), step = WEATHER_RATE * dt;
       for (const key of ['mud', 'wet']) ibis[key] = Math.min(Math.max(target[key], ibis[key] - step), ibis[key] + step);
       if (!this.physics) floorOf(ibis.character.controller);
+      this.hiding?.steer(ibis);
       ibis.update(dt);
       // A step in mud (land.js): mud on the bird, blobs, a splash sound and a ring.
       if (this.ground !== FLAT && this.def.under) {
@@ -205,6 +222,7 @@ export class Level {
         target.mud = ibis.mud = Math.max(ibis.mud - 0.5, 0);
       }
     }
+    this.fans?.update();
     // The fliers guard their perches, call, and dive at the player. A dive that hits the player's head
     // makes it drop what it holds and stumble.
     // A squawk or a hiss of the player is a noise that the miners hear.
@@ -226,7 +244,8 @@ export class Level {
     }
     // The next peck snaps at this miner, which shows a white outline.
     if (this.player && this.sentry) {
-      const prey = this.sentry.prey();
+      // A disguise in reach (outlined) wins: the peck goes in, not a snap. A bird in one can't snap.
+      const prey = this.player.character.inside || this.hiding?.target(this.player) ? null : this.sentry.prey();
       this.player.character.snapAt = prey?.centre() ?? null;
       for (const flier of this.fliers) flier.glow = flier === prey ? 1 : 0;
     }
@@ -242,6 +261,7 @@ export class Level {
       }
     }
     if (this.physics) {
+      this.fling?.beforeStep();
       this.physics.step(dt);
       for (const prop of this.props) {
         prop.update(this.ibises, dt, camera);
@@ -260,7 +280,11 @@ export class Level {
         }
         if (prop.spray) sound?.spray(prop.spray, camera, prop);
       }
-      this.highlight.update(this.props, this.player ? this.physics.target(this.player) : null);
+      this.hiding?.update();
+      this.fling?.update(dt);
+      // The outline: the disguise a peck goes into, or else the prop it takes.
+      const into = this.player && this.hiding?.target(this.player);
+      this.highlight.update(this.props, into || (this.player ? this.physics.target(this.player) : null));
       this.collidersView?.update();
     }
     if (this.flies) {

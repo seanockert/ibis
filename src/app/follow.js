@@ -33,6 +33,10 @@ export const CAMERA = {
                            // the angle from behind: none when the bird moves straight at the camera
   resume: 2,               // seconds after a drag that turned the view, before the swing starts again
   recentre: 0.15,          // half-life of the turn behind the bird and back to the start pitch
+  // While the bird aims a fling (fling.js), and hold seconds after: the view rises lift (units), so
+  // miners up high are in it, and turns behind the bird (turn: half-life), so the aim is ahead. ease:
+  // half-life of the rise.
+  aim: { lift: 1.8, hold: 1.4, turn: 0.12, ease: 0.25 },
   // Glance: seconds in, held, and back. turn: part of the angle to the point that the view turns, at
   // most maxTurn radians. move: part of the way to the point that the view moves, at most maxMove
   // units. view: a point nearer the middle of the view than this (-1 to 1 across it) gets no glance.
@@ -169,7 +173,10 @@ export class Follow {
     const away = Math.hypot(p.x - this.x.value, p.z - this.z.value);
     this.x.freq = this.z.freq = CAMERA.follow * (1 + CAMERA.catchUp * Math.max(0, away - CAMERA.catchFrom));
     const air = Math.max(p.y - c.floor, 0), up = Math.min(Math.max(c.vy * CAMERA.riseLead, 0), CAMERA.riseMax);
-    const gy = this.height + c.floor + CAMERA.rise * air + (c.grounded ? 0 : up);
+    // Aim: the view rises while the bird aims, and a little after, to see the hit.
+    this.aimHold = character.aiming != null ? CAMERA.aim.hold : Math.max((this.aimHold ?? 0) - dt, 0);
+    this.lift = (this.lift ?? 0) + ((this.aimHold > 0 ? CAMERA.aim.lift : 0) - (this.lift ?? 0)) * damp(CAMERA.aim.ease, dt);
+    const gy = this.height + c.floor + CAMERA.rise * air + (c.grounded ? 0 : up) + this.lift;
     // The glance moves the centre on top of the follow, and turns the view after the swing (below).
     this.shift.set(this.x.update(dt, gx), this.y.update(dt, gy), this.z.update(dt, gz));
     const [turn, tilt, moved] = this.glanceStep(dt, this.shift);
@@ -179,10 +186,12 @@ export class Follow {
     this.orbit(-this.turned, -this.tilted);
     // Turn: the swing behind the bird, or the recentre.
     this.wait = Math.max(this.wait - dt, 0);
-    if (!this.from && (this.recentring || this.wait === 0)) {
+    const aiming = character.aiming != null;
+    if (!this.from && (this.recentring || this.wait === 0 || aiming)) {
       const o = this.offset.subVectors(this.camera.position, this.controls.target), s = this.sphere.setFromVector3(o);
       const error = wrapAngle(c.heading + Math.PI - s.theta);
-      if (this.recentring) {
+      if (aiming) s.theta += error * damp(CAMERA.aim.turn, dt);
+      else if (this.recentring) {
         const k = damp(CAMERA.recentre, dt), dp = this.pitch - s.phi;
         s.theta += error * k;
         s.phi += dp * k;

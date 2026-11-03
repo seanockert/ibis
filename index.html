@@ -71,6 +71,15 @@
   /* Frame meter (src/app/meter.js), top left. */
   .meter { position: fixed; top: var(--top); left: var(--left); margin: 0; padding: 0.25rem 0.5rem; border-radius: 0.375rem; background: rgb(38 40 56 / 0.6); color: var(--chip); font: 0.6875rem/1.35 ui-monospace, monospace; white-space: pre; pointer-events: none; }
 
+  /* Mission (src/app/hud.js, challenges.js): the goal, the count and a hint, top left; the win banner. */
+  .hud { position: fixed; top: calc(var(--top) + 3.25rem); left: var(--left); width: min(19rem, calc(100vw - 2 * var(--left))); padding: 0.5rem 0.75rem; border: 0.094rem solid var(--ink); border-radius: 0.75rem; background: rgb(246 242 234 / 0.88); font-size: 0.8125rem; pointer-events: none; }
+  .hud .goal { font-weight: 700; }
+  .hud .count { margin: 0.25rem 0; font-weight: 700; color: #b0452e; white-space: pre-line; }
+  .win { position: fixed; inset: 50% auto auto 50%; transform: translate(-50%, -50%); padding: 1.25rem 1.75rem; border: 0.125rem solid var(--ink); border-radius: 1rem; background: var(--chip); text-align: center; }
+  .win h2 { margin: 0 0 0.25rem; font-size: 1.5rem; }
+  .win p { margin: 0 0 0.75rem; }
+  .win button { padding: 0.375rem 0.875rem; border: 0.094rem solid var(--ink); border-radius: 999px; background: var(--ink); color: var(--chip); }
+
   @media (max-width: 37.5rem) {
     .bar { bottom: var(--bottom); }
   }
@@ -83,6 +92,8 @@
 <pre class="meter" id="meter" hidden></pre>
 <div class="stick" id="stick" hidden><div class="knob"></div></div>
 <div class="acts" id="acts" hidden></div>
+<div class="hud" id="hud" hidden><div class="goal"></div><div class="count"></div><div class="hint"></div></div>
+<div class="win" id="win" hidden><h2></h2><p>Time <span class="time"></span></p><button>Play again (R)</button></div>
 <script type="module" src="/src/main.js"></script>
 </body>
 </html>

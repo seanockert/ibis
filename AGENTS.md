@@ -20,6 +20,8 @@ Read the file in `docs/` for the area that you change, and only that file.
 | `docs/levels.md` | Level data, prop placement and stacking, characters and brains, `src/main.js` and `src/app/` |
 | `docs/environment.md` | Street, kerb, footpaths, fence, tufts, sky, backdrop, grade, free play camera |
 | `docs/land.md` | Land areas: hills, gullies, dirt and mud, the park (`land.js`) |
+| `docs/game.md` | The game design (hide in the rubbish), disguises, the miners' gaze, the mission view, the Barbie level |
+| `docs/game-findings.md` | A new game idea: what we tried, why it failed, the candidates and the plan |
 | `docs/improvements.md` | Performance and clean-up ideas not done yet, with triangle counts |
 
 When you learn something that cost time, add it to the docs file for that area, not here.

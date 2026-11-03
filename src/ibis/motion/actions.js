@@ -15,7 +15,8 @@
 //                     'thump' { amount } kicks the squash spring. dust: 'rump' or 'feet' makes a puff there.
 //                     Sound only (sound.js): 'call' { pitch, gain } a honk, 'hiss' { length }, 'clack'
 //                     { amount } the bill snaps shut, 'stamp' a foot hits the ground. 'grab' (physics.js)
-//                     picks up a prop in the bill, 'drop' lets it go. 'bite' (sentry.js) can hurt a miner
+//                     picks up a prop in the bill, 'drop' lets it go, 'fling' (fling.js) throws it.
+//                     'bite' (sentry.js) can hurt a miner
 //   anger             0 to 1: comic anger lines round the head while the action plays (effects.js)
 import { Vector3 } from 'three';
 import { clipPose } from '../rig.js';
@@ -139,6 +140,34 @@ export const ACTIONS = {
       P.wingL = P.wingR = mix(P.wingL, 0.12, window4(0.65, 0.72, 0.88, 1.0, t));
       blendFace(P, 'dazed', window4(0.38, 0.5, 0.88, 1.0, t));
       P.look.set(0, mix(-0.35, 0, up));
+    },
+  },
+  // Hold the peck with a prop in the bill (Character.aim()): a wind-up that grows over the first 0.8 s,
+  // the body back and the head pulled back and up, as a throw. Plays until release().
+  aim: {
+    length: Infinity, fadeIn: 0.08, fadeOut: 0.06, mask: UPPER, face: 'effort',
+    apply(P, t) {
+      const k = smoothstep(0, 0.8, t), wob = 0.03 * Math.sin(TAU * 7 * t) * k;
+      P.pitch = mix(P.pitch, -0.18, k);
+      P.stretch = mix(P.stretch, 0.85, k);
+      P.headFwd = mix(P.headFwd, -0.08, k);
+      P.headPitch = mix(P.headPitch, -0.55, k) + wob;
+      P.wingL = P.wingR = mix(P.wingL, 0.25, k);
+    },
+  },
+  // The fling (Character.release() after an aim): the head whips forward and down; 'fling' at the front
+  // of the whip lets go of the prop (fling.js). Then the head comes back.
+  fling: {
+    length: 0.5, fadeIn: 0.02, fadeOut: 0.18, mask: UPPER, face: 'smug',
+    events: [{ at: 0.07, type: 'fling' }],
+    apply(P, t) {
+      const back = 1 - smoothstep(0, 0.07, t), whip = window4(0.03, 0.08, 0.16, 0.5, t);
+      P.pitch = mix(P.pitch, -0.18, back) + 0.35 * whip;
+      P.stretch = mix(P.stretch, 1.25, whip);
+      P.headFwd = mix(P.headFwd, 0.12, whip);
+      P.headPitch = mix(mix(P.headPitch, -0.55, back), 0.45, whip);
+      P.jaw = Math.max(P.jaw, 0.6 * window4(0.06, 0.08, 0.2, 0.35, t));
+      P.wingL = P.wingR = mix(P.wingL, 0.45, window4(0.04, 0.08, 0.14, 0.35, t));
     },
   },
   // A peck while the bill holds a prop: the bill opens wider and the prop falls out. No jab.

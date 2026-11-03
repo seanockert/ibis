@@ -1,5 +1,6 @@
 // The buttons. Free play: a joystick (input.js), a diamond of Threat, Squawk, Peck and Jump (bottom
-// right; Jump acts while held, and a double-tap shakes the body; Squawk gives a squawk and a happy dance
+// right; Jump acts while held, and a double-tap shakes the body; Peck held with a prop in the bill aims
+// a fling; Squawk gives a squawk and a happy dance
 // in turn), and the other one-shot actions in the top bar after the time of day. Other views: one button for each move script.
 //
 //   const ui = new Ui({ play, anim, level, input, cycle, onMove });
@@ -45,6 +46,8 @@ export class Ui {
           if (on) { input.free(); input.pressJump(e.timeStamp); }
           input.jump = on;
         });
+        // Peck: held with a prop in the bill, it aims a fling; let go to throw.
+        else if (name === 'Peck') hold(b, on => (on ? bird.character.peckDown() : bird.character.peckUp()));
         else b.addEventListener('pointerdown', () => move.press(bird.character));
         acts.appendChild(b);
       }

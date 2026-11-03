@@ -148,6 +148,7 @@ export class IbisSound {
         if (e.type === 'hiss') this.hiss(place, e.length ?? 1);
         if (e.type === 'clack') this.clack(place, e.amount ?? 1);
         if (e.type === 'pick') this.pick(place, e.hold);
+        if (e.type === 'whoosh') this.whoosh(place);
         if (e.type === 'turn') this.squeak(place);
       }
     }
@@ -443,6 +444,13 @@ export class IbisSound {
 
   // The bill takes hold of a prop: a soft, muffled snap, lower than a clack. A stubby (hold 'round')
   // adds a faint tick of glass.
+  // A fling (fling.js): a fast swish of air, falling in pitch.
+  whoosh(place) {
+    const v = this.voice(place, L.pick * 0.7);
+    if (!v) return;
+    this.burst(v, { length: 0.22, gain: 0.9, attack: 0.02, filter: ['bandpass', 2600 * this.vary(0.1), 700, 1.2] });
+  }
+
   pick(place, hold) {
     const v = this.voice(place, L.pick * 0.4);
     if (!v) return;

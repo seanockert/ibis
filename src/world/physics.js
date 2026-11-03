@@ -584,6 +584,32 @@ export class Physics {
     rigidBody.setMotionType(this.world, body, MotionType.DYNAMIC, true);
   }
 
+  // Throws what the bill holds: dynamic again (drop()), with velocity v and spin w (world [x, y, z]).
+  // Gives its body id, or null when the bill held nothing.
+  // at: a world point to throw it from (the arc's start in fling.js), or the bill.
+  fling(ibis, v, w = [0, 0, 0], at = null) {
+    const bird = this.birds.find(b => b.ibis === ibis), id = bird?.held ?? null;
+    if (id === null) return null;
+    this.drop(bird);
+    const body = rigidBody.get(this.world, id);
+    if (at) rigidBody.setPosition(this.world, body, at, false);
+    rigidBody.setLinearVelocity(this.world, body, v);
+    rigidBody.setAngularVelocity(this.world, body, w);
+    return id;
+  }
+
+  // The linear damping of the held prop (per second), or 0.
+  heldDamping(ibis) {
+    const bird = this.birds.find(b => b.ibis === ibis);
+    return bird?.held == null ? 0 : rigidBody.get(this.world, bird.held).motionProperties.linearDamping;
+  }
+
+  // The world point where the held prop's middle is now, or null.
+  heldAt(ibis) {
+    const bird = this.birds.find(b => b.ibis === ibis);
+    return bird?.held == null ? null : this.holdPoint(bird);
+  }
+
   // A switch: a box (world [x0, y0, z0, x1, y1, z1]) that a peck turns in place of a pick up: grab()
   // calls turn(). Not a body: nothing collides with it. Returns its id, for target() and hull().
   addSwitch(box, turn) {
@@ -598,6 +624,7 @@ export class Physics {
   // gives up (fumble in actions.js).
   grab(bird) {
     const c = bird.ibis.character;
+    if (c.inside) return;   // in a disguise (disguise.js): a peck hops out instead
     const tip = this.headPoint(bird, GRAB.tip);
     const id = this.nearest(this.targets(), tip);
     if (this.switches?.has(id)) {
@@ -623,7 +650,8 @@ export class Physics {
   // to where the bill tip goes at the 'grab' of a peck (peckTip()). For a highlight.
   target(ibis) {
     const bird = this.birds.find(b => b.ibis === ibis);
-    if (!bird || bird.held !== null) return null;
+    if (!bird || ibis.character.inside) return null;
+    if (bird.held !== null) return null;
     const c = ibis.character, [x, y, z] = this.peckTip ??= peckTip();
     const cs = Math.cos(c.heading), sn = Math.sin(c.heading);
     return this.nearest(this.targets(), [c.position.x + x * cs + z * sn, c.position.y + y, c.position.z - x * sn + z * cs]);

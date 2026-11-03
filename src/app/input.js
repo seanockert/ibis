@@ -1,5 +1,6 @@
 // Free play input: WASD or the arrow keys walk, Shift runs, Space jumps (hold to flutter; a double-tap
-// shakes the body). The joystick walks, and runs when pushed far. A tap on the ground walks there (runs
+// shakes the body), E pecks (held with a prop in the bill: aim, then let go to fling), Q squawks (as the
+// buttons). The joystick walks, and runs when pushed far. A tap on the ground walks there (runs
 // when far); a tap on the player prods it. A drag orbits the camera. A tap on the middle of the joystick
 // turns the camera behind the bird.
 //
@@ -8,6 +9,7 @@
 //   input.apply(character);   // every frame, before the level update
 import * as THREE from 'three';
 import { MOVE } from '../ibis/motion/controller.js';
+import { MOVES } from '../moves.js';
 
 const TAP_PX = 8;           // a pointer that moves less than this between down and up is a tap
 const STICK_DEAD = 0.12;    // joystick dead zone, part of its reach
@@ -15,6 +17,7 @@ const STICK_RUN = 0.65;     // the joystick walks up to this part of its reach, 
 const STICK_TAP = 0.35;     // a tap on the joystick inside this part of its reach recentres the camera
 const TAP_MS = 300;         // a tap is shorter than this
 const DOUBLE_MS = 300;      // a jump press this soon after the last one is a double-tap: a body shake
+const ACT_KEYS = { KeyQ: 'Squawk' };   // keys that press a move button
 const WALK_KEYS = ['KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'];
 
 export class Input {
@@ -34,8 +37,13 @@ export class Input {
       this.keys.add(e.code);
       if (WALK_KEYS.includes(e.code)) this.free();
       if (e.code === 'Space') { e.preventDefault(); this.pressJump(e.timeStamp); }
+      if (ACT_KEYS[e.code]) MOVES.find(m => m.name === ACT_KEYS[e.code]).press(this.level.player.character);
+      if (e.code === 'KeyE') this.level.player.character.peckDown();
     });
-    addEventListener('keyup', e => this.keys.delete(e.code));
+    addEventListener('keyup', e => {
+      this.keys.delete(e.code);
+      if (e.code === 'KeyE') this.level.player.character.peckUp();
+    });
     addEventListener('blur', () => this.keys.clear());
     let down = null;
     canvas.addEventListener('pointerdown', e => { down = { x: e.clientX, y: e.clientY }; });

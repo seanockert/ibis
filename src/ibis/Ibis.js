@@ -72,8 +72,9 @@ export class Ibis {
     // The contours of the wings and the scarf do not draw over the torso (stencil 1): the body shader
     // draws their lines there instead.
     const contour = hullMaterial(asset.palette, asset.uniforms, body, 'contour', this.bird);
+    // One material for each group (shared uniforms), so showOnly() can hide a group.
     this.contour = this.attach(this.body.geometry, byGroup(i =>
-      i === WING_GROUP || i === SCARF_GROUP ? stencilled(contour, TORSO_GROUP + 1, NotEqualStencilFunc, KeepStencilOp) : contour));
+      i === WING_GROUP || i === SCARF_GROUP ? stencilled(contour, TORSO_GROUP + 1, NotEqualStencilFunc, KeepStencilOp) : sharing(contour)));
     this.contour.renderOrder = 1;   // after every body has drawn its stencil
     this.glowUniform = contour.uniforms.uGlow;
     const inner = hullMaterial(asset.palette, asset.uniforms, body, 'inner', this.bird);
@@ -83,6 +84,7 @@ export class Ibis {
     for (const g of [WING_GROUP, SCARF_GROUP]) if (this.inner.material[g]) this.inner.material[g].visible = false;
     this.lines = this.attach(asset.lineGeometry, lineMaterial(asset.uniforms));
     this.meshes = [this.body, this.contour, this.inner, this.lines];
+    this.shown = this.meshes.slice(0, 3).map(m => m.material.map(x => x?.visible));   // for showOnly()
     const viewport = new Vector4();
     for (const mesh of this.meshes) {
       mesh.boundingSphere = new Sphere(BOUND_OFFSET.clone(), BOUND_R);
@@ -92,6 +94,13 @@ export class Ibis {
     this.character = new Character({ seed });
     this.inPlace = false;   // true: the character moves on the spot, and object keeps its transform
     this.update(0);
+  }
+
+  // Draws only the part groups in groups (the _group values of tools/bake/bake.js: 3 is the legs), with
+  // no border lines. null: all, as made. A bird in a disguise shows only its legs (disguise.js).
+  showOnly(groups) {
+    this.meshes.slice(0, 3).forEach((m, k) => m.material.forEach((x, i) => { if (x) x.visible = this.shown[k][i] && (!groups || groups.includes(i)); }));
+    this.lines.visible = !groups;
   }
 
   // A second skinned mesh on the same skeleton.
@@ -164,6 +173,13 @@ export class Ibis {
   dispose() {
     for (const mesh of this.meshes) [mesh.material].flat().forEach(m => m.dispose());
   }
+}
+
+// A copy of material that shares its uniforms.
+function sharing(material) {
+  const m = material.clone();
+  m.uniforms = material.uniforms;
+  return m;
 }
 
 // A copy of material that shares its uniforms, with a stencil test and write. ref is the part group.

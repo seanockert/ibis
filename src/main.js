@@ -4,6 +4,8 @@
 import * as THREE from 'three';
 import { readConfig } from './app/config.js';
 import { Follow } from './app/follow.js';
+import { Challenges } from './app/challenges.js';
+import { Hud } from './app/hud.js';
 import { Input } from './app/input.js';
 import { Meter } from './app/meter.js';
 import { lockScreen } from './app/screen.js';
@@ -89,6 +91,11 @@ if (play && anim > 0) MOVES[anim - 1].press?.(bird.character);
 // The camera starts at the player, and follows it in free play.
 if (play) {
   const start = new THREE.Vector3(bird.character.position.x, 0, bird.character.position.z);
+  // A level with a mission starts with the camera behind the player.
+  if (level.def.mission) {
+    const off = camera.position.clone().sub(controls.target), r = Math.hypot(off.x, off.z), h = bird.character.heading;
+    camera.position.set(controls.target.x - Math.sin(h) * r, camera.position.y, controls.target.z - Math.cos(h) * r);
+  }
   camera.position.add(start);
   controls.target.add(start);
   controls.update();
@@ -105,6 +112,10 @@ const ui = new Ui({
     driven.forEach((ibis, k) => { scripts[k] = { move: i, run: startMove(ibis.character, i), time: 0 }; });
   },
 });
+
+// The mission view, in free play on a level with a mission.
+const hud = !play || !level.def.mission ? null : level.def.mission.challenges ? new Challenges(level) : new Hud(level, asset);
+window.demo.hud = hud;
 
 // Frame meter, top left: free play with the buttons.
 const meter = play && config.ui ? new Meter(stage.renderer) : null;
@@ -125,6 +136,7 @@ function frame() {
     if (++turning % 6 === 0 || !cycle.turning) renderFarShadow(stage.renderer, scene, asset.sun);
   }
   level.update(dt, camera);
+  hud?.update(dt);
   ui.update();
   stage.keepAbove(level.ground.height);
   if (follow) {

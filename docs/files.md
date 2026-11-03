@@ -50,6 +50,14 @@ What each source file does.
 | `src/world/highlight.js` | `Highlight`: a thick white outline round the prop that a peck would pick up now (`Physics.target()`, `hull(id)` on the prop). `HIGHLIGHT` |
 | `src/world/util.js` | `srgb()` (a colour from sRGB values) and `f()` (a number as a GLSL float), for the world files |
 | `src/world/sprinkler.js` | `Sprinkler`: an oscillating lawn sprinkler on a hose (a light prop) from a tap with a handle that a peck turns (a switch): a drop spray (one instanced draw, flights in the vertex shader), soak events, and a wet patch on the ground (`GROUND_WET`). `SPRINKLER` |
+| `src/world/disguise.js` | `Disguise` (a box or a bin that the bird hides in: legs out, eyes peek; `DISGUISE`), `Hiding` (in and out, the speed in one; `docs/game.md`) |
+| `src/world/fling.js` | `Fling`: the throw of what the bill holds (`FLING`): the aim arc (red and the miner outlined when it will hit), the throw on the `fling` event, hits on miners (`Sentry.knock()`) |
+| `src/app/challenges.js` | `Challenges`: the challenge list of a toy level (`mission.challenges`) |
+| `src/levels/fling.json` | The fling toy level: lemons, miners on posts, the hoist and the bin, stubbies (`?level=fling`) |
+| `src/world/fans.js` | `GazeFans`: each gaze miner's view as a fan on the ground, yellow to red with its meter |
+| `src/world/backyard.js` | `Deck` (with steps), `House` (the back wall), `Barbecue`, `HillsHoist` (turns; a perch), `Rug`, `FairyBread` (the loot), `Lemon` (to throw), `Nest` (the goal), `marker()` |
+| `src/app/hud.js` | `Hud`: the mission view of a level with a `mission`: goal, count, hint, markers, the win banner |
+| `src/levels/barbie.json` | The prototype level of the game: a back yard with a deck (`?level=barbie`) |
 | `src/world/stubbies.js` | `Stubbies`: ten empty beer stubbies as bowling pins, see-through glass, four instanced draws. `STUBBY`, `GLASS` |
 | `src/world/land.js` | `Field` (heights and dirt and mud from the features of a land area, on a grid), `Land` (its mesh, shader and physics mesh), `wildTufts()`. `LAND` |
 | `src/world/terrain.js` | `Terrain`: a test course (steps, a top, a ramp) of static prisms, for the foot placement. `COURSE` |
