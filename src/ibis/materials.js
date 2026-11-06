@@ -1,7 +1,7 @@
 // Toon materials for the mesh of a bird (src/birds.js): the body, the outline hull and the material lines.
 // Line widths are in character units, set to match the SDF view at its default camera, with a floor in
 // pixels so far away lines don't vanish.
-import { BackSide, Color, Matrix4, Quaternion, ShaderMaterial, UniformsLib, UniformsUtils, Vector2, Vector3 } from 'three';
+import { BackSide, Color, Matrix4, Quaternion, ShaderMaterial, UniformsLib, UniformsUtils, Vector2, Vector3, Vector4 } from 'three';
 import { bindPose, rigUniforms } from './rig.js';
 import eye from '../sdf/eye.glsl?raw';
 import library from '../sdf/library.glsl?raw';
@@ -215,6 +215,33 @@ vec3 weather(vec3 col, vec3 p, float band, vec3 n, vec3 v) {
 }
 `;
 
+// Bulge: the surface goes out round up to two capsules (an item in the head, a lump in the neck, a full
+// belly), so it wraps what the bird swallows. The g* rig and the SDF line tests do not know it: the body
+// shader keeps the position before the bulge for them. With both amounts 0, nothing changes.
+export const BULGES = 2;
+const BULGE = /* glsl */`
+uniform vec4 uBulgeA[${BULGES}];   // xyz: one end of the capsule, character space. w: its radius
+uniform vec4 uBulgeB[${BULGES}];   // xyz: the other end. w: 0 off, to 1: the surface goes out to the radius
+void bulge(inout vec3 p, inout vec3 n) {
+    for (int i = 0; i < ${BULGES}; i++) {
+        float k = uBulgeB[i].w;
+        if (k <= 0.0) continue;
+        vec3 a = uBulgeA[i].xyz, ab = uBulgeB[i].xyz - a;
+        vec3 d = p - (a + ab * clamp(dot(p - a, ab) / max(dot(ab, ab), 1e-6), 0.0, 1.0));
+        float l = length(d), r = uBulgeA[i].w * k, s = 0.16 * k;
+        if (l < 1e-5) continue;
+        // Smooth max of l and r, less l.
+        float grow = 0.5 * (r - l + sqrt((l - r) * (l - r) + s * s));
+        p += d / l * grow;
+        n = normalize(mix(n, d / l, smoothstep(0.0, 0.04, grow)));
+    }
+}
+`;
+const bulgeUniforms = () => ({
+  uBulgeA: { value: Array.from({ length: BULGES }, () => new Vector4()) },
+  uBulgeB: { value: Array.from({ length: BULGES }, () => new Vector4(0, 0, 0, 0)) },
+});
+
 const SKIN_VERTEX = /* glsl */`
     #include <skinbase_vertex>
     vec3 objectNormal = normal;
@@ -239,6 +266,7 @@ export function bodyMaterial(palette, shared, bird) {
       ...lightUniforms(), ...shared, ...rig, uHeadInv: { value: c.headInv },
       uLit: { value: lit }, uShade: { value: shade }, uLine: { value: line }, uGloss: { value: c.gloss() },
       uMud: { value: 0 }, uWet: { value: 0 }, uMudLit: { value: MUD_LIT }, uMudShade: { value: MUD_SHADE },
+      ...bulgeUniforms(),
     },
     vertexShader: /* glsl */`
       #include <common>
@@ -247,6 +275,7 @@ export function bodyMaterial(palette, shared, bird) {
       ${PROJECT}
       ${c.eyeSpace}
       ${TOON_VERTEX}
+      ${BULGE}
       attribute float _mat;
       attribute float _group;
       attribute float _edge;   // eyes: distance to the skull
@@ -262,8 +291,10 @@ export function bodyMaterial(palette, shared, bird) {
       varying float vPixels;
       void main() {
         ${SKIN_VERTEX}
-        vNormal = worldNormal;
         vPos = transformed;
+        bulge(transformed, objectNormal);
+        worldNormal = normalize(mat3(modelMatrix) * objectNormal);
+        vNormal = worldNormal;
         vBind = position;
         vToCamera = normalize(cameraInObject() - transformed);
         vRotX = normalize(modelMatrix[0].xyz);
@@ -426,7 +457,10 @@ export function hullMaterial(palette, shared, body, kind, bird) {
     name: bird.name + '-hull-' + kind,
     side: BackSide,
     defines: { CONTOUR: kind === 'contour' ? 1 : 0 },
-    uniforms: { ...shared, uHeadInv: { value: c.headInv }, uLine: { value: line }, uGlow: { value: 0 }, gBlink: body.uniforms.gBlink, gExpr: body.uniforms.gExpr },
+    uniforms: {
+      ...shared, uHeadInv: { value: c.headInv }, uLine: { value: line }, uGlow: { value: 0 }, gBlink: body.uniforms.gBlink, gExpr: body.uniforms.gExpr,
+      uBulgeA: body.uniforms.uBulgeA, uBulgeB: body.uniforms.uBulgeB,
+    },
     vertexShader: /* glsl */`
       #include <common>
       #include <skinning_pars_vertex>
@@ -434,6 +468,7 @@ export function hullMaterial(palette, shared, body, kind, bird) {
       ${SHARED}
       ${PROJECT}
       ${c.eyeSpace}
+      ${BULGE}
       attribute float _mat;
       attribute float _group;
       attribute float _line;
@@ -447,6 +482,7 @@ export function hullMaterial(palette, shared, body, kind, bird) {
         #include <skinnormal_vertex>
         vec3 transformed = position;
         #include <skinning_vertex>
+        bulge(transformed, objectNormal);
         vec3 worldNormal = normalize(mat3(modelMatrix) * objectNormal);
         vMat = _mat;
         vEye = eyeSpace(position);
@@ -494,11 +530,12 @@ export function hullMaterial(palette, shared, body, kind, bird) {
   });
 }
 
-// Lines along the material borders: one screen-space quad per border edge, skinned at both ends.
-export function lineMaterial(shared) {
+// Lines along the material borders: one screen-space quad per border edge, skinned at both ends. body:
+// the body material, for its bulge.
+export function lineMaterial(shared, body) {
   return new ShaderMaterial({
     name: 'ibis-lines',
-    uniforms: { ...shared },
+    uniforms: { ...shared, uBulgeA: body.uniforms.uBulgeA, uBulgeB: body.uniforms.uBulgeB },
     vertexShader: /* glsl */`
       #include <common>
       #include <skinning_pars_vertex>
@@ -510,10 +547,14 @@ export function lineMaterial(shared) {
       attribute vec2 corner;         // x: 0 at this end, 1 at the far end. y: side, -1 or 1
       attribute vec3 lineColor;
       varying vec3 vColor;
+      ${BULGE}
       vec4 skinned(vec3 p, vec4 index, vec4 weight) {
         mat4 m = getBoneMatrix(index.x) * weight.x + getBoneMatrix(index.y) * weight.y
                + getBoneMatrix(index.z) * weight.z + getBoneMatrix(index.w) * weight.w;
-        return modelViewMatrix * (bindMatrixInverse * (m * (bindMatrix * vec4(p, 1.0))));
+        vec4 q = bindMatrixInverse * (m * (bindMatrix * vec4(p, 1.0)));
+        vec3 n = vec3(0.0, 1.0, 0.0);
+        bulge(q.xyz, n);
+        return modelViewMatrix * q;
       }
       void main() {
         vec4 a = skinned(position, skinIndex, skinWeight);

@@ -33,6 +33,7 @@ export class Character {
     this.canHide = null;  // () => true when a disguise is in reach (disguise.js), or null
     this.aiming = null;   // seconds the peck is held with a prop in the bill (aim()), or null
     this.flung = 0;       // seconds of the aim of the last fling, for its power (fling.js)
+    this.drive = null;    // speed along the heading from the game (less than 0 backward), with no turn, or null
   }
 
   get input() { return this.controller.input; }
@@ -123,7 +124,7 @@ export class Character {
       // Root motion and input lock from the action. After its cancel time, input ends a locking action.
       const wants = c.input.move.lengthSq() > 0.01 || c.input.jump;
       if (a.playing?.def.lock && !a.locked && wants) a.stop();
-      c.root = a.root;
+      c.root = a.root ?? this.drive;
       c.locked = a.locked;
       c.pivot = a.pivot;
       c.step(dt / n);

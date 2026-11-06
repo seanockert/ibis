@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>Greedy Guts</title>
+<meta name="description" content="Eat a chip. Get over the fence. Eat another.">
+<meta name="theme-color" content="#cde0ec">
+<meta name="color-scheme" content="light">
+<link rel="icon" href="/icon-192.png" type="image/png">
+<style>
+  :root {
+    --ink: #262838; --chip: #f6f2ea; --red: #c8402e; --gold: #e7a923; --green: #3f9a4f;
+    --top: max(0.75rem, env(safe-area-inset-top));
+    --left: max(1rem, env(safe-area-inset-left));
+  }
+  *, *::before, *::after { box-sizing: border-box; }
+  html, body {
+    margin: 0; height: 100%; overflow: hidden; overscroll-behavior: none; background: #cde0ec; color: var(--ink);
+    user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent;
+    touch-action: none; font: 600 1rem/1.3 system-ui, sans-serif;
+  }
+  canvas { position: fixed; inset: 0 auto auto 0; display: block; width: 100vw; height: 100vh; height: 100lvh; }
+  [hidden] { display: none !important; }
+  #hud { position: fixed; inset: 0; pointer-events: none; }
+  .score { position: absolute; top: var(--top); left: var(--left); font-size: 2.25rem; font-weight: 800; line-height: 1; }
+  .best { position: absolute; top: calc(var(--top) + 2.6rem); left: var(--left); font-size: 0.85rem; opacity: 0.7; }
+
+  /* The flap ring: the outer ring closes on the inner one as the wings come up. */
+  #ring { position: absolute; width: 3.2rem; height: 3.2rem; transform: translate(-50%, -50%); }
+  #ring .in, #ring .out { position: absolute; inset: 0; border-radius: 50%; }
+  #ring .in { border: 0.2rem solid rgb(38 40 56 / 0.5); }
+  #ring .out { border: 0.15rem solid var(--ink); scale: var(--close, 1); }
+  #ring[data-state="ready"] .in { border-color: var(--green); background: rgb(63 154 79 / 0.35); }
+  #ring[data-state="ready"] .out { border-color: var(--green); }
+  #ring[data-state="late"] .in { border-color: rgb(38 40 56 / 0.25); }
+  #ring[data-state="late"] .out { opacity: 0; }
+
+  .pops { position: absolute; inset: 0; }
+  .pop { position: absolute; transform: translate(-50%, -100%); white-space: nowrap; font-size: 1.3rem; font-weight: 800;
+    color: var(--chip); -webkit-text-stroke: 0.35rem var(--ink); paint-order: stroke fill; animation: rise 0.9s ease-out forwards; }
+  .pop.perfect { color: var(--gold); }
+  .pop.bad { color: var(--red); font-size: 1.6rem; }
+
+  .card { position: absolute; inset: 30% auto auto 50%; transform: translate(-50%, -50%); width: min(22rem, calc(100vw - 2rem));
+    padding: 1.25rem 1.5rem; border: 0.15rem solid var(--ink); border-radius: 1rem; background: rgb(246 242 234 / 0.94); text-align: center; }
+  .card h1 { margin: 0 0 0.5rem; font-size: 2rem; font-weight: 800; }
+  .card p { margin: 0.35rem 0; font-weight: 500; }
+  .card .final { font-size: 3rem; font-weight: 800; line-height: 1.1; }
+  .card .go { margin-top: 0.75rem; font-weight: 800; }
+  @keyframes rise { 0% { opacity: 0; scale: 0.6; } 15% { opacity: 1; scale: 1.15; } 30% { scale: 1; } 100% { opacity: 0; translate: 0 -2.5rem; } }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud">
+  <div class="score">0 chips</div>
+  <div class="best">Best 0</div>
+  <div id="ring" hidden><div class="in"></div><div class="out"></div></div>
+  <div class="pops"></div>
+  <div class="card title">
+    <h1>Greedy Guts</h1>
+    <p>Get over the fence. Then eat another chip.</p>
+    <p>Tap to run. Tap to flap.</p>
+    <p>Flap when the ring closes and goes green.</p>
+    <p class="go">Space or tap to start</p>
+  </div>
+  <div class="card over" hidden>
+    <h1>Splat</h1>
+    <div class="final">0</div>
+    <p>chips eaten</p>
+    <p class="note"></p>
+    <p class="go">Space or tap to go again</p>
+  </div>
+</div>
+<script type="module" src="/src/flap/main.js"></script>
+</body>
+</html>

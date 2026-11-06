@@ -79,6 +79,13 @@ What each source file does.
 | `src/world/sky.js` | `Sky`: sky dome shader (gradient, warm glow toward the sun, puff clouds, far hills and trees), `HAZE` |
 | `src/world/backdrop.js` | `Backdrop`: two rings of tree silhouettes round the street (`RINGS`), so the world ends past the yards |
 | `src/world/grade.js` | `Grade`: the scene to a multisampled target, then one colour grade pass to the canvas. `GRADE` tuning |
+| `gulp.html`, `src/gulp/main.js` | Toss and Gulp: the page, the side camera, the input (keys, the pad, a tap), the fixed-time and bot views for the tools (`docs/gulp.md`) |
+| `src/gulp/game.js` | `Game`: the rules of Toss and Gulp (`RULES`): spawn, flight, the catch windows, the toss, the swallow and its bulges, misses, lives, score, the stance. The test bot |
+| `src/gulp/items.js` | `ITEMS`: the things to catch (hot chip, sausage roll, lamington, meat pie, thong, garden gnome), their meshes and numbers |
+| `src/gulp/sound.js` | `GulpSound`: the game's sounds on the voices of `IbisSound` |
+| `src/gulp/hud.js` | `GulpHud`: the score, the multiplier, the lives, the pop-up words, the title and game over cards |
+| `flap.html`, `src/flap/main.js` | Greedy Guts, the take-off test: the fence, the flying pose and the wing beat (an `Animator.stance`), the ready ring, the ghost path, the chip between rounds, the crash, the bot |
+| `src/flap/takeoff.js` | `Takeoff`, `TAKEOFF`: the pure rules of the take-off (run, flap timing, fat, the fence), with no three.js, so a script can tune them |
 | `tools/bake/bake.js` | Bake: grid, dual contouring, material split, simplify, normals, skin weights, GLB export |
 | `tools/bake/bake.glsl` | Bake kernel: which SDF each `PART_*` is |
 | `tools/pack.mjs` | Small vertex types and `EXT_meshopt_compression` |

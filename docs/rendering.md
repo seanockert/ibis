@@ -38,6 +38,16 @@ Spaces, materials, colours, light, lines, mud and wet on the ibis.
 - `wingSeam(p)` in `model.glsl` removes the wing line at the back of the wing root, so the wings blend into the back.
 - To find which pass draws a line, hide `this.inner`, `this.contour` or `this.lines` in a scratch copy of `Ibis.js`, or paint a debug value in the body fragment shader.
 
+## Bulge
+
+- `bulge()` in `materials.js` pushes the surface out round up to `BULGES` capsules, so the bird wraps what it swallows. The body, the hull and the border lines all use it.
+- `Ibis.bulge(i, a, b, r, k)` sets capsule `i`: ends `a` and `b` in character space, radius `r`, amount `k` (0 off). The surface goes out to the radius with a smooth max, so a part outside the capsule does not move.
+- The body shader keeps `vPos` from before the bulge, so the SDF line tests stay correct.
+- The shadow depth pass does not know the bulge.
+- A bulge on the eyes breaks their shape. Keep a capsule below the eyes (`THROAT` in `src/gulp/game.js`).
+- A `Vector4` starts with w = 1. The uniforms start at 0, or each bird has a bulge of radius 1 at its feet.
+- With every amount at 0, the render is the same as before (pixel diff of the five check views: 0 pixels).
+
 ## Mud and wet
 
 - `ibis.mud` and `ibis.wet` (0 to 1) set the `uMud` and `uWet` uniforms of the body material. Each `Ibis` has its own body material, so each ibis has its own values.

@@ -218,3 +218,36 @@ Do not build a full level until the user says the toy is fun.
 - What we learned while making it: a fixed angle of 35 degrees could not reach a miner on a 3.2 high post 9 away at full power (now 43 degrees, up to 20 units per second). The arc must use the prop's drag and the same start point as the throw, or a red arc misses. "On target" is stricter (0.55) than a hit (0.85), so a red arc is a sure hit on a still miner. The arc does not stop at props in the way.
 - A bot that holds until the arc goes red hit 3 of 3 perched miners from about 9 away.
 - Questions for the playtest: does the throw feel good with no goal? Is the arc too much help (no skill)? Is the hold-to-charge too slow? Do the miners' attacks give enough pressure?
+
+## Toy B: Toss and Gulp (`gulp.html`, built, playtest failed)
+
+"Catch the falling food in your bill on the beat. Catch it enough times and down it goes." Rules in `docs/gulp.md`.
+
+Playtest: no clear sign of where the next item comes from, and it did not feel original or fun.
+
+Why it failed:
+- **No warning.** Items start above the view, at a random side. The only cue is a small grey disc on the ground. The player reacts late instead of reading what comes.
+- **The player does one thing: press on time.** The toss is automatic, so the bird's best verb (the flick) belongs to the game, not the player. There are no choices and no risk.
+- **Walking is a chore.** It only fixes a sloppy toss. It is not a decision.
+- **The genre is the most common one there is.** Catching falling things looks like every other catch game. The swallow, the bulges and the faint are good, but they come after the input, as a reward, not as the game.
+- What worked: the swallow (the throat pouch, the lump down the neck, the fat belly), the faint, the bonk, the bill opening as a tell.
+
+## Toy C: Greedy Guts, the take-off (`flap.html`, built, waiting for a playtest)
+
+"Eat until you can't take off." Only the take-off is built: no bin, no threat yet.
+If getting a fat ibis over a fence is not fun alone, the idea dies here.
+
+- The ibis runs at a paling fence (2.6 high, the bird is 2). A tap hops it off the ground, and each tap after that is a heavy flap.
+- After a flap the wings come back up. A flap with the wings up is full strength: the ring at the bird closes in and goes green. Too early is a weak flail. After the window it is good, but the bird has sunk. Full flaps in a row get stronger.
+- Clear the fence, eat one more chip (the lump goes down the neck, the belly grows), and go again. A crash ends the run. The score is the chips eaten.
+- Fat: a narrower window (most of all), a little more gravity, a slower wing recovery, a slower run-up, and a lower belly.
+- A dotted line shows the path of the last try, so the player can see what to change.
+- Rules: `src/flap/takeoff.js` (pure, no three.js). `flap.html?bot=1&fat=N&t=S` for the tools; `window.flap.step(dt)` and `window.flap.render()`.
+
+What we learned while building it:
+- Tune with bots before the first playtest. A sweep of the fat numbers against bots with a timing error of 0, 30, 50 and 80 ms (`Takeoff` is pure, so this runs in Node in seconds). The first numbers let even a perfect bot clear only 3 chips. Fat that cuts raw strength bunches the players together; fat that mostly narrows the timing window spreads them out. Now: perfect 10, 30 ms 7, 50 ms 5, 80 ms 3.
+- The rules must use the bottom of the bird as drawn. The first rules put it up to 0.2 too low, so a bird that looked over the rail crashed. Measured on the mesh and the belly bulge: 0.19 above the root, and 0.04 lower for each chip from 4 chips.
+- A bird moved by a jump (to the start) keeps its planted feet in world space, and its legs stretch across the yard. Make a new `Character` there.
+- An angled camera makes a long fence top hard to read. A near side view, and a short fence.
+
+Questions for the playtest: is a heavy flap fun with no goal? Is the ring a good tell, or do the wings alone do? Does "one more chip" pull you back in?

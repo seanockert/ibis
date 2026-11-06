@@ -16,7 +16,8 @@
 //                     Sound only (sound.js): 'call' { pitch, gain } a honk, 'hiss' { length }, 'clack'
 //                     { amount } the bill snaps shut, 'stamp' a foot hits the ground. 'grab' (physics.js)
 //                     picks up a prop in the bill, 'drop' lets it go, 'fling' (fling.js) throws it.
-//                     'bite' (sentry.js) can hurt a miner
+//                     'bite' (sentry.js) can hurt a miner. 'toss' (src/gulp/game.js) lets go of the item
+//                     at the top of the flick, 'gulp' { beat } is a swallow
 //   anger             0 to 1: comic anger lines round the head while the action plays (effects.js)
 import { Vector3 } from 'three';
 import { clipPose } from '../rig.js';
@@ -432,6 +433,127 @@ export const ACTIONS = {
       const settle = smoothstep(1.0, 1.2, t);
       P.headPitch = mix(P.headPitch, -0.2, settle);
       blendFace(P, 'smug', settle);
+    },
+  },
+
+  // Toss and gulp (src/gulp/). The game holds the head up to catch (its stance); these play over it.
+
+  // The bill shuts on a falling item: the head gives under its weight, then comes back up.
+  catch: {
+    length: 0.3, fadeIn: 0.01, fadeOut: 0.12, mask: UPPER,
+    events: [{ at: 0.01, type: 'clack', amount: 0.7 }],
+    apply(P, t) {
+      const give = window4(0, 0.03, 0.08, 0.3, t);
+      P.headPitch += 0.3 * give;
+      P.stretch *= 1 - 0.12 * give;
+      P.bob -= 0.03 * give;
+      P.wingL = P.wingR = P.wingL + 0.15 * give;
+    },
+  },
+  // A flick of the head: a dip, then a whip up. 'toss' at the top lets go of the item.
+  toss: {
+    length: 0.42, fadeIn: 0.02, fadeOut: 0.15, mask: UPPER, face: 'effort',
+    events: [{ at: 0.13, type: 'toss' }, { at: 0.12, type: 'whoosh' }],
+    apply(P, t) {
+      const dip = window4(0, 0.06, 0.08, 0.13, t), whip = window4(0.08, 0.13, 0.18, 0.42, t);
+      P.headPitch += 0.4 * dip - 0.45 * whip;
+      P.stretch *= 1 - 0.15 * dip + 0.22 * whip;
+      P.pitch += 0.08 * dip - 0.1 * whip;
+      P.bob += -0.04 * dip + 0.03 * whip;
+      P.jaw = Math.max(P.jaw, 0.75 * window4(0.12, 0.14, 0.2, 0.3, t));
+      P.wingL = P.wingR = P.wingL + 0.35 * whip;
+    },
+  },
+  // Swallow: the head goes back with the bill to the sky and the item goes in, the bill shuts, then
+  // three hard gulps as the lump goes down the neck, and a happy shiver.
+  gulp: {
+    length: 1.25, fadeIn: 0.04, fadeOut: 0.2, mask: ALL, moveMask: UPPER, face: 'effort',
+    events: [{ at: 0.24, type: 'clack', amount: 0.9 }, ...[0.4, 0.62, 0.84].map((at, beat) => ({ at, type: 'gulp', beat }))],
+    apply(P, t) {
+      const back = window4(0, 0.12, 0.85, 1.05, t);
+      const beat = [0.4, 0.62, 0.84].reduce((m, at) => Math.max(m, window4(at - 0.04, at, at + 0.03, at + 0.12, t)), 0);
+      P.headPitch = mix(P.headPitch, -1.7, back) + 0.15 * beat;
+      P.stretch = mix(P.stretch, 1.2, back) * (1 - 0.15 * beat);
+      P.pitch = mix(P.pitch, -0.12, back) + 0.06 * beat;
+      P.bob -= 0.04 * beat;
+      P.headRoll = 0.1 * Math.sin(TAU * 3 * t) * back;
+      P.jaw = Math.max(P.jaw, 0.9 * window4(0, 0.06, 0.18, 0.24, t));
+      P.wingL = P.wingR = P.wingL + 0.2 * beat;
+      const done = window4(0.95, 1.02, 1.15, 1.25, t);
+      P.roll += 0.04 * Math.sin(TAU * 9 * t) * done;
+      blendFace(P, 'happy', done);
+    },
+  },
+  // An item lands on the head: the head is knocked down into the shoulders, the wings fly out, and the
+  // eyes roll.
+  bonk: {
+    length: 1.2, fadeIn: 0.01, fadeOut: 0.25, mask: ALL, moveMask: UPPER, face: 'wide',
+    events: [{ at: 0.0, type: 'thump', amount: 10 }, { at: 0.05, type: 'call', pitch: 1.35, gain: 0.5 }],
+    apply(P, t) {
+      const hit = window4(0, 0.03, 0.12, 0.45, t), daze = window4(0.2, 0.3, 0.95, 1.2, t);
+      P.headPitch = mix(P.headPitch, 0.5, hit);
+      P.stretch = mix(P.stretch, 0.65, hit);
+      P.bob -= 0.08 * hit;
+      P.jaw = Math.max(P.jaw, 0.35 * hit);
+      P.wingL = mix(P.wingL, 0.9, hit);
+      P.wingR = mix(P.wingR, 0.8, hit);
+      P.headRoll = 0.25 * Math.sin(TAU * 1.6 * t) * daze;
+      P.headYaw += 0.15 * Math.sin(TAU * 0.9 * t) * daze;
+      P.look.set(0.7 * Math.cos(TAU * 2.4 * t) * daze, 0.6 * Math.sin(TAU * 2.4 * t) * daze);
+      blendFace(P, 'dazed', daze);
+    },
+  },
+  // A snap at nothing: the bill shuts on air, the head overshoots up, then a blank look about.
+  whiff: {
+    length: 0.75, fadeIn: 0.01, fadeOut: 0.2, mask: UPPER, face: 'wide',
+    events: [{ at: 0.07, type: 'clack', amount: 1 }],
+    apply(P, t) {
+      const lunge = window4(0, 0.05, 0.1, 0.3, t), shrug = window4(0.3, 0.38, 0.5, 0.65, t);
+      P.stretch *= 1 + 0.25 * lunge;
+      P.headFwd += 0.1 * lunge;
+      P.headPitch -= 0.25 * lunge;
+      P.jaw = Math.max(P.jaw, 0.8 * window4(0, 0.03, 0.05, 0.07, t));
+      P.wingL = P.wingR = P.wingL + 0.4 * shrug;
+      P.headRoll = 0.25 * window4(0.25, 0.35, 0.6, 0.75, t);
+      P.look.set(0.8 * Math.sin(TAU * 2 * t) * window4(0.2, 0.3, 0.55, 0.7, t), P.look.y);
+    },
+  },
+  // After a big meal: the chest puffs out, a deep honk (the burp), then a smug look.
+  burp: {
+    length: 1.0, fadeIn: 0.05, fadeOut: 0.2, mask: UPPER, face: 'squint',
+    events: [{ at: 0.32, type: 'call', pitch: 0.55, gain: 0.9 }],
+    apply(P, t) {
+      const puff = window4(0, 0.25, 0.4, 0.6, t), out = window4(0.3, 0.34, 0.45, 0.6, t);
+      P.pitch -= 0.18 * puff;
+      P.stretch *= 1 + 0.1 * puff;
+      P.headPitch -= 0.3 * puff;
+      P.jaw = Math.max(P.jaw, 0.5 * out);
+      P.wingL = P.wingR = P.wingL + 0.25 * out;
+      blendFace(P, 'smug', smoothstep(0.55, 0.7, t));
+    },
+  },
+  // Out of lives: a long wobble, then the bird topples back onto its bottom and lies there with its feet
+  // in the air and its eyes rolling. Plays until stop().
+  faint: {
+    length: Infinity, fadeIn: 0.05, fadeOut: 0.3, mask: ALL, lock: true, cancelAfter: Infinity, face: 'dazed',
+    events: [{ at: 0.05, type: 'call', pitch: 0.75, gain: 0.8 }, { at: 0.95, type: 'thump', amount: 16, dust: 'rump' }],
+    apply(P, t) {
+      const wobble = window4(0, 0.1, 0.6, 0.8, t) * Math.sin(TAU * 2.2 * t);
+      const fall = smoothstep(0.6, 0.95, t), bounce = 0.04 * window4(0.95, 1.0, 1.05, 1.2, t);
+      P.roll += 0.2 * wobble;
+      P.headRoll = 0.4 * wobble;
+      P.bob = mix(P.bob, -0.3, fall) + bounce;
+      P.pitch = mix(P.pitch, -1.05, fall);
+      P.headPitch = mix(P.headPitch, 0.5, fall);
+      P.stretch = mix(P.stretch, 0.9, fall);
+      P.footL.lerp(new Vector3(0.24, 0.45, 0.42), fall);
+      P.footR.lerp(new Vector3(-0.22, 0.38, 0.36), fall);
+      P.splay = mix(P.splay, 0.5, fall);
+      P.wingL = mix(P.wingL, 0.9, fall);
+      P.wingR = mix(P.wingR, 0.8, fall);
+      P.jaw = 0.3 * fall;
+      const roll = smoothstep(0.9, 1.2, t);
+      P.look.set(0.8 * Math.cos(TAU * 1.5 * t) * roll, 0.7 * Math.sin(TAU * 1.5 * t) * roll);
     },
   },
 };

@@ -101,6 +101,7 @@ export class Animator {
     this.blinks = 0;
 
     this.actions = [];                   // playing: { name, def, t, weight, fadeIn, out, outFrom, outT }
+    this.stance = null;                  // (P, dt, c) => void: a game pose over the base, under the actions, or null
   }
 
   // Plays an action from actions.js. The action that plays now fades out from where it is.
@@ -174,6 +175,7 @@ export class Animator {
     // 2. Face.
     const want = face(c.state !== 'air' ? 'neutral' : c.fluttering ? 'effort' : c.vy < -1.5 ? 'wide' : 'neutral');
     for (const k of FACE_KEYS) P[k] = this.faceNow[k] += (want[k] - this.faceNow[k]) * damp(0.035, dt);
+    this.stance?.(P, dt, c);
 
     // 3. Actions.
     const moving = clamp(Math.max(gaitW, airW), 0, 1);

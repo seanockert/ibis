@@ -21,6 +21,7 @@ Read the file in `docs/` for the area that you change, and only that file.
 | `docs/environment.md` | Street, kerb, footpaths, fence, tufts, sky, backdrop, grade, free play camera |
 | `docs/land.md` | Land areas: hills, gullies, dirt and mud, the park (`land.js`) |
 | `docs/game.md` | The game design (hide in the rubbish), disguises, the miners' gaze, the mission view, the Barbie level |
+| `docs/gulp.md` | The Toss and Gulp game (`gulp.html`, `src/gulp/`): rules, timing, the swallow bulges, the test tools |
 | `docs/game-findings.md` | A new game idea: what we tried, why it failed, the candidates and the plan |
 | `docs/improvements.md` | Performance and clean-up ideas not done yet, with triangle counts |
 

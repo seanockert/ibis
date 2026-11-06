@@ -82,7 +82,7 @@ export class Ibis {
     this.inner.renderOrder = 1;   // after every body has drawn its stencil
     // The wings and the scarf get their inner lines from the SDF test in the body shader instead.
     for (const g of [WING_GROUP, SCARF_GROUP]) if (this.inner.material[g]) this.inner.material[g].visible = false;
-    this.lines = this.attach(asset.lineGeometry, lineMaterial(asset.uniforms));
+    this.lines = this.attach(asset.lineGeometry, lineMaterial(asset.uniforms, body));
     this.meshes = [this.body, this.contour, this.inner, this.lines];
     this.shown = this.meshes.slice(0, 3).map(m => m.material.map(x => x?.visible));   // for showOnly()
     const viewport = new Vector4();
@@ -162,6 +162,13 @@ export class Ibis {
   // 0 to 1: the contour goes white and wider, as a highlight (a miner that a peck would snap at).
   get glow() { return this.glowUniform.value; }
   set glow(value) { this.glowUniform.value = value; }
+
+  // Bulge i (0 to BULGES - 1, materials.js): the surface goes out round a capsule from a to b (character
+  // space) of radius r, by k (0 off, 1 full), so it wraps what the bird swallows.
+  bulge(i, a, b, r, k) {
+    this.uniforms.uBulgeA.value[i].set(a.x, a.y, a.z, r);
+    this.uniforms.uBulgeB.value[i].set(b.x, b.y, b.z, k);
+  }
 
   get mud() { return this.uniforms.uMud.value; }
   set mud(value) { this.uniforms.uMud.value = value; }
