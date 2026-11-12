@@ -251,3 +251,65 @@ What we learned while building it:
 - An angled camera makes a long fence top hard to read. A near side view, and a short fence.
 
 Questions for the playtest: is a heavy flap fun with no goal? Is the ring a good tell, or do the wings alone do? Does "one more chip" pull you back in?
+
+## Direction H: Bin night, a chaos combo game (chosen 2026-11-12)
+
+"Bin night. Eat the street before the truck comes."
+Stealth failed because it needs patience and precision, and a clumsy ibis has neither. So go the other way: make as much mess as you can, as a Tony Hawk style combo. A 2 minute run, single player. Co-op was turned down (it was not clear how it would work).
+
+Turned down in the same session:
+- Chase the noisy miners out of the yard: miners do not run from an ibis in real life, so the theme is weak.
+- Trash the turf (mess covers the ground like paint, most cover wins): it is a multiplayer game. The user does not want head-to-head play.
+- Headline act (an ibis crowd gives the score): the weakest idea.
+
+### Tony Hawk mapped to the ibis
+
+| Tony Hawk | Ibis |
+|---|---|
+| Trick | A crash: tip, fling hit, tug, rummage burst |
+| Manual (links tricks) | Slide on a wet or spilled surface, with a big, easy wobble |
+| Grind | Wobble-walk on a fence top, or ride a Hills Hoist arm |
+| Air | Flap up from a bin lid or the shed roof |
+| Finisher | Belly flop: a hard landing onto a stack |
+| Bail | Knocked down by a dive, the dog or the sprinkler. The combo ends |
+| Gaps | Named spots: Hoist Spin, Bin Bowling, Over the Fence, Hose Slide |
+| S-K-A-T-E | C-H-I-P-S: five hot chips hidden in the yard |
+| Secret tape | A golden chip in a place that is hard to get to |
+
+- The clumsy rule: a slip, a stumble or a fall is a trick, and it keeps the combo alive. A fall into something (a bin, a stack, the pool) gets a bonus. Only a threat ends the combo.
+- The mess makes the skate park: spills give slides, tipped stacks give ramps, the hose wets the lawn. The combos get longer in the round, with no script.
+- Repeat the same crash and it scores less (the icon goes grey).
+
+### Why the ibis wrecks things
+
+- The mess shakes food loose. End a combo with a gulp: the score is the combo times the food in the bill.
+- The belly grows: harder hits (tip bigger things), longer slides, more wobble, lower flaps. Each gulp is a risk and a reward. It uses the swallow from Toss and Gulp and the fat flight from Greedy Guts.
+- The clock is the garbage truck. You can see it come down the street. The run ends when it gets to your yard.
+
+### Structure
+
+- Each yard has a goal list: 3 score tiers, C-H-I-P-S, 3 named gaps, 1 job for that yard, the golden chip.
+- Goals open the next yard on the street. Each new yard teaches one new thing (the pool, the dog, the sprinkler, the Hoist).
+- Threats end the combo but are not targets: miners dive (a snap parries and adds to the combo), a dog lunges along its fence, a sprinkler on a timer (it also wets the ground).
+- Later: the loot goes to the colony tree and stays there between runs.
+
+### Toy D: the combo (`?level=combo`, built, waiting for a playtest)
+
+A small yard (30 by 30) with about 15 props and no threats, food or truck. Rules in `src/world/combo.js`, view in `src/app/comboHud.js`.
+The test: is it fun to keep a chain alive for 30 s, and do the chains get longer late in the run as the mess builds up?
+
+- Links: a prop falls over (bin 400, box 200, cereal 120), stubbies that fall together are one link (60 each, all 10 is a Strike! 1000), a stomped cereal box (150, and a cereal spill), a slam of a prop that is already down (Crash 50), a kicked footy (100), a throw (Chuck 50), a fall near a thrown prop (Air Mail, times 2).
+- Clumsy links: a stumble (Stacked It! 150), a hard landing (200; on a prop a Belly Flop 300), a slide (100 plus 60 for each unit).
+- Slide: a run (speed 1.6 or more) onto a spill plays `slide` (the splits) and the bird slides along its heading with no steering. It slows a little on the spill and more off it. A walk onto a spill is a stumble.
+- A tipped bin spills its rubbish from its mouth 0.7 s after the fall, as a new patch to slide on. The level starts with one puddle between the bird and the stubbies, to teach the slide.
+- The fuse: 3 s. It does not burn in a stumble, a fall or a slide, and burns at half rate in the air. The same link again in one combo gives 60%, 35%, 20%, then 10%. The combo banks when the fuse burns out: the sum times the number of links.
+- The run: 2 minutes, then a panel with the score, the best combo and the best score.
+
+What we learned while making it:
+- The slip action ends after 1.4 s when the player pushes the stick, so a slide on it stopped short. A new `slide` action holds the splits until `stop()`.
+- A bin spill placed at the moment of the fall lands under the bin: the bin is still rolling. Wait until it rests.
+- A slide stops about 2 units after the spill. Props to slide into must be near the end of a spill.
+- A full flutter from the ground lands at about 9.7. The hard landing starts at 10.5, so only a fall from a prop counts.
+- A bot that runs at targets got a 3-link combo (slide into the stubbies, 2,325) and tipped bins with a plain run.
+
+Questions for the playtest: is a 3 s fuse too short for the size of the yard? Does the slide feel good with no steering? Do the chains get longer as the mess builds up, or does the yard run out of things? Does clumsiness feel like a reward?

@@ -5,6 +5,7 @@ import * as THREE from 'three';
 import { readConfig } from './app/config.js';
 import { Follow } from './app/follow.js';
 import { Challenges } from './app/challenges.js';
+import { ComboHud } from './app/comboHud.js';
 import { Hud } from './app/hud.js';
 import { Input } from './app/input.js';
 import { Meter } from './app/meter.js';
@@ -114,7 +115,8 @@ const ui = new Ui({
 });
 
 // The mission view, in free play on a level with a mission.
-const hud = !play || !level.def.mission ? null : level.def.mission.challenges ? new Challenges(level) : new Hud(level, asset);
+const mission = play ? level.def.mission : null;
+const hud = !mission ? null : mission.combo ? new ComboHud(level, camera) : mission.challenges ? new Challenges(level) : new Hud(level, asset);
 window.demo.hud = hud;
 
 // Frame meter, top left: free play with the buttons.

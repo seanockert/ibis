@@ -715,6 +715,36 @@ export const ACTIONS = {
     },
   },
 
+  // Slide: the slip held in the splits, for a slide on a spill (src/world/combo.js). It plays until stop().
+  // The game moves the bird (Character.drive). The feet stay apart, the wings windmill, the body wobbles.
+  slide: {
+    length: Infinity, fadeIn: 0.02, fadeOut: 0.25, mask: ALL, lock: true, cancelAfter: Infinity, face: 'wide',
+    events: [{ at: 0.03, type: 'call', pitch: 1.45, gain: 0.6 }, { at: 0.2, type: 'thump', amount: 8 }],
+    apply(P, t) {
+      const split = smoothstep(0, 0.16, t), flail = smoothstep(0, 0.06, t);
+      const wobble = Math.sin(TAU * 3 * (t - 0.2)) * smoothstep(0.2, 0.3, t);
+      P.footL.set(mix(P.footL.x, 0.2, split), mix(P.footL.y, 0.04, split), mix(P.footL.z, 0.62, split) + 0.06 * wobble);
+      P.footR.set(mix(P.footR.x, -0.34, split), mix(P.footR.y, 0.04, split), mix(P.footR.z, -0.6, split) - 0.06 * wobble);
+      P.bob = mix(P.bob, -0.3, split);
+      P.pitch = mix(P.pitch, -0.05, split);
+      P.roll += 0.12 * wobble;
+      P.yaw += 0.08 * wobble;
+      P.headPitch = mix(P.headPitch, 0.1, split);
+      P.stretch = mix(P.stretch, 1.15, flail);
+      P.headRoll = -0.15 * wobble;
+      const w = TAU * 6 * t;
+      P.wingL = mix(P.wingL, 1.25 + 0.35 * Math.sin(w), flail);
+      P.wingR = mix(P.wingR, 1.25 + 0.35 * Math.sin(w + 1.8), flail);
+      P.sweepL = 0.25 * Math.sin(w + 0.8) * flail;
+      P.sweepR = 0.25 * Math.sin(w + 2.6) * flail;
+      P.jaw = 0.3 * flail;
+      P.curlL += 0.7 * Math.sin(w) * flail;
+      P.curlR += 0.7 * Math.sin(w + 1.5) * flail;
+      P.tail.y += 0.5 * flail;
+      P.squash *= 1 - 0.2 * split;
+    },
+  },
+
   // Hard landing, after a big fall: a deep squash with the wings thrown out, a wobble from side to side,
   // then up with a relieved little shake.
   hardLand: {

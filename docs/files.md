@@ -56,6 +56,11 @@ What each source file does.
 | `src/world/fling.js` | `Fling`: the throw of what the bill holds (`FLING`): the aim arc (red and the miner outlined when it will hit), the throw on the `fling` event, hits on miners (`Sentry.knock()`) |
 | `src/app/challenges.js` | `Challenges`: the challenge list of a toy level (`mission.challenges`) |
 | `src/levels/fling.json` | The fling toy level: lemons, miners on posts, the hoist and the bin, stubbies (`?level=fling`) |
+| `src/world/combo.js` | `Combo`: the rules of the Bin night combo toy (`COMBO`): links from props that fall (`tiltAngle`), slams, a stomped cereal box, a kicked footy, throws, stumbles, hard landings and slides on spills. The fuse, the repeat penalty, the bank, the 2 minute run |
+| `src/world/spills.js` | `Spills`: patches of mess on the ground (`SPILL`): a toon blob with bits of rubbish, that grows in. Kinds `rubbish` (a tipped bin), `cereal` (a stomped box), `puddle` (level data). `at(x, z)` |
+| `src/app/comboHud.js` | `ComboHud`: the view of the combo toy: clock and total, the fuse and the links over the bird, the bank pops, the start hint, the end panel (best score in `localStorage`) |
+| `src/levels/combo.json` | The combo toy level: a small yard with three bins, box stacks, cereal, stubbies, a footy, lemons and a puddle (`?level=combo`) |
+| `tools/combo-bot.mjs` | A scripted run of the combo toy: logs the links and banks, takes screenshots. It proves the rules fire, not that the toy is fun |
 | `src/world/fans.js` | `GazeFans`: each gaze miner's view as a fan on the ground, yellow to red with its meter |
 | `src/world/backyard.js` | `Deck` (with steps), `House` (the back wall), `Barbecue`, `HillsHoist` (turns; a perch), `Rug`, `FairyBread` (the loot), `Lemon` (to throw), `Nest` (the goal), `marker()` |
 | `src/app/hud.js` | `Hud`: the mission view of a level with a `mission`: goal, count, hint, markers, the win banner |

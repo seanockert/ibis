@@ -1,0 +1,418 @@
+{
+  "id": "combo",
+  "note": "Toy level for the Bin night combo (docs/game-findings.md, Direction H): a small yard of things to wreck, a puddle to slide on, no threats.",
+  "sky": true,
+  "backdrop": true,
+  "mission": {
+    "goal": "Make a mess! Each crash keeps your combo going. Run (Shift) through a spill to slide. Keep the chain alive.",
+    "combo": {
+      "time": 120,
+      "spills": [
+        {
+          "at": [
+            0,
+            -5
+          ],
+          "radii": [
+            2.8,
+            1.4
+          ],
+          "angle": 0,
+          "kind": "puddle"
+        }
+      ]
+    }
+  },
+  "areas": [
+    {
+      "id": "yard",
+      "type": "land",
+      "bounds": {
+        "x": [
+          -15.3,
+          15.3
+        ],
+        "z": [
+          -15.3,
+          15.3
+        ]
+      },
+      "box": {
+        "x": [
+          -40,
+          40
+        ],
+        "z": [
+          -40,
+          40
+        ]
+      },
+      "features": [
+        {
+          "type": "noise",
+          "scale": 0.08,
+          "height": 0.12
+        },
+        {
+          "type": "patches",
+          "scale": 0.14,
+          "above": 0.7,
+          "wear": 0.35
+        },
+        {
+          "type": "dirt",
+          "note": "Under the hoist.",
+          "at": [
+            -3,
+            11
+          ],
+          "radius": 2.4,
+          "wear": 0.6
+        }
+      ],
+      "fences": [
+        [
+          [
+            -16,
+            -16
+          ],
+          [
+            16,
+            -16
+          ]
+        ],
+        [
+          [
+            16,
+            -16
+          ],
+          [
+            16,
+            16
+          ]
+        ],
+        [
+          [
+            16,
+            16
+          ],
+          [
+            -16,
+            16
+          ]
+        ],
+        [
+          [
+            -16,
+            16
+          ],
+          [
+            -16,
+            -16
+          ]
+        ]
+      ],
+      "plants": [
+        {
+          "kind": "gum",
+          "at": [
+            -23,
+            22
+          ],
+          "seed": 1
+        },
+        {
+          "kind": "gum",
+          "at": [
+            23,
+            -25
+          ],
+          "seed": 2
+        },
+        {
+          "kind": "bottlebrush",
+          "at": [
+            22,
+            8
+          ],
+          "seed": 3
+        },
+        {
+          "kind": "shrub",
+          "at": [
+            12,
+            13
+          ],
+          "flowers": "yellow",
+          "seed": 4
+        }
+      ],
+      "rows": [
+        {
+          "from": [
+            -24,
+            21
+          ],
+          "to": [
+            24,
+            21
+          ],
+          "every": 4.5,
+          "jitter": 1,
+          "seed": 5,
+          "kinds": [
+            "shrub",
+            {
+              "kind": "shrub",
+              "flowers": "pink"
+            },
+            "shrub",
+            "bottlebrush"
+          ]
+        },
+        {
+          "from": [
+            -24,
+            -21
+          ],
+          "to": [
+            24,
+            -21
+          ],
+          "every": 4.5,
+          "jitter": 1,
+          "seed": 7,
+          "kinds": [
+            "shrub",
+            "shrub",
+            {
+              "kind": "shrub",
+              "flowers": "yellow"
+            }
+          ]
+        }
+      ],
+      "characters": [
+        {
+          "species": "ibis",
+          "at": [
+            0,
+            -12
+          ],
+          "heading": 0,
+          "player": true,
+          "seed": 0
+        }
+      ],
+      "props": [
+        {
+          "kind": "hoist",
+          "at": [
+            -3,
+            11
+          ],
+          "spin": 0.25,
+          "seed": 10
+        },
+        {
+          "kind": "bin",
+          "at": [
+            7,
+            5
+          ],
+          "heading": -0.4,
+          "flies": [
+            2,
+            3
+          ],
+          "seed": 11
+        },
+        {
+          "kind": "bin",
+          "at": [
+            -9,
+            7
+          ],
+          "heading": 0.3,
+          "lid": "yellow",
+          "seed": 12
+        },
+        {
+          "kind": "bin",
+          "at": [
+            10,
+            -7
+          ],
+          "heading": 1.2,
+          "flies": [
+            1,
+            2
+          ],
+          "seed": 13
+        },
+        {
+          "kind": "stubbies",
+          "at": [
+            0,
+            -0.6
+          ],
+          "heading": 3.1416,
+          "seed": 14
+        },
+        {
+          "kind": "box",
+          "at": [
+            -8,
+            -4
+          ],
+          "size": [
+            1.3,
+            1.4,
+            1.05
+          ],
+          "heading": 0.2,
+          "seed": 15
+        },
+        {
+          "kind": "box",
+          "at": [
+            -8,
+            -4
+          ],
+          "size": [
+            1.1,
+            1,
+            0.9
+          ],
+          "heading": -0.1,
+          "seed": 16
+        },
+        {
+          "kind": "cereal",
+          "at": [
+            -8,
+            -4
+          ],
+          "size": [
+            0.52,
+            0.74,
+            0.18
+          ],
+          "heading": 0.5,
+          "print": "berry",
+          "seed": 17
+        },
+        {
+          "kind": "box",
+          "at": [
+            5,
+            11
+          ],
+          "size": [
+            1.2,
+            1.2,
+            1
+          ],
+          "heading": 0.6,
+          "seed": 18
+        },
+        {
+          "kind": "cereal",
+          "at": [
+            5,
+            11
+          ],
+          "size": [
+            0.52,
+            0.74,
+            0.18
+          ],
+          "heading": 0.2,
+          "print": "sunny",
+          "seed": 19
+        },
+        {
+          "kind": "cereal",
+          "at": [
+            -3,
+            -8
+          ],
+          "size": [
+            0.52,
+            0.74,
+            0.18
+          ],
+          "heading": -0.3,
+          "print": "sunny",
+          "seed": 20
+        },
+        {
+          "kind": "cereal",
+          "at": [
+            9,
+            0
+          ],
+          "size": [
+            0.52,
+            0.74,
+            0.18
+          ],
+          "heading": 1.1,
+          "print": "berry",
+          "seed": 21
+        },
+        {
+          "kind": "cereal",
+          "at": [
+            -11,
+            1
+          ],
+          "size": [
+            0.52,
+            0.74,
+            0.18
+          ],
+          "heading": 0.4,
+          "print": "sunny",
+          "seed": 22
+        },
+        {
+          "kind": "ball",
+          "at": [
+            -4,
+            -1
+          ],
+          "heading": 0.7,
+          "seed": 23
+        },
+        {
+          "kind": "lemon",
+          "at": [
+            2.5,
+            -10
+          ],
+          "heading": 0.5,
+          "seed": 24
+        },
+        {
+          "kind": "lemon",
+          "at": [
+            3.2,
+            -9.2
+          ],
+          "heading": 1.5,
+          "seed": 25
+        },
+        {
+          "kind": "lemon",
+          "at": [
+            3.8,
+            -10.4
+          ],
+          "heading": 2.5,
+          "seed": 26
+        }
+      ]
+    }
+  ]
+}
