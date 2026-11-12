@@ -147,7 +147,7 @@ const UP = new THREE.Vector3(0, 1, 0), sunRight = new THREE.Vector3(), sunUp = n
 
 // Ground with no street: plain background colour, with the shade colour where the shadow falls. It
 // draws first and writes no depth, so it can't cover the outline round the feet.
-function plainGround() {
+export function plainGround() {
   const material = new THREE.ShadowMaterial({ color: GROUND_SHADE, transparent: false, depthWrite: false });
   material.onBeforeCompile = shader => {
     shader.uniforms.litColor = { value: GROUND_LIT };

@@ -22,7 +22,9 @@ What each source file does.
 | `src/ibis/motion/character.js` | `Character`: controller and animator at a fixed 120 Hz sub step. Prod reactions (flinch, glare, head shake, shake, startle). `strike()`: a blow from a diving miner, a stumble at any speed on the ground. `trip()`: a stumble when the bird is prodded at a run (`TRIP_SPEED`), or sometimes when it runs into a heavy prop at a full run (`knock()` from `physics.js`, `KNOCK_TRIP`); other knocks are a headbutt push |
 | `src/ibis/effects.js` | `IbisEffects`: dust puffs, footprints and comic anger lines, driven by character events and state. `alertMarks()`: the `?` and `!` over the miners |
 | `src/ibis/sound.js` | `IbisSound`: Web Audio sounds from character and prop events, and the noisy miner's calls (`minerCall()`). Recordings: `public/sfx/honk.m4a`, `miner-chip.m4a`, `miner-scold.m4a` |
-| `src/moves.js` | Demo moves: buttons, `anim=N` scripts, `scriptedCharacter()` for fixed-time poses |
+| `src/moves.js` | Demo moves: buttons, `anim=N` scripts, `scriptedCharacter()` for fixed-time poses. `group` of each move and `GROUPS` for `moves.html`. Moves from `FREE_PLAY` on have no free play control |
+| `moves.html`, `src/moveset/main.js` | The moveset page: every move in a grid of cards, by group, each with its own bird. One canvas, a scissor for each card in view. Sound for the card under the pointer |
+| `src/moveset/props.js` | Scripted props of the beak moves on `moves.html`, by move name: a tennis ball, a garden gnome, hot chips, a garden hose (Verlet points). No physics engine |
 | `src/ibis/materialIds.js` | `MAT` ids for JS. Must match `MAT_*` in `model.glsl` |
 | `src/ibis/materials.js` | Runtime shaders: body (cel shading, eye, lids, wing and scarf lines), hull outline, border lines |
 | `src/ibis/Ibis.js` | `loadIbis(bird)`, `Ibis` class (any bird, with a `scale`), part groups, stencil setup, border line geometry |
@@ -89,4 +91,5 @@ What each source file does.
 | `tools/bake/bake.js` | Bake: grid, dual contouring, material split, simplify, normals, skin weights, GLB export |
 | `tools/bake/bake.glsl` | Bake kernel: which SDF each `PART_*` is |
 | `tools/pack.mjs` | Small vertex types and `EXT_meshopt_compression` |
+| `tools/clip.mjs` | Checks each move for the head, the bill or a leg in the body (no browser) |
 | `tools/shot.mjs`, `tools/strip.mjs`, `tools/bench.mjs`, `tools/gpu.mjs`, `tools/playshot.mjs` | Headless screenshot, filmstrip of a move, wall time, GPU time of free play (timer queries), free play screenshot |

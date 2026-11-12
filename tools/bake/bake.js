@@ -29,14 +29,14 @@ const PARTS = [
   { name: 'head', part: 16, group: HEAD, cell: 0.004, weights: rigid('head') },
   { name: 'legL', part: 2, group: 3, cell: 0.004, weights: legWeights('L', 1) },
   { name: 'legR', part: 3, group: 3, cell: 0.004, weights: legWeights('R', -1) },
-  { name: 'wingL', part: 4, group: 2, cell: 0.004, weights: rigid('wingL') },
-  { name: 'wingR', part: 5, group: 2, cell: 0.004, weights: rigid('wingR') },
+  { name: 'wingL', part: 4, group: 2, cell: 0.004, weights: wingWeights('L') },
+  { name: 'wingR', part: 5, group: 2, cell: 0.004, weights: wingWeights('R') },
   { name: 'jaw', part: 6, group: 1, cell: 0.003, weights: rigid('jaw') },
   { name: 'eyes', part: 7, group: HEAD, cell: 0.003, mat: MAT.EYE, weights: rigid('head') },
   { name: 'lids', part: 8, group: HEAD, cell: 0.003, mat: MAT.LID, weights: rigid('head') },
-  ...(BIRD.scarf ? [{ name: 'scarf', part: 9, group: 4, cell: 0.002, weights: rigid('pelvis') }] : []),
+  ...(BIRD.scarf ? [{ name: 'scarf', part: 9, group: 4, cell: 0.002, weights: scarfWeights }] : []),
 ];
-const PART_W = { body: 10, thighL: 11, thighR: 12 };
+const PART_W = { body: 10, thighL: 11, thighR: 12, tail: 13, scarfWrap: 14, scarfR: 17, scarfL: 18 };
 
 const V = (a, i) => new THREE.Vector3(a[i * 3], a[i * 3 + 1], a[i * 3 + 2]);
 
@@ -315,13 +315,37 @@ function rigid(bone) {
   return (ev, pos) => Array.from({ length: pos.length / 3 }, () => ({ index: [BONE[bone]], weight: [1] }));
 }
 
-// Body and thighs blend by distance to each sub-part.
+// Body, tail and thighs blend by distance to each sub-part.
 function coreWeights(ev, pos) {
-  const keys = ['body', 'thighL', 'thighR'];
+  const keys = ['body', 'tail', 'thighL', 'thighR'];
   const ds = keys.map(k => ev.points(PART_W[k], pos).d);
   return Array.from({ length: pos.length / 3 }, (_, i) => {
     const w = softmin(ds.map(d => d[i]), 0.025);
-    return topFour([[BONE.pelvis, w[0]], [BONE.thighL, w[1]], [BONE.thighR, w[2]]]);
+    return topFour([[BONE.pelvis, w[0]], [BONE.tail, w[1]], [BONE.thighL, w[2]], [BONE.thighR, w[3]]]);
+  });
+}
+
+// Wing and hand blend over the wrist, by the height in wing space: wingHand() in model.glsl.
+function wingWeights(s) {
+  return (ev, pos) => {
+    const R = BIND_RIG, shoulder = R['shoulder' + s], inv = R['wing' + s].clone().transpose();
+    const wrist = SHAPE.wrist?.y ?? -1e3;   // a bird with no wrist: all on the wing bone
+    const y0 = wrist + 0.09, y1 = wrist - 0.11;
+    return Array.from({ length: pos.length / 3 }, (_, i) => {
+      const y = V(pos, i).sub(shoulder).applyMatrix4(inv).y;
+      const t = Math.min(Math.max((y - y0) / (y1 - y0), 0), 1), k = t * t * (3 - 2 * t);
+      return topFour([[BONE['wing' + s], 1 - k], [BONE['hand' + s], k]]);
+    });
+  };
+}
+
+// The wrap stays on the body; each end follows its own bone. They blend where an end comes out from
+// under the wrap.
+function scarfWeights(ev, pos) {
+  const ds = ['scarfWrap', 'scarfR', 'scarfL'].map(k => ev.points(PART_W[k], pos).d);
+  return Array.from({ length: pos.length / 3 }, (_, i) => {
+    const w = softmin(ds.map(d => d[i]), 0.012);
+    return topFour([[BONE.pelvis, w[0]], [BONE.scarfR, w[1]], [BONE.scarfL, w[2]]]);
   });
 }
 

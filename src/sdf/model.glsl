@@ -10,6 +10,11 @@ const float WING_FOLD = 0.50;
 const vec2  WING_BULGE = vec2(0.05, -0.45);   // wing-local (z, y) of the point that sits furthest out
 const vec2  WING_PINK_C = vec2(0.0, -0.10);   // wing-local (z, y) of the centre of the pink underside disc
 const float WING_PINK_R = 0.20;
+// Pivots of the extra bones, as SHAPE in rig.js: the wrist (wing space), the tail root and the top of
+// the left scarf end (body space).
+const vec3  WRIST = vec3(0.14, -0.45, 0.0);
+const vec3  TAIL_PIVOT = vec3(0.0, 0.02, -0.40);
+const vec3  SCARF_HINGE = vec3(0.08, 0.80, 0.27);
 const float HEAD_SCALE = 1.12;
 const vec3  NECK_BASE = vec3(0.0, 0.72, 0.20);   // body space
 const vec3  BOUND_C = vec3(0.0, 1.0, 0.3);   // sphere that holds the character in every pose, at rest
@@ -33,6 +38,11 @@ const float MAT_TAIL = 15.0;       // black like the wing tips, a separate id so
 uniform vec3 gPelvis, gNeckBase, gNeckCtrl, gNeckTip, gHead, gShoulderL, gShoulderR;
 uniform vec3 gHipL, gHipR, gKneeL, gKneeR, gFootL, gFootR;
 uniform mat3 gBodyInv, gHeadInv, gWingInvL, gWingInvR;
+uniform float gBodyK;          // 1, or less with a squash: body space distance times gBodyK is a safe step
+uniform vec2 gCurl;            // wing hand bend at the wrist, radians, left and right (more than 0 out)
+uniform mat3 gTailInv;         // tail turn about TAIL_PIVOT, body space (inverse)
+uniform mat3 gScarfInvL, gScarfInvR;   // scarf end swings about their hinges, body space (inverse)
+uniform float gScarfSwing;     // the largest scarf swing angle: 0 at rest
 uniform float gJaw, gBlink;
 uniform vec2 gLook;
 uniform vec4 gExpr;   // top lid (less than 0 wide open), lid tilt (more than 0 angry), lower lid, pupil size
@@ -90,11 +100,21 @@ float sdBlade(vec2 p, vec2 a, vec2 b, float ra, float rb) {
     return sdRoundConeAB(vec3(p, 0.0), vec3(a, 0.0), vec3(b, 0.0), ra, rb);
 }
 
+// Weight of the hand bone at wing-space height y: 0 above the wrist, 1 below it. The bake uses it too.
+float wingHand(float y) { return smoothstep(WRIST.y + 0.09, WRIST.y - 0.11, y); }
+
 // Wing in its local frame: x outward (thin), -y along the wing, z toward the head.
 // A flat outline in the y-z plane given a lens-shaped thickness, so the field stays exact outside it
 // and the contour has a clean width. The blade is bent onto a paraboloid that wraps the body side: it
 // bulges over the belly and curves in at the top, bottom and edges, so the root sinks into the shoulder.
-vec2 wing(vec3 w) {
+vec2 wing(vec3 w, float curl) {
+    // The hand (below the wrist) turns about z at the wrist, as the hand bone does. The skin blends the
+    // two bones over the wrist, so the turn here blends in the same way (wingHand()).
+    if (curl != 0.0) {
+        vec3 r = w - WRIST;
+        float c = cos(curl), s = sin(curl);
+        w = mix(w, WRIST + vec3(c * r.x + s * r.y, -s * r.x + c * r.y, r.z), wingHand(w.y));
+    }
     vec2 b = w.zy - WING_BULGE;
     vec3 c = vec3(w.x - 0.14 + 1.0 * b.x * b.x + 0.55 * b.y * b.y, w.y, w.z);
     vec2 o = c.zy;
@@ -120,11 +140,11 @@ vec2 wing(vec3 w) {
     return vec2(d, id);
 }
 
-vec2 wingL(vec3 p) { return wing(gWingInvL * (p - gShoulderL)); }
+vec2 wingL(vec3 p) { return wing(gWingInvL * (p - gShoulderL), gCurl.x); }
 
 vec2 wingR(vec3 p) {
     vec3 wr = gWingInvR * (p - gShoulderR);
-    return wing(vec3(-wr.x, wr.yz));
+    return wing(vec3(-wr.x, wr.yz), gCurl.y);
 }
 
 // Width scale of the line between wing and body at p: none at the back of the root, where the wing grows
@@ -258,7 +278,8 @@ float body(vec3 q) {
 // Tail: a triangle fan that hangs down under the folded wings and shows below their tips, built
 // like the wing. One wide long feather in the middle and a shorter one on each side.
 float tail(vec3 q) {
-    const vec3 TAIL_O = vec3(0.0, 0.02, -0.40);
+    q = TAIL_PIVOT + gTailInv * (q - TAIL_PIVOT);   // the tail turns about its root
+    const vec3 TAIL_O = TAIL_PIVOT;
     const vec3 TAIL_U = vec3(0.0, -0.920, -0.392);   // along the tail
     const vec3 TAIL_N = vec3(0.0, 0.392, -0.920);    // fan normal
     vec3 tq = q - TAIL_O;
@@ -292,6 +313,9 @@ float scarfStrip(vec3 q, int i) {
     return length(max(d, 0.0)) + min(max(d.x, d.y), 0.0) - R;
 }
 
+// End i (0 the right, 1 the left) at rest: a strip on a shell over the chest. The bake uses it too.
+float scarfEnd(vec3 q, float bodyD, int i) { return max(max(abs(bodyD - 0.032) - 0.022, scarfStrip(q, i)), -q.z); }
+
 // The scarf before the head pushes it aside. Returns the scarf and puts its solid stand-in in solid.
 // The baked mesh uses this: the head moves apart from the scarf, so a carve baked in one pose would be
 // wrong in the others.
@@ -300,11 +324,22 @@ vec2 scarfUncarved(vec3 q, float bodyD, out float solid) {
     // Each end is a strip on a shell over the chest.
     float ends = 1e9, endsSolid = 1e9, trim = 1e9;
     for (int i = 0; i < 2; i++) {
-        float strip = scarfStrip(q, i);
-        float end = max(max(abs(bodyD - 0.032) - 0.022, strip), -q.z);
-        if (end < ends && q.y < (i == 0 ? 0.18 : 0.32) + 0.18) trim = end;
+        // A swung end: its shell as it lies at rest, turned about the hinge at its top.
+        vec3 qi = q;
+        float bi = bodyD;
+        if (gScarfSwing > 0.0) {
+            vec3 h = vec3(i == 0 ? -SCARF_HINGE.x : SCARF_HINGE.x, SCARF_HINGE.yz);
+            qi = h + (i == 0 ? gScarfInvR : gScarfInvL) * (q - h);
+            bi = body(qi);
+        }
+        float strip = scarfStrip(qi, i);
+        float end = scarfEnd(qi, bi, i);
+        if (end < ends && qi.y < (i == 0 ? 0.18 : 0.32) + 0.18) trim = end;
         ends = min(ends, end);
-        endsSolid = min(endsSolid, max(max(bodyD - 0.054, strip), -q.z));
+        // The solid at rest takes in the body under the end. A swung end is off the body, so its solid
+        // is the shell only: else the solid swings into the chest and marks it as under the scarf.
+        float slab = gScarfSwing > 0.0 ? abs(bi - 0.032) - 0.03 : bi - 0.054;
+        endsSolid = min(endsSolid, max(max(slab, strip), -qi.z));
     }
     // The ends blend into the wrap where they come out from under it, so no thin sliver shows.
     solid = smin(wrap, endsSolid, 0.02);
@@ -337,8 +372,8 @@ vec2 mapChar(vec3 p) {
 
     vec3 q = bodySpace(p);
     float bodyD = body(q);
-    addPart(res, bodyD, MAT_WHITE);
-    addPart(res, tail(q), MAT_TAIL);
+    addPart(res, bodyD * gBodyK, MAT_WHITE);
+    addPart(res, tail(q) * gBodyK, MAT_TAIL);
 
     // Each limb is only evaluated when a cheap bound around it is nearer than the closest part so far.
     // Wings: every feather is within 1.12 of the shoulder.
@@ -371,9 +406,11 @@ vec2 mapChar(vec3 p) {
         if (hd.x < res.x) res = hd;
     }
 
-    // The scarf sits within 0.2 of the body. Far away, the body gives a safe step.
-    if (bodyD > 0.3) {
-        res.x = min(res.x, bodyD - 0.2);
+    // The scarf sits within 0.2 of the body, more when its ends swing out. Far away, the body gives a
+    // safe step.
+    float scarfReach = 0.2 + 0.7 * gScarfSwing;
+    if (bodyD > scarfReach + 0.1) {
+        res.x = min(res.x, (bodyD - scarfReach) * gBodyK);
         gSolid = res;
         return res;
     }
@@ -381,8 +418,8 @@ vec2 mapChar(vec3 p) {
     vec2 solid = res;
     float scarfSolid;
     vec2 s = scarf(p, q, bodyD, scarfSolid);
-    addPart(res, s.x, s.y);
-    addPart(solid, scarfSolid, MAT_MAROON);
+    addPart(res, s.x * gBodyK, s.y);
+    addPart(solid, scarfSolid * gBodyK, MAT_MAROON);
     gSolid = solid;
     return res;
 }

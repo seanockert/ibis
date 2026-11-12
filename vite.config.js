@@ -54,7 +54,7 @@ export default defineConfig({
   plugins: [glslRawMinify(), swPlugin()],
   build: {
     rolldownOptions: {
-      input: { main: 'index.html', gulp: 'gulp.html', flap: 'flap.html' },   // the game, and the test toys
+      input: { main: 'index.html', gulp: 'gulp.html', flap: 'flap.html', moves: 'moves.html' },   // the game, the test toys, the moveset
       output: {
         // three.js in its own chunk: a change to the ibis code does not invalidate it in the cache.
         codeSplitting: { groups: [{ name: 'three', test: /node_modules[\\/]three[\\/]/ }] },

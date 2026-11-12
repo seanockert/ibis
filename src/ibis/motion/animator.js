@@ -48,6 +48,21 @@ const DUCK = { headPitch: 0.1, pitch: 0.35, bob: -0.1, stretch: 0.9, wing: 0.1 }
 // Wing beats, for sound. A beat turns when the wings move back this far from the top or the bottom. A
 // beat this high or more gives a 'flap' event (the run flap and the walk swing are less).
 const BEAT = { turn: 0.03, min: 0.3 };
+// Follow-through, after the actions (follow()). squash: body squash for each unit of the squash spring.
+// curl: hand bend for each radian per second of wing speed (it lags the beat), less dead (so a slow
+// idle sway gives none), at most max. tail: lift for each radian of body pitch past rest plus dead,
+// and wag for each radian per second of turn. scarf: out by gain for each radian the body tips
+// forward past dead, by accel for each unit/s^2 of slowing, by drop for each unit/s the body drops;
+// to the side by side for each radian of roll and turn for each radian/s of turn; spread apart by
+// spread as the neck reaches down or out (it falls back at release a second); kick: the jolt of a landing. A spring that comes to rest
+// snaps to 0, so the pose at rest is exact.
+const FOLLOW = {
+  squash: 0.18,
+  curl: { k: 0.05, dead: 0.03, max: 0.7 },
+  tail: { lift: 0.6, dead: 0.1, wag: 0.12, max: 0.8 },
+  scarf: { dead: 0.04, gain: 1.3, accel: 0.04, drop: 0.25, turn: 0.18, max: 1.3, side: 0.9, spread: 0.75, release: 0.8, kick: 1.1 },
+  restPitch: 0.15,
+};
 
 // An action starts its fade out from the weight it has now.
 const fadeOut = a => Object.assign(a, { out: true, outFrom: a.weight, outT: 0 });
@@ -93,6 +108,15 @@ export class Animator {
     this.hitRoll = new Spring(0, 2.6, 0.35);
     this.flickL = new Spring(0, 3, 0.3);
     this.flickR = new Spring(0, 3, 0.3);
+    // Follow-through (FOLLOW): the wing hands lag the beats, the tail and the scarf ends swing.
+    this.curlL = new Spring(0, 5, 0.5);
+    this.curlR = new Spring(0, 5, 0.5);
+    this.wingWas = null;   // [wingL, wingR] of the last step
+    this.tailX = new Spring(0, 2.2, 0.3);
+    this.tailY = new Spring(0, 2.2, 0.3);
+    // Right, left end. Damped to settle in about one bounce: less, and a step (a peck) shook them.
+    this.scarfOut = [new Spring(0, 1.7, 0.5), new Spring(0, 1.9, 0.5)];
+    this.scarfSide = [new Spring(0, 1.6, 0.55), new Spring(0, 1.8, 0.55)];
 
     this.faceNow = face('neutral');
     this.headHeading = 0;
@@ -222,12 +246,62 @@ export class Animator {
     Object.assign(b, { up: false, bottom: w });
   }
 
+  // A jolt to the tail and the scarf ends: more than 0 down (a landing), less than 0 up (a jump).
+  followKick(v) {
+    this.tailY.kick(-v);
+    for (const s of this.scarfOut) s.kick(v * FOLLOW.scarf.kick);
+  }
+
+  // Follow-through: the wing hands lag the beats, the tail and the scarf ends swing.
+  follow(P, dt, c) {
+    const F = FOLLOW, settle = s => { if (Math.abs(s.value) < 2e-3 && Math.abs(s.velocity) < 2e-3) s.value = s.velocity = 0; return s.value; };
+    const dead = (v, d) => Math.sign(v) * Math.max(Math.abs(v) - d, 0);
+    const was = this.wingWas ?? [P.wingL, P.wingR];
+    const vL = (P.wingL - was[0]) / dt, vR = (P.wingR - was[1]) / dt;
+    this.wingWas = [P.wingL, P.wingR];
+    this.curlL.update(dt, clamp(-dead(F.curl.k * vL, F.curl.dead), -F.curl.max, F.curl.max));
+    this.curlR.update(dt, clamp(-dead(F.curl.k * vR, F.curl.dead), -F.curl.max, F.curl.max));
+    P.curlL += settle(this.curlL);
+    P.curlR += settle(this.curlR);
+    // Tail: up as the body tips forward, and it trails a turn.
+    const tip = P.pitch - F.restPitch;
+    this.tailY.update(dt, F.tail.lift * Math.max(tip - F.tail.dead, 0));
+    this.tailX.update(dt, clamp(-F.tail.wag * c.turn, -F.tail.max, F.tail.max));
+    P.tail.x += clamp(settle(this.tailX), -F.tail.max, F.tail.max);
+    P.tail.y += clamp(settle(this.tailY), -F.tail.max, F.tail.max);
+    // Scarf ends hang down, out from the chest (they never go into it), fly out as the body drops, swing
+    // out on a stop and trail a turn. A neck that reaches down or out in front pushes them to the sides,
+    // so it does not go through them.
+    const bob = this.bobWas === undefined ? 0 : (P.bob - this.bobWas) / dt;
+    this.bobWas = P.bob;
+    // The dead zones keep a bird that stands (the idle sway) at exactly 0: a swing costs GPU time.
+    const out = dead(F.scarf.gain * Math.max(tip - F.scarf.dead, 0) - F.scarf.accel * c.accel - F.scarf.drop * Math.min(bob, 0), 0.03);
+    const side = dead(-F.scarf.side * dead(P.roll, 0.05) - F.scarf.turn * c.turn, 0.03);
+    // The spread rises at once and falls slowly, so the jabs of a peck do not shake the ends.
+    const reach = clamp(Math.max(P.neck, P.reach), 0, 1);
+    this.spreadNow = Math.max(reach, (this.spreadNow ?? 0) - F.scarf.release * dt);
+    const spread = F.scarf.spread * this.spreadNow;
+    for (let i = 0; i < 2; i++) {
+      const o = this.scarfOut[i];
+      o.update(dt, clamp(out, 0, F.scarf.max));
+      if (o.value < 0) { o.value = 0; o.velocity *= -0.3; }
+      this.scarfSide[i].update(dt, side + (i === 0 ? -spread : spread));
+      const end = i === 0 ? P.scarfR : P.scarfL;
+      end.x += Math.min(settle(o), F.scarf.max);
+      end.y += clamp(settle(this.scarfSide[i]), -1, 1);
+    }
+  }
+
   onEvent(e) {
-    if (e.type === 'thump') this.squash.kick(e.amount ?? 12);
+    if (e.type === 'thump') {
+      this.squash.kick(e.amount ?? 12);
+      this.followKick(0.25 * (e.amount ?? 12));
+    }
     if (e.type === 'crouch') this.squash.kick(22);
-    if (e.type === 'jump') { this.squash.kick(-30); this.wingPhase = 0.25; }
+    if (e.type === 'jump') { this.squash.kick(-30); this.wingPhase = 0.25; this.followKick(-6); }
     if (e.type === 'land') {
       this.squash.kick(clamp(e.impact * 5, 6, 30));
+      this.followKick(clamp(e.impact * 1.2, 2, 8));
       this.flickL.kick(4);
       this.flickR.kick(4);
       if (e.impact > 4) this.blink();
@@ -436,9 +510,10 @@ export class Animator {
     P.pitch += this.lean.update(dt, clamp(c.accel * 0.025, -0.15, 0.15));
     P.roll += this.bank.update(dt, clamp(-c.turn * c.speed * 0.08, -0.2, 0.2));
 
-    // Squash and stretch. No bone scale (the shader line tests do not know it): the body drops, the
-    // head sinks into the shoulders and the wings rise.
+    // Squash and stretch: the body goes flat and wide (or tall and thin), the body drops, the head sinks
+    // into the shoulders and the wings rise.
     const s = clamp(this.squash.update(dt, c.state === 'crouch' ? 1 : 0), -1, 1.3);
+    P.squash *= 1 - FOLLOW.squash * s;
     P.bob -= 0.1 * Math.max(s, 0);
     P.stretch *= 1 - 0.22 * s;
     P.headPitch += 0.2 * s;
@@ -475,6 +550,7 @@ export class Animator {
     P.roll += this.hitRoll.update(dt, 0);
     P.wingL += Math.max(this.flickL.update(dt, 0), -0.05);
     P.wingR += Math.max(this.flickR.update(dt, 0), -0.05);
+    this.follow(P, dt, c);
 
     // Blinks at random times, and on demand (blink()).
     if (this.time >= this.blinkAt + BLINK_TIME) {

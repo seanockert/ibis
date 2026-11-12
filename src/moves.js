@@ -32,28 +32,95 @@ const turn = c => c.turnTo(c.heading + Math.PI);
 const prod = c => c.prod(new Vector3(0.6, 1.2, 0.6));   // from the front left
 
 // press(c): what the button does once in free play. Moves without press run their script.
-const action = (name, label, gap = 0.4) => ({ name: label, press: c => c.act(name), script: repeat(name, gap) });
+const action = (name, label, group, gap = 0.4) => ({ name: label, group, press: c => c.act(name), script: repeat(name, gap) });
 
+// Plays first, then second after delay seconds, each period seconds.
+const pair = (first, second, delay, period) => () => {
+  let n = -1, done = false;
+  return (c, t) => {
+    const k = Math.floor(t / period);
+    if (k !== n) { c.act(first, n < 0 ? { fadeIn: 0 } : undefined); n = k; done = false; }
+    if (!done && t - k * period >= delay) { c.act(second); done = true; }
+  };
+};
+
+// Plays each [name, at] at its time (seconds), each period seconds.
+const chain = (steps, period) => () => {
+  let n = -1, next = 0;
+  return (c, t) => {
+    const k = Math.floor(t / period);
+    if (k !== n) { n = k; next = 0; }
+    while (next < steps.length && t - k * period >= steps[next][1]) {
+      const [name, at] = steps[next++];
+      c.act(name, k === 0 && at === 0 ? { fadeIn: 0 } : undefined);
+    }
+  };
+};
+
+// Groups of the moveset page (moves.html), in order.
+export const GROUPS = ['Gameplay', 'Interactions', 'Reactions', 'Expressive'];
+
+// Moves after the first FREE_PLAY have no control in free play yet: only the fixed views and moves.html.
 export const MOVES = [
-  { name: 'Idle', script: () => () => {} },
-  { name: 'Walk', loop: true, script: circle(false) },
-  action('peck', 'Peck', 0),
+  { name: 'Idle', group: 'Gameplay', script: () => () => {} },
+  { name: 'Walk', group: 'Gameplay', loop: true, script: circle(false) },
+  action('peck', 'Peck', 'Interactions', 0),
   // Free play: the button gives a squawk and a happy dance in turn.
-  { ...action('squawk', 'Squawk', 0), press: (() => { let n = 0; return c => c.act(n++ % 2 ? 'happy' : 'squawk'); })() },
-  { name: 'Run', loop: true, script: circle(true) },
+  { ...action('squawk', 'Squawk', 'Expressive', 0), press: (() => { let n = 0; return c => c.act(n++ % 2 ? 'happy' : 'squawk'); })() },
+  { name: 'Run', group: 'Gameplay', loop: true, script: circle(true) },
   // Hold the jump for a second: jump, then flutter. In free play the button is held like a game button.
-  { name: 'Jump', hold: true, script: () => (c, t) => { c.input.jump = t % 2.4 < 1.0; } },
-  action('happy', 'Happy'),
-  action('headShake', 'Shake head'),
-  action('threat', 'Threat'),
-  action('startle', 'Startle', 0.6),
-  action('stumble', 'Stumble', 0.6),
-  action('shake', 'Shake'),
+  { name: 'Jump', group: 'Gameplay', hold: true, script: () => (c, t) => { c.input.jump = t % 2.4 < 1.0; } },
+  action('happy', 'Happy', 'Expressive'),
+  action('headShake', 'Shake head', 'Expressive'),
+  action('threat', 'Threat', 'Expressive'),
+  action('startle', 'Startle', 'Reactions', 0.6),
+  action('stumble', 'Stumble', 'Reactions', 0.6),
+  action('shake', 'Shake', 'Reactions'),
   // Turn round on the spot: the eyes, then the head, then the body.
-  { name: 'Turn', press: turn, script: every(2, turn) },
+  { name: 'Turn', group: 'Gameplay', press: turn, script: every(2, turn) },
   // Prods: the bird gets more annoyed with each one.
-  { name: 'Prod', press: prod, script: every(1.3, prod) },
+  { name: 'Prod', group: 'Reactions', press: prod, script: every(1.3, prod) },
+  action('lunge', 'Lunge jab', 'Gameplay', 0.5),
+  // Under a fallen bin (physics.js sets duck in the game).
+  { name: 'Duck', group: 'Gameplay', script: () => c => { c.controller.duck = true; } },
+  action('snap', 'Snap', 'Gameplay'),
+  { name: 'Pick up', group: 'Interactions', script: chain([['peck', 0], ['lift', 0.1], ['drop', 1.3]], 2.2) },
+  action('fumble', 'Fumble', 'Interactions'),
+  action('drop', 'Drop', 'Interactions'),
+  { name: 'Aim and fling', group: 'Interactions', script: pair('aim', 'fling', 0.9, 1.9) },
+  action('sideThrow', 'Side throw', 'Interactions'),
+  action('tug', 'Tug', 'Interactions'),
+  action('rummage', 'Rummage', 'Interactions'),
+  action('catch', 'Catch', 'Interactions', 0.9),
+  action('toss', 'Toss', 'Interactions'),
+  { name: 'Gulp', group: 'Interactions', press: c => c.act('gulp'), script: chain([['catch', 0], ['gulp', 0.6]], 2.3) },
+  action('flinch', 'Flinch', 'Reactions'),
+  action('bonk', 'Bonk', 'Reactions'),
+  action('whiff', 'Whiff', 'Reactions'),
+  action('knockedOver', 'Knocked over', 'Reactions', 0.6),
+  action('slip', 'Slip', 'Reactions', 0.6),
+  // A jump with a long flutter, and a hard landing when it comes down.
+  { name: 'Hard landing', group: 'Reactions', script: () => {
+    let air = false;
+    return (c, t) => {
+      const u = t % 3.4;
+      c.input.jump = u < 1.2;
+      if (air && c.controller.grounded) c.act('hardLand');
+      air = !c.controller.grounded;
+    };
+  } },
+  // Out of lives in Toss and Gulp: it lies there until stop().
+  // It gets up (stop()) before the next faint.
+  { name: 'Faint', group: 'Reactions', script: () => {
+    const play = every(4, (c, first) => c.act('faint', first ? { fadeIn: 0 } : undefined))();
+    return (c, t) => { play(c, t); if (t % 4 >= 3.2) c.animator.stop(); };
+  } },
+  action('glare', 'Glare', 'Expressive'),
+  action('burp', 'Burp', 'Expressive'),
+  action('preen', 'Preen', 'Expressive'),
+  action('wingStretch', 'Wing stretch', 'Expressive'),
 ];
+export const FREE_PLAY = 14;
 
 // Starts move i on a character: clears the input and gives the step function.
 export function startMove(c, i) {

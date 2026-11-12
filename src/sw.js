@@ -20,8 +20,10 @@ self.addEventListener('activate', e => {
 self.addEventListener('fetch', e => {
   const req = e.request, url = new URL(req.url);
   if (req.method !== 'GET' || url.origin !== location.origin) return;
-  // A page load with URL parameters (index.html?lite=1) gets the cached page.
+  // A page load gets the cached page of its path, with or without URL parameters (moves.html?t=0.5).
+  // Any other path gets the game, as the host does.
   const page = req.mode === 'navigate';
+  const opts = { ignoreSearch: true, ignoreVary: true };
   e.respondWith(caches.open(CACHE).then(async c =>
-    (page ? await c.match('/index.html') : await c.match(req, { ignoreSearch: true, ignoreVary: true })) ?? fetch(req)));
+    (page ? await c.match(url.pathname, opts) ?? await c.match('/index.html') : await c.match(req, opts)) ?? fetch(req)));
 });

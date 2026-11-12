@@ -32,6 +32,12 @@ export const SHAPE = {
   jawHinge: new Vector3(0, -0.07, 0.10),      // head space, before headScale
   pitch: 0,       // added to the Pose's body pitch
   headPitch: 0,   // added to the Pose's head pitch
+  // Pivots of the extra bones (model.glsl has the same numbers). wrist: wing space, the hand turns about
+  // z here. tail: body space, the root of the tail fan. scarf: body space, the top of the left scarf end
+  // (the right end is the mirror).
+  wrist: new Vector3(0.14, -0.45, 0.0),
+  tail: new Vector3(0.0, 0.02, -0.40),
+  scarf: new Vector3(0.08, 0.80, 0.27),
 };
 export const HEAD_SCALE = SHAPE.headScale;
 export const NECK_BONES = 8;
@@ -59,11 +65,18 @@ export function restPose() {
     neck: 0,                                // 0 upright, 1 reaching to the ground
     reach: 0,                               // 1 neck straight out in front
     stretch: 1,                             // neck length: less than 1 squashes the head into the body
+    neckBody: 0,                            // 1: the upright neck turns with the body (lying down, it lies down too)
+    squash: 1,                              // body height scale: less than 1 flat and wide, more tall and thin (same volume)
+    tip: new Vector3(0, 0, 0),              // added to the neck end, character space: the head to one side
     headPitch: 0.12, headYaw: 0, headRoll: 0, headFwd: 0,
     jaw: 0, blink: 0,                       // blink 1 = happy closed eyes
     lid: 0, lidTilt: 0, lowLid: 0, pupil: 1,  // top lid (less than 0 wide), angry tilt, lower lid, pupil size
     wingL: 0, wingR: 0,                     // wing spread, radians
     sweepL: 0, sweepR: 0,                   // wings swing forward (more than 0) or back, radians
+    curlL: 0, curlR: 0,                     // wing hand (the flight feathers) bends at the wrist, radians: more than 0 out, away from the body
+    tail: new Vector2(0, 0),                // tail turn, radians: x to the left, y up
+    scarfL: new Vector2(0, 0),              // scarf end swing, radians: x out from the chest, y to the bird's left
+    scarfR: new Vector2(0, 0),
     look: new Vector2(0, 0),                // pupil offset
   };
 }
@@ -144,19 +157,31 @@ const at = (m, x, y, z) => new Vector3(x, y, z).applyMatrix4(m);
 export function solveRig(P, S = SHAPE) {
   const R = {};
   R.pelvis = new Vector3(P.x, S.pelvisY + P.bob + P.lift, P.z);
-  R.body = mul(rotY(P.yaw), rotZ(P.roll), rotX(P.pitch + S.pitch));
+  // bodyRot: the turn only. body: with the squash (a scale in body space), for the torso and the points
+  // on it. The neck shape and the wings take the turn only.
+  R.bodyRot = mul(rotY(P.yaw), rotZ(P.roll), rotX(P.pitch + S.pitch));
+  R.squash = P.squash;
+  R.body = P.squash === 1 ? R.bodyRot : R.bodyRot.clone().multiply(new Matrix4().makeScale(1 / Math.sqrt(P.squash), P.squash, 1 / Math.sqrt(P.squash)));
   const toBody = (x, y, z) => at(R.body, x, y, z).add(R.pelvis);
 
   // The neck runs from its base to the nape, and the head turns about the nape.
   R.neckBase = toBody(S.neckBase.x, S.neckBase.y, S.neckBase.z);
   const tipUp = R.neckBase.clone().addScaledVector(S.neckTipUp, P.stretch).add(new Vector3(0, 0, P.headFwd));
+  const ctrlUp = S.neckCtrlUp.clone().multiplyScalar(P.stretch);
+  if (P.neckBody > 0) {
+    const up = tipUp.sub(R.neckBase);
+    tipUp.copy(up).lerp(up.clone().applyMatrix4(R.bodyRot), P.neckBody).add(R.neckBase);
+    ctrlUp.lerp(ctrlUp.clone().applyMatrix4(R.bodyRot), P.neckBody);
+  }
   // The peck reaches down to the level the bird stands on (lift), as the feet do, not to y = 0.
   R.neckTip = tipUp.lerp(S.neckTipDown.clone().setY(S.neckTipDown.y + P.lift), P.neck);
-  R.neckCtrl = R.neckBase.clone().add(S.neckCtrlUp.clone().multiplyScalar(P.stretch).lerp(S.neckCtrlDown, P.neck));
+  R.neckCtrl = R.neckBase.clone().add(ctrlUp.lerp(S.neckCtrlDown, P.neck));
   if (P.reach > 0) {
     R.neckTip.lerp(R.neckBase.clone().add(S.neckTipReach), P.reach);
     R.neckCtrl.lerp(R.neckBase.clone().add(S.neckCtrlReach), P.reach);
   }
+  R.neckTip.add(P.tip);
+  R.neckCtrl.addScaledVector(P.tip, 0.5);
   R.headRot = mul(rotY(P.headYaw), rotX(P.headPitch + S.headPitch), rotZ(P.headRoll));
   R.head = R.neckTip.clone().sub(S.nape.clone().multiplyScalar(S.headScale).applyMatrix4(R.headRot));
 
@@ -169,8 +194,14 @@ export function solveRig(P, S = SHAPE) {
   // With wingLevel, an open wing turns back by the body pitch about its own axis.
   const levelL = S.wingLevel * (P.pitch + S.pitch) * smoothstep(0.7, 1.2, P.wingL);
   const levelR = S.wingLevel * (P.pitch + S.pitch) * smoothstep(0.7, 1.2, P.wingR);
-  R.wingL = mul(R.body.clone(), rotY(-P.sweepL), rotX(foldL - levelL), rotY(tuckL), rotZ(P.wingL));
-  R.wingR = mul(R.body.clone(), rotY(P.sweepR), rotX(foldR - levelR), rotY(-tuckR), rotZ(-P.wingR));
+  R.wingL = mul(R.bodyRot.clone(), rotY(-P.sweepL), rotX(foldL - levelL), rotY(tuckL), rotZ(P.wingL));
+  R.wingR = mul(R.bodyRot.clone(), rotY(P.sweepR), rotX(foldR - levelR), rotY(-tuckR), rotZ(-P.wingR));
+  R.curl = new Vector2(P.curlL, P.curlR);
+  // Tail and scarf ends: turns in body space about their pivots.
+  R.tail = mul(rotY(P.tail.x), rotX(P.tail.y));
+  R.scarfL = mul(rotZ(P.scarfL.y), rotX(-P.scarfL.x));
+  R.scarfR = mul(rotZ(P.scarfR.y), rotX(-P.scarfR.x));
+  R.scarfSwing = Math.max(Math.abs(P.scarfL.x), Math.abs(P.scarfL.y), Math.abs(P.scarfR.x), Math.abs(P.scarfR.y));
 
   R.pole = at(rotY(P.yaw), 0, 0, -1);
   R.hipL = toBody(S.hip.x, S.hip.y, S.hip.z);
@@ -197,11 +228,16 @@ export function solveRig(P, S = SHAPE) {
 // Uniform values for model.glsl.
 export function rigUniforms(R) {
   const inv = m => new Matrix3().setFromMatrix4(m).transpose();
+  const a = 1 / Math.sqrt(R.squash);
   return {
     gPelvis: R.pelvis, gNeckBase: R.neckBase, gNeckCtrl: R.neckCtrl, gNeckTip: R.neckTip, gHead: R.head,
     gShoulderL: R.shoulderL, gShoulderR: R.shoulderR, gHipL: R.hipL, gHipR: R.hipR,
     gKneeL: R.kneeL, gKneeR: R.kneeR, gFootL: R.footL, gFootR: R.footR,
-    gBodyInv: inv(R.body), gHeadInv: inv(R.headRot), gWingInvL: inv(R.wingL), gWingInvR: inv(R.wingR),
+    // With a squash, the body matrix is not a turn: a true inverse, and gBodyK, the most that body space
+    // stretches a distance, so a distance there times gBodyK is a safe step.
+    gBodyInv: R.squash === 1 ? inv(R.body) : new Matrix3().setFromMatrix4(R.body).invert(), gBodyK: Math.min(R.squash, a),
+    gHeadInv: inv(R.headRot), gWingInvL: inv(R.wingL), gWingInvR: inv(R.wingR),
+    gCurl: R.curl, gTailInv: inv(R.tail), gScarfInvL: inv(R.scarfL), gScarfInvR: inv(R.scarfR), gScarfSwing: R.scarfSwing,
     gJaw: R.jaw, gBlink: R.blink, gLook: R.look, gExpr: R.expr,
   };
 }
@@ -213,6 +249,8 @@ const TOES = [0, 1, 2, 3];   // 0-2 forward, left to right as seen from behind, 
 export const BONES = [
   'pelvis', ...Array.from({ length: NECK_BONES }, (_, i) => 'neck' + i), 'head', 'jaw', 'wingL', 'wingR',
   ...SIDES.flatMap(([s]) => ['thigh' + s, 'shank' + s, 'foot' + s, ...TOES.map(i => 'toe' + s + i)]),
+  // Added later, at the end, so the bone numbers in an older bake (the miner) stay right.
+  'handL', 'handR', 'tail', 'scarfL', 'scarfR',
 ];
 
 export function bezier(a, b, c, t) {
@@ -274,6 +312,15 @@ export function boneMatrices(R, bindLengths, S = SHAPE) {
     new Matrix4().makeTranslation(hinge), rotX(R.jaw), new Matrix4().makeTranslation(hinge.clone().negate())));
   out.wingL = place(R.shoulderL, R.wingL);
   out.wingR = place(R.shoulderR, R.wingR);
+  // A turn about a pivot, in the space of a parent bone.
+  const about = (parent, pivot, rot) => parent.clone().multiply(mul(new Matrix4().makeTranslation(pivot), rot, new Matrix4().makeTranslation(pivot.clone().negate())));
+  const wrist = S.wrist ?? new Vector3(), mirror = v => new Vector3(-v.x, v.y, v.z);
+  out.handL = about(out.wingL, wrist, rotZ(R.curl.x));
+  out.handR = about(out.wingR, mirror(wrist), rotZ(-R.curl.y));
+  out.tail = about(out.pelvis, S.tail ?? new Vector3(), R.tail);
+  const scarfTop = S.scarf ?? new Vector3();
+  out.scarfL = about(out.pelvis, scarfTop, R.scarfL);
+  out.scarfR = about(out.pelvis, mirror(scarfTop), R.scarfR);
   for (const [s, side] of SIDES) {
     const hip = R['hip' + s], knee = R['knee' + s], foot = R['foot' + s];
     out['thigh' + s] = place(hip, aimFrame(knee.clone().sub(hip), R.pole));

@@ -5,7 +5,7 @@
 //
 //   const ui = new Ui({ play, anim, level, input, cycle, onMove });
 //   ui.update();   // every frame: the time of day button follows the cycle
-import { MOVES } from '../moves.js';
+import { FREE_PLAY, MOVES } from '../moves.js';
 
 // Icons: 24 by 24 SVG, filled shapes and lines (class s) with a little bow in the edges, so they look hand drawn.
 const ICONS = {
@@ -61,7 +61,7 @@ export class Ui {
     }
     this.buttons = [];
     for (const [i, move] of MOVES.entries()) {
-      if (play && PAD.includes(move.name)) continue;
+      if (play && (PAD.includes(move.name) || i >= FREE_PLAY)) continue;
       const b = document.createElement('button');
       b.textContent = move.name;
       b.setAttribute('aria-pressed', String(i === anim - 1 && (move.loop || !play)));

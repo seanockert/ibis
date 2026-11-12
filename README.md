@@ -19,7 +19,9 @@ npm run strip -- out.png "index.html?anim=7&yaw=1.3&pitch=0.1" 0 1.2 12   # film
 npm run bench -- "index.html?anim=2" 1280x800 60
 ```
 
-Page parameters: `anim` (a move from `src/moves.js`, index + 1: 1 idle, 2 walk, 3 peck, 4 squawk, 5 run, 6 jump, 7 happy, 8 shake head, 9 threat, 10 startle, 11 stumble, 12 shake, 13 turn, 14 prod), `t` (fixed time), `yaw` and `pitch` (fixed camera), `count` (number of ibises, demo only), `ui=0` (no buttons), `bird=miner` (show the noisy miner in the fixed views and in `sdf.html`), `fly=1` or `fly=2` with `bird=miner` (the miner flies on the spot, or dives).
+`moves.html` shows every move of the ibis in a grid of cards, by group. Click a card to start its move again.
+
+Page parameters: `anim` (a move from `src/moves.js`, index + 1: 1 idle, 2 walk, 3 peck, 4 squawk, 5 run, 6 jump, 7 happy, 8 shake head, 9 threat, 10 startle, 11 stumble, 12 shake, 13 turn, 14 prod, 15 lunge jab, 16 duck, 17 snap, 18 pick up, 19 fumble, 20 drop, 21 aim and fling, 22 side throw, 23 tug, 24 rummage, 25 catch, 26 toss, 27 gulp, 28 flinch, 29 bonk, 30 whiff, 31 knocked over, 32 slip, 33 hard landing, 34 faint, 35 glare, 36 burp, 37 preen, 38 wing stretch), `t` (fixed time), `yaw` and `pitch` (fixed camera), `count` (number of ibises, demo only), `ui=0` (no buttons), `bird=miner` (show the noisy miner in the fixed views and in `sdf.html`), `fly=1` or `fly=2` with `bird=miner` (the miner flies on the spot, or dives).
 
 Demo controls: WASD or the arrow keys walk, Shift runs, Space jumps (hold it to flutter; double-tap it, or the Jump button, to shake), E pecks (hold it with something in the bill to aim, let go to fling), Q squawks. Tap the ground to walk there. Tap the bird to prod it: it looks away, then glares, then shakes, then threatens. Drag to orbit. The camera swings behind the bird as it moves, and waits 2 s after a drag. On a touch screen, tap the middle of the joystick to turn the camera behind the bird.
 Use the same parameters on `index.html` and `sdf.html` to compare the mesh with the SDF.

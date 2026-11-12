@@ -200,6 +200,7 @@ float mudMask(vec3 p) {
 }
 // Mud and wet on the base colour. band: 0 shade to 1 lit. n and v: unit normal and view direction, world.
 vec3 weather(vec3 col, vec3 p, float band, vec3 n, vec3 v) {
+    if (uMud <= 0.0 && uWet <= 0.0) return col;   // clean and dry: skip the noise
     float mud = mudMask(p);
     // Uneven: soft light and dark, and darker patches of wet mud.
     vec3 mudCol = mix(uMudShade, uMudLit, band) * mix(0.8, 1.1, noise3(p * 9.0));
@@ -365,12 +366,19 @@ export function bodyMaterial(palette, shared, bird) {
           // The scarf needs the body distance at each step; the rise needs it only until it is full.
           bool rising = clear < RISE_FULL;
           float b = part == PART_SCARF || rising ? body(q) : 0.0, d;
+          bool end = false;
           if (part == PART_WINGS) d = over(x, part).x;
         #ifdef SCARF
-          else scarfUncarved(q, b, d);
+          else {
+            scarfUncarved(q, b, d);
+            // A swung end gets only the thin line here. Near the chest the miss follows how close the end
+            // is in depth, not its outline on screen, and a wide line there is ragged. Its contour hull
+            // draws the wide line over the torso (Ibis.js). The wrap's blend lowers d by at most 0.005.
+            end = gScarfSwing > 0.0 && scarfWrap(q) > d + 0.006;
+          }
         #endif
           if (rising) clear = max(clear, min(min(b, tail(q)), d));
-          if (d < miss) { miss = d; at = x; rise = clear; }
+          if (d < miss) { miss = d; at = x; rise = end ? 0.0 : clear; }
           // In the scarf's solid the miss is below 0: the line is full at any width.
           if (part == PART_SCARF && d < 0.0) break;
           t += max(d, 0.004);
@@ -396,9 +404,31 @@ export function bodyMaterial(palette, shared, bird) {
         }
         if (e > edge) { edge = e; edgeCol = uLine[int(over(at, part).y + 0.5)]; }
       }
+      // True when the view ray from here, up to far toward the camera, passes within r of c (body space).
+      // A cheap test before the scarf march: the whole scarf is within SCARF_R of SCARF_C at rest, and
+      // its swung ends within 0.7 per radian more.
+      const vec3 SCARF_C = vec3(0.0, 0.55, 0.25);
+      const float SCARF_R = 0.62;
+      bool rayNear(vec3 c, float r, float far) {
+        vec3 q0 = bodySpace(vPos), dq = gBodyInv * vToCamera;
+        float t = clamp(dot(c - q0, dq) / dot(dq, dq), 0.0, far);
+        return length(q0 + dq * t - c) < r;
+      }
+    #ifdef SCARF
+      // Contact shadow of the scarf on the torso: a short ray toward the sun against the scarf's solid.
+      // The shadow map loses it where the scarf lies close (its bias), so an end that swings out a little
+      // would leave a lit gap behind it. 1 in the shadow.
+      float scarfShadow() {
+        vec3 sun = vec3(dot(vRotX, uSun), dot(vRotY, uSun), dot(vRotZ, uSun));   // character space
+        float m = 1e9;
+        for (int i = 1; i <= 4; i++) m = min(m, over(vPos + sun * (0.035 * float(i)), PART_SCARF).x);
+        return 1.0 - smoothstep(-0.004, 0.004, m);
+      }
+    #endif
       void main() {
         int id = int(vMat + 0.5);
         vec3 lit = uLit[id], shade = uShade[id];
+        float scarfD = 1e9;   // torso: distance to the scarf's solid, for its contact shadow
         float edge = 0.0;
         vec3 edgeCol = uLine[id];
         float halfPx = 0.5 * max(LINE_INNER * vPixels, LINE_MIN_PX);
@@ -422,14 +452,21 @@ export function bodyMaterial(palette, shared, bird) {
           if (d < 1.0) edge = lineMask(d, (halfPx + 0.5) * wingSeam(vPos) - 0.5);
           if (group == GROUP_TORSO) {
           #ifdef SCARF
-            if (over(vPos, PART_SCARF).x < 1.2) overLine(PART_SCARF, 1.2, edge, edgeCol);
+            if (rayNear(SCARF_C, SCARF_R + 0.7 * gScarfSwing, 1.2)) {
+              scarfD = over(vPos, PART_SCARF).x;
+              if (scarfD < 1.2) overLine(PART_SCARF, 1.2, edge, edgeCol);
+            }
           #endif
             if (d < 0.35) overLine(PART_WINGS, 0.6, edge, edgeCol);
           }
         }
         vec3 n = normalize(vNormal), v = normalize(mat3(vRotX, vRotY, vRotZ) * vToCamera);
         vec2 lamp = lampLight(n);
-        float band = lampBand(toonBand(n, uSun), lamp);
+        float sunBand = toonBand(n, uSun);
+      #ifdef SCARF
+        if (sunBand > 0.0 && scarfD < 0.12) sunBand *= 1.0 - scarfShadow();   // only lit pixels near the scarf
+      #endif
+        float band = lampBand(sunBand, lamp);
         vec3 col = mix(shade, lit, band);
         // Highlight, in the lit band only. Not on the wings.
         vec2 gloss = int(vGroup + 0.5) == GROUP_WINGS ? vec2(0.0) : uGloss[id];
@@ -460,6 +497,7 @@ export function hullMaterial(palette, shared, body, kind, bird) {
     uniforms: {
       ...shared, uHeadInv: { value: c.headInv }, uLine: { value: line }, uGlow: { value: 0 }, gBlink: body.uniforms.gBlink, gExpr: body.uniforms.gExpr,
       uBulgeA: body.uniforms.uBulgeA, uBulgeB: body.uniforms.uBulgeB,
+      uScarfBones: { value: new Vector2(-1, -1) }, uScarfSwing: { value: new Vector2() },
     },
     vertexShader: /* glsl */`
       #include <common>
@@ -474,6 +512,9 @@ export function hullMaterial(palette, shared, body, kind, bird) {
       attribute float _line;
       attribute vec3 _outline;   // smooth normal for the push out
       uniform float uGlow;       // 0 to 1: the contour goes white and wider (GLOW), as a highlight
+      uniform vec2 uScarfBones;  // bone numbers of the right and left scarf ends (-1: none)
+      uniform vec2 uScarfSwing;  // swing angle of the right and left scarf ends, radians
+      const float SCARF_PUSH = 0.04, SCARF_PUSH_SWING = 0.3;   // push of a swung end, and the swing that gives it all
       varying float vMat;
       varying vec4 vEye;
       void main() {
@@ -495,6 +536,14 @@ export function hullMaterial(palette, shared, body, kind, bird) {
         // The scarf lies on the chest, which curves away under its edge: it gets its wide line only
         // against what is far behind it, so no stray stroke shows a little way off its edge.
         float push = int(_group + 0.5) == GROUP_SCARF ? 0.2 : 0.07;
+        // A swung end stands off the chest, so its line goes over the torso too (the stencil test is off,
+        // Ibis.js): the push gets less as the end swings out, and the line shows where the gap is wider.
+        float swing = 0.0;
+        for (int k = 0; k < 4; k++) {
+          if (skinIndex[k] == uScarfBones.x) swing += skinWeight[k] * uScarfSwing.x;
+          if (skinIndex[k] == uScarfBones.y) swing += skinWeight[k] * uScarfSwing.y;
+        }
+        push = mix(push, SCARF_PUSH, smoothstep(0.0, SCARF_PUSH_SWING, swing));
         if (away.y < 0.0) push = min(push, max(transformed.y - 0.005, 0.0) / -away.y);
         transformed += away * push;
         float units = mix(CONTOUR_SHADE, CONTOUR_LIT, smoothstep(-0.3, 0.6, dot(worldNormal, uSun)));

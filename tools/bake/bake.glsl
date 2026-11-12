@@ -26,6 +26,11 @@ const int PART_HEAD = 16;    // skull and upper bill
 const int PART_W_BODY = 10;
 const int PART_W_THIGH_L = 11;
 const int PART_W_THIGH_R = 12;
+const int PART_W_TAIL = 13;
+// Sub-parts of the scarf, for skin weights.
+const int PART_W_SCARF_WRAP = 14;
+const int PART_W_SCARF_R = 17;
+const int PART_W_SCARF_L = 18;
 
 vec2 part(vec3 p) {
     vec3 q = bodySpace(p);
@@ -51,7 +56,13 @@ vec2 part(vec3 p) {
 #ifdef SCARF
     if (uPart == PART_SCARF) { float solid; return scarfUncarved(q, bodyD, solid); }
 #endif
-    if (uPart == PART_W_BODY) return vec2(min(bodyD, tail(q)), 0.0);
+    if (uPart == PART_W_BODY) return vec2(bodyD, 0.0);
+    if (uPart == PART_W_TAIL) return vec2(tail(q), 0.0);
+#ifdef SCARF
+    if (uPart == PART_W_SCARF_WRAP) return vec2(scarfWrap(q), 0.0);
+    if (uPart == PART_W_SCARF_R) return vec2(scarfEnd(q, bodyD, 0), 0.0);
+    if (uPart == PART_W_SCARF_L) return vec2(scarfEnd(q, bodyD, 1), 0.0);
+#endif
     if (uPart == PART_W_THIGH_L) return vec2(thighOnly(p, gHipL, gKneeL), 0.0);
     if (uPart == PART_W_THIGH_R) return vec2(thighOnly(p, gHipR, gKneeR), 0.0);
     return vec2(1e9, 0.0);

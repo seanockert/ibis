@@ -77,6 +77,10 @@ export class Ibis {
       i === WING_GROUP || i === SCARF_GROUP ? stencilled(contour, TORSO_GROUP + 1, NotEqualStencilFunc, KeepStencilOp) : sharing(contour)));
     this.contour.renderOrder = 1;   // after every body has drawn its stencil
     this.glowUniform = contour.uniforms.uGlow;
+    // skinIndex counts the skeleton's bones. -1 where a bake has no scarf ends.
+    const bone = name => this.body.skeleton.bones.indexOf(byName[name]);
+    contour.uniforms.uScarfBones.value.set(bone('scarfR'), bone('scarfL'));
+    this.scarfSwing = contour.uniforms.uScarfSwing.value;
     const inner = hullMaterial(asset.palette, asset.uniforms, body, 'inner', this.bird);
     this.inner = this.attach(this.body.geometry, byGroup(i => stencilled(inner, i + 1, NotEqualStencilFunc, KeepStencilOp)));
     this.inner.renderOrder = 1;   // after every body has drawn its stencil
@@ -131,9 +135,15 @@ export class Ibis {
     this.rig = rig;
     boneMatrices(rig, this.neckLengths, this.bird.shape).forEach((m, i) => {
       const b = this.bones[i];
-      m.decompose(b.position, b.quaternion, b.scale);
+      if (b) m.decompose(b.position, b.quaternion, b.scale);   // an older bake has no later bones
     });
     for (const [name, value] of Object.entries(rigUniforms(rig))) this.uniforms[name].value = value;
+    // A swung scarf end stands off the chest: its contour hull draws over the torso too, as it does over
+    // the background. At rest the body shader draws that line (overLine() in materials.js).
+    const swing = v => Math.max(Math.abs(v.x), Math.abs(v.y));
+    this.scarfSwing.set(swing(pose.scarfR), swing(pose.scarfL));
+    const scarfContour = this.contour.material[SCARF_GROUP];
+    if (scarfContour) scarfContour.stencilFunc = rig.scarfSwing > 0 ? AlwaysStencilFunc : NotEqualStencilFunc;
     for (const mesh of this.meshes) mesh.boundingSphere.center.copy(rig.pelvis).add(BOUND_OFFSET);
   }
 

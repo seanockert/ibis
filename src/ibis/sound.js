@@ -18,7 +18,7 @@
 // different pitch each time. The noisy miner's calls are recordings too: public/sfx/miner-chip.m4a
 // (0.6 s, a burst of four alarm chips, for the alert) and public/sfx/miner-scold.m4a (0.8 s, three harsh
 // scold notes, for the attack). All other sounds are filtered noise and tones made here, with no files:
-// steps (softer on grass, with a squelch when wet or muddy), scuffs, the grass rustle, wing beats, landings, thumps, the threat hiss, bill
+// steps (softer on grass, with a squelch when wet or muddy), scuffs, the grass rustle, wing beats, feather ruffles, landings, thumps, the threat hiss, bill
 // clacks, the bill's snap on a prop it picks up, mud splashes, the bin and box slams, the flies' buzz, the sprinkler's hiss and the tap's squeak. Each sound pans and fades with its place in the camera's view.
 // Browsers start audio only after a user input, so a key or tap starts it. Until then, and while
 // muted, the context is suspended: no sound plays or queues, and the audio thread does no work.
@@ -46,6 +46,7 @@ export const SOUND = {
     yelp: 0.9,          // a hurt noisy miner: the chip, high and fast
     hiss: 0.35,         // the threat hiss
     clack: 1,           // the bill snaps shut
+    ruffle: 0.5,        // the feathers shake or fluff out
     pick: 0.8,          // the bill takes hold of a prop (a peck picks it up)
     turn: 0.6,          // the bill turns a tap handle
     creak: 0.45,        // the gate hinge
@@ -149,6 +150,7 @@ export class IbisSound {
         if (e.type === 'clack') this.clack(place, e.amount ?? 1);
         if (e.type === 'pick') this.pick(place, e.hold);
         if (e.type === 'whoosh') this.whoosh(place);
+        if (e.type === 'ruffle') this.ruffle(place, e.length ?? 0.5);
         if (e.type === 'turn') this.squeak(place);
       }
     }
@@ -457,6 +459,16 @@ export class IbisSound {
     this.burst(v, { length: 0.045, gain: 1, attack: 0.003, filter: ['bandpass', 1500 * this.vary(0.15), 700, 2] });
     this.tone(v, { length: 0.05, gain: 0.35, f0: 320 * this.vary(0.1), f1: 160 });
     if (hold === 'round') this.tone(v, { at: 0.005, length: 0.06, gain: 0.06, f0: 3200 * this.vary(0.1), f1: 3150 });
+  }
+
+  // Feathers that shake or fluff out: a fast patter of short, soft noise bursts for length seconds.
+  ruffle(place, length) {
+    const v = this.voice(place, L.ruffle);
+    if (!v) return;
+    for (let at = 0; at < length; at += 0.035 * this.vary(0.3)) {
+      const fall = 1 - 0.6 * at / length;
+      this.burst(v, { at, length: 0.05, gain: 0.5 * fall * this.vary(0.3), attack: 0.008, filter: ['bandpass', 1900 * this.vary(0.25), 1300, 1.2] });
+    }
   }
 
   // A tap handle turned by the bill: a short metal squeak and a click.

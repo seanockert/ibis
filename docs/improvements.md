@@ -8,7 +8,7 @@ Free play at 1200x800 draws about 97k triangles each frame, with the shadow pass
 
 | Part | Triangles | Why |
 |---|---|---|
-| Ibis | 30k | About 8k triangles, drawn for the body, the contour hull, the inner hull and the shadow |
+| Ibis | 30k | About 8k triangles (head 1.9k, of it eyes and lids 1.2k; wings 1.7k; torso 1.2k; legs and feet 1.1k; scarf 1k; neck 0.5k; jaw 0.4k), drawn for the body, the contour hull, the inner hull (not the wings and scarf) and the shadow: 19 draws |
 | Fence | 27k | 40 posts (186 triangles) and 38 rails (40), drawn 3 times (toon, outline, shadow). Was 70k with `RoundedBoxGeometry` |
 | Stubbies | 17k | 10 bottles, lathe of 16 segments: label, glass (front faces), outline, and the shadow of the glass |
 | Ball | 2.7k | Sphere of 28 by 16, drawn 3 times |
@@ -26,7 +26,8 @@ Notes:
 - **MSAA.** The 4x target of `grade.js` costs about 1.3 ms at ratio 1.5 (2x: about 0.4 ms less). The tufts and the fence wire need it for `alphaToCoverage`. On phones (tile GPUs) MSAA costs little: measure on a phone before you cut it.
 - **Birds before the ground.** The birds (0.9 ms) draw after the ground, so the ground shades the pixels under them. They must stay after the footprints, which write no depth.
 - **Dynamic resolution.** `RES` in `stage.js` only steps the ratio down, when frames stay over 22 ms. A 120 Hz screen or a phone near the limit would do better with a step down and up round a target frame time (the GPU time of `Meter` where there are timer queries).
-- **Ibis body early-z.** The body program has `discard` (the lid cut), which can turn off early depth on the whole body. Compile the `discard` only into the material that draws the lids (a define), and draw the wings and the scarf before the torso, so the torso pixels that they hide skip the line march. The lids are in group 0 now: they would need their own group.
+- **Ibis body early-z: measured, no gain.** With the torso group drawn last and no `discard` in the program, the close view (`index.html?anim=1&t=1`, 1200x1200 at ratio 1.5) took the same GPU time (Radeon, November 2026). Do not do it for speed.
+- **Ibis body pixel cost.** In that close view the bird takes about 1.8 ms; the hulls and the border lines take less than 0.1 ms of it, so triangles are not the limit. Of the body shader: the SDF lines over the torso about 0.9 ms (wing march 0.44, scarf march 0.37). Done: `weather()` returns at once on a clean, dry bird (0.2 ms, same pixels), and a ray bound before the scarf march (0.1 ms, same pixels): about 1.7 ms now, with the scarf contact shadow (0.1 ms). Tried and not worth it: 4 normal samples in place of 6 (0.03 ms, the lines change), the far wing skipped by its bound (0.01 ms), fewer march steps (no change: the marches end early). In free play the bird is about 200 px high and costs 0.1 to 0.3 ms, inside the timer noise. The cost of the march is in each step's SDF (two wings, the body), not the step count.
 
 ## CPU
 

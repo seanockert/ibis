@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Ibis moveset</title>
+<meta name="description" content="Every move of the ibis in one grid">
+<meta name="theme-color" content="#ece6da">
+<meta name="color-scheme" content="light">
+<link rel="icon" href="/icon-192.png" type="image/png">
+<style>
+  :root { --bg: #e2dccf; --card: #ece6da; --ink: #262838; --chip: #f6f2ea; --muted: #6b6a74; --gutter: max(1rem, env(safe-area-inset-left), env(safe-area-inset-right)); }
+  *, *::before, *::after { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--ink); font: 0.875rem/1.4 system-ui, sans-serif; -webkit-text-size-adjust: 100%; }
+  /* One canvas over the page draws the bird of each card in its view (src/moveset/main.js). */
+  canvas { position: fixed; inset: 0; display: block; width: 100vw; height: 100vh; z-index: 1; pointer-events: none; }
+  header { position: sticky; top: 0; z-index: 2; display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 1rem; padding: 0.75rem var(--gutter); background: var(--bg); border-bottom: 0.094rem solid rgb(38 40 56 / 0.15); }
+  h1 { margin: 0; font-size: 1.125rem; }
+  .count, .hint { color: var(--muted); }
+  .views { display: flex; gap: 0.375rem; margin-left: auto; }
+  button { font: inherit; color: inherit; cursor: pointer; }
+  .views button { padding: 0.25rem 0.75rem; border: 0.094rem solid var(--ink); border-radius: 999px; background: var(--chip); }
+  .views button[aria-pressed="true"] { background: var(--ink); color: var(--chip); }
+  main { padding: 0 var(--gutter) 2rem; }
+  h2 { margin: 1.5rem 0 0.625rem; font-size: 1rem; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(20rem, 100%), 1fr)); gap: 0.75rem; }
+  .card { display: block; width: 100%; padding: 0; border: 0.094rem solid rgb(38 40 56 / 0.2); border-radius: 0.75rem; overflow: hidden; background: var(--card); text-align: left; }
+  .card:hover { border-color: var(--ink); }
+  .view { aspect-ratio: 1; margin: 0.25rem 0.25rem 0; }   /* inset: the canvas draws a square, inside the round corners */
+  .name { padding: 0.375rem 0.625rem 0.5rem; font-weight: 600; border-top: 0.094rem solid rgb(38 40 56 / 0.1); background: var(--chip); }
+  @media (max-width: 30rem) { .views { margin-left: 0; } }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<header>
+  <h1>Ibis moveset</h1>
+  <div class="count" id="count"></div>
+  <div class="hint" id="hint">Click to turn on sound, then point at a card to hear it</div>
+  <div class="views" id="views"></div>
+</header>
+<main id="groups"></main>
+<script type="module" src="/src/moveset/main.js"></script>
+</body>
+</html>
